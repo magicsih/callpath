@@ -1,0 +1,260 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CallOrderDiff, ReviewSession, Range, Step, SymbolRef } from "@callpath/core";
+import { CHANGE_LABEL, describeMoves, shortName, type NavItem } from "../nav";
+import { languageFor } from "../monaco";
+import { DiffView, type DiffInput, type Highlight } from "./DiffView";
+import { Icon } from "./Icon";
+
+type Load = { status: "loading" } | { status: "ready"; input: DiffInput; highlight: Highlight | null } | { status: "error"; message: string };
+
+const cache = new Map<string, Promise<string | null>>();
+
+function read(repo: string, ref: string, path: string): Promise<string | null> {
+  const key = `${repo}\0${ref}\0${path}`;
+  let p = cache.get(key);
+  if (!p) {
+    p = window.callpath.readFile({ repo, ref, path }).then((r) => {
+      if (!r.ok) throw new Error(r.error);
+      return r.value;
+    });
+    p.catch(() => cache.delete(key));
+    cache.set(key, p);
+  }
+  return p;
+}
+
+function slice(text: string | null, range: Range | null): string {
+  if (text === null || range === null) return "";
+  return text.split("\n").slice(range.startLine, range.endLine + 1).join("\n");
+}
+
+const isBinary = (t: string | null) => t !== null && t.includes("\0");
+const linesOf = (r: Range) => Array.from({ length: r.endLine - r.startLine + 1 }, (_, i) => r.startLine + i + 1);
+
+/** 메서드 하나를 base 범위와 head 범위로 잘라 비교할 입력 */
+async function methodInput(session: ReviewSession, head: SymbolRef | null, base: SymbolRef | null, unchanged: boolean): Promise<DiffInput> {
+  const { repo } = session;
+  const path = (head ?? base)!.path;
+  const language = languageFor(path);
+  const common = { language, collapseUnchanged: false, revealLine: null };
+  if (!head) {
+    const b = await read(repo, session.base, path);
+    return { kind: "removed", original: slice(b, base!.range), modified: "", originalStart: base!.range.startLine + 1, modifiedStart: 1, ...common };
+  }
+  const h = await read(repo, session.head, path);
+  const headSlice = slice(h, head.range);
+  if (unchanged) return { kind: "context", original: "", modified: headSlice, originalStart: 1, modifiedStart: head.range.startLine + 1, ...common };
+  if (!base) return { kind: "added", original: "", modified: headSlice, originalStart: 1, modifiedStart: head.range.startLine + 1, ...common };
+  const b = await read(repo, session.base, base.path);
+  return { kind: "diff", original: slice(b, base.range), modified: headSlice, originalStart: base.range.startLine + 1, modifiedStart: head.range.startLine + 1, ...common };
+}
+
+async function buildInput(item: NavItem, session: ReviewSession): Promise<{ input: DiffInput; highlight: Highlight | null }> {
+  if (item.kind === "test") {
+    const t = item.test;
+    return { input: await methodInput(session, t.symbol, t.baseSymbol, t.change === null), highlight: null };
+  }
+  if (item.kind === "file") {
+    const path = item.file.path;
+    const [b, h] = await Promise.all([read(session.repo, session.base, path), read(session.repo, session.head, path)]);
+    if (isBinary(b) || isBinary(h)) {
+      return { input: { kind: "context", original: "", modified: "이진 파일은 비교하지 않습니다.", language: "plaintext", originalStart: 1, modifiedStart: 1, collapseUnchanged: false, revealLine: null }, highlight: null };
+    }
+    // 메서드 밖 변경 묶음은 파일 전체를 보이되 그 구간만 강조한다(메서드 안 변경은 각 단계에서 본다)
+    const highlight =
+      item.groupId === "outside" || item.groupId === "otherTests"
+        ? { original: item.file.hunks.flatMap((x) => (x.head ? [] : x.base ? linesOf(x.base) : [])), modified: item.file.hunks.flatMap((x) => (x.head ? linesOf(x.head) : [])) }
+        : null;
+    const first = item.file.hunks.find((x) => x.head)?.head;
+    return {
+      input: {
+        kind: b === null ? "added" : h === null ? "removed" : "diff",
+        original: b ?? "",
+        modified: h ?? "",
+        language: languageFor(path),
+        originalStart: 1,
+        modifiedStart: 1,
+        collapseUnchanged: item.groupId === "nonCode",
+        revealLine: first ? first.startLine + 1 : null,
+      },
+      highlight,
+    };
+  }
+  const s: Step = item.step;
+  if (s.change === "removed") return { input: await methodInput(session, null, s.symbol, false), highlight: null };
+  return { input: await methodInput(session, s.symbol, s.baseSymbol, s.change === "unchanged"), highlight: null };
+}
+
+/** 칩을 눌렀을 때 강조할 줄: 그 호출과, 이동이면 반대쪽 짝 */
+function chipHighlight(d: CallOrderDiff, side: "base" | "head", i: number): Highlight {
+  const c = d[side][i]!;
+  const other = side === "head" ? d.base : d.head;
+  const partner = other.find((x) => x.name === c.name);
+  const own = [c.line + 1];
+  const pair = partner ? [partner.line + 1] : [];
+  return side === "head" ? { modified: own, original: pair } : { original: own, modified: pair };
+}
+
+export interface Crumbs {
+  path: string[];
+  next: string | null;
+}
+
+interface Props {
+  item: NavItem;
+  session: ReviewSession;
+  onGoRef: (() => void) | null;
+  refLabel: string | null;
+  crumbs: Crumbs | null;
+}
+
+export function Detail({ item, session, onGoRef, refLabel, crumbs }: Props) {
+  const [load, setLoad] = useState<Load>({ status: "loading" });
+  const [chip, setChip] = useState<Highlight | null>(null);
+  // 창 높이가 낮으면 호출 순서 띠를 요약 한 줄로 접어 diff 자리를 남긴다
+  const [orderOpen, setOrderOpen] = useState(() => window.innerHeight >= 560);
+  const orderToggled = useRef(false);
+  useEffect(() => {
+    const onResize = () => {
+      if (!orderToggled.current) setOrderOpen(window.innerHeight >= 560);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    setLoad({ status: "loading" });
+    setChip(null);
+    buildInput(item, session).then(
+      (r) => alive && setLoad({ status: "ready", ...r }),
+      (e: Error) => alive && setLoad({ status: "error", message: e.message }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [item.key, session]);
+
+  const sym = item.kind === "file" ? null : item.kind === "test" ? item.test.symbol : item.step.symbol;
+  const title = item.kind === "file" ? item.file.path.split("/").pop()! : item.kind === "test" ? item.test.symbol.name.replace(/`/g, "") : shortName(item.step.symbol);
+  const path = item.kind === "file" ? item.file.path : sym!.path;
+  const line = sym ? sym.range.startLine + 1 : null;
+  const step = item.kind === "step" ? item.step : null;
+  const moves = useMemo(() => (step ? describeMoves(step) : []), [step]);
+  const view = load.status === "ready" ? load.input.kind : null;
+  const note =
+    item.kind === "step" && item.step.change === "unchanged"
+      ? "흐름의 시작점입니다. 이 메서드는 바뀌지 않았습니다."
+      : view === "added"
+        ? "새로 추가된 코드입니다."
+        : view === "removed"
+          ? "삭제된 코드입니다."
+          : view === "context"
+            ? "바뀌지 않은 코드입니다."
+            : item.kind === "file" && item.groupId === "outside"
+              ? `메서드 밖에서 바뀐 ${item.file.hunks.length}곳을 강조했습니다. 메서드 안 변경은 각 단계에서 봅니다.`
+              : item.kind === "file" && item.groupId === "otherTests"
+                ? `단계에 붙지 않은 테스트 변경 ${item.file.hunks.length}곳을 강조했습니다. 나머지 테스트는 각 단계 아래에서 봅니다.`
+                : null;
+
+  return (
+    <section className="pane center" aria-label="변경 내용">
+      <header className="detail-head">
+        <div className="title-row">
+          {item.kind === "test" && <span className="chip"><Icon name="test" size={12} /> 테스트</span>}
+          <h2 data-testid="detail-title" title={sym?.qualifiedName ?? path}>{title}</h2>
+          {step && <span className={`chip change-${step.change}`}>{CHANGE_LABEL[step.change]}</span>}
+          {step?.signatureChanged && step.change === "body" && <span className="chip change-signature">시그니처</span>}
+        </div>
+        <p className="muted path">{path}{line ? `:${line}` : ""}</p>
+        {crumbs && crumbs.path.length > 0 && (
+          <p className="crumbs" aria-label="호출 경로" title={crumbs.path.join(" › ")}>
+            {crumbs.path.join(" › ")}
+            {crumbs.next && <span className="muted"> · 다음 단계 {crumbs.next} <kbd aria-hidden="true">Enter</kbd></span>}
+          </p>
+        )}
+      </header>
+
+      {step?.refOf && onGoRef && (
+        <div className="banner" role="note">
+          <span>이 메서드는 {refLabel}에서 먼저 나왔습니다.</span>
+          <button className="link" onClick={onGoRef}>그 단계로 이동</button>
+        </div>
+      )}
+      {step?.confidence === "low" && (
+        <div className="banner low" role="note">
+          <Icon name="link" /> <span>호출 연결이 불확실합니다. 수신자 타입을 몰라 이름으로만 이었습니다.</span>
+        </div>
+      )}
+
+      {step?.callOrderDiff && (
+        <div className={`call-order${moves.length ? " has-moves" : ""}`} data-testid="call-order" aria-label="호출 순서 비교">
+          <div className="co-title">
+            {moves.length > 0 && <Icon name="warn" />}
+            <strong>{moves.length ? "호출 순서가 바뀌었습니다" : "호출 목록이 바뀌었습니다"}</strong>
+            <span className="spacer" />
+            <button
+              className="link"
+              onClick={() => {
+                orderToggled.current = true;
+                setOrderOpen((v) => !v);
+              }}
+              aria-expanded={orderOpen}
+              aria-controls="co-rows"
+            >
+              {orderOpen ? "호출 목록 접기" : "호출 목록 보기"}
+            </button>
+          </div>
+          {moves.map((m) => <p key={m} className="co-move">{m}</p>)}
+          <div id="co-rows" hidden={!orderOpen}>
+            {(["base", "head"] as const).map((side) => {
+              const d = step.callOrderDiff!;
+              return (
+                <div className="co-row" key={side}>
+                  <span className="co-side">{side === "base" ? "이전" : "이후"}</span>
+                  <ol className="chips">
+                    {d[side].map((c, i) => {
+                      const moved = side === "head" && d.moved.includes(i);
+                      const added = side === "head" && d.added.includes(i);
+                      const removed = side === "base" && d.removed.includes(i);
+                      const kind = moved ? "moved" : added ? "added" : removed ? "removed" : "";
+                      const tag = moved ? "이동" : added ? "추가" : removed ? "삭제" : "";
+                      const mark = moved ? "⚠ " : added ? "+ " : removed ? "− " : "";
+                      const desc = `${c.name}${c.nested ? ", 인자 안 호출" : ""}${tag ? `, ${tag}` : ""}, ${c.line + 1}번째 줄`;
+                      return (
+                        <li key={i}>
+                          <button
+                            className={`call ${kind} ${c.nested ? "nested" : ""}`.trim()}
+                            onClick={() => setChip(chipHighlight(d, side, i))}
+                            aria-label={`${desc} 보기`}
+                            title={desc}
+                          >
+                            {mark && <span aria-hidden="true">{mark}</span>}
+                            {c.name}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              );
+            })}
+            <p className="legend muted">⚠ 이동, + 추가, − 삭제, 흐린 점선은 다른 호출의 인자 안 호출. 칩을 누르면 이전과 이후의 그 줄을 함께 강조합니다.</p>
+          </div>
+        </div>
+      )}
+
+      {note && (
+        <div className="banner" role="note" data-testid="view-note">
+          <span>{note}</span>
+        </div>
+      )}
+
+      <div className="diff-wrap">
+        {load.status === "loading" && <div className="placeholder" role="status">코드를 읽는 중</div>}
+        {load.status === "error" && <div className="placeholder error-text" role="alert"><Icon name="warn" /> 코드를 읽지 못했습니다: {load.message}</div>}
+        {load.status === "ready" && <DiffView input={load.input} highlight={chip ?? load.highlight} label={`${title} 비교`} />}
+      </div>
+    </section>
+  );
+}

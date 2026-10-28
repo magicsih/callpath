@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
 import { analyze } from "./analyze.js";
-import { DirectorySource, GitRefSource, isDirectory } from "./source/fileSource.js";
+import { DirectorySource, GitRefSource, isDirectory, mergeBase } from "./source/fileSource.js";
 import type { ReviewSession, Step } from "./types.js";
 
 const MARK: Record<Step["change"], string> = { body: "본문", signature: "시그니처", renamed: "이름", added: "추가", removed: "삭제", unchanged: "진입점" };
 
 function printStep(s: Step): void {
   const flags = [
+    s.signatureChanged && s.change === "body" ? "시그니처도 바뀜" : "",
     s.callOrderDiff?.moved.length ? "⚠ 순서 변경" : "",
     s.confidence === "low" ? "연결 불확실" : "",
     s.refOf ? `${s.refOf.flow} ${s.refOf.n}단계 참조` : "",
@@ -63,7 +64,7 @@ async function main(argv: string[]): Promise<number> {
     const base = arg("--base", rest);
     const head = arg("--head", rest) ?? "HEAD";
     if (!repo || !base) { console.error(USAGE); return 2; }
-    const b = new GitRefSource(resolve(repo), base);
+    const b = new GitRefSource(resolve(repo), await mergeBase(resolve(repo), base, head));
     const h = new GitRefSource(resolve(repo), head);
     session = await analyze(b, h, { repo: resolve(repo), baseLabel: await b.resolve(), headLabel: await h.resolve() });
   }

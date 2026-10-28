@@ -1,6 +1,6 @@
 export * from "./types.js";
 export { analyze, mapMethods, type AnalyzeOptions } from "./analyze.js";
-export { DirectorySource, GitRefSource, isDirectory, type FileSource } from "./source/fileSource.js";
+export { DirectorySource, GitRefSource, isDirectory, mergeBase, type FileSource } from "./source/fileSource.js";
 export { collectChanges, hunksBetween, languageOf } from "./diff/fileChanges.js";
 export { extractMethods, indexFile, simpleType, type Annotation, type ClassSymbol, type FileIndex, type MethodSymbol } from "./index/symbols.js";
 export { parse } from "./index/parser.js";

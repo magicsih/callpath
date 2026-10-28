@@ -64,7 +64,14 @@ describe.each(["java", "kotlin"] as const)("쿠폰 표본 (%s)", (lang) => {
     expect(all.every((s) => !s.symbol.path.includes("/test/"))).toBe(true);
     const [step] = stepsNamed(session, "placeOrder");
     expect(step!.tests).toHaveLength(2);
-    expect(step!.tests.every((t) => t.changed && t.hunks.length > 0)).toBe(true);
+    expect(step!.tests.every((t) => t.change !== null && t.hunks.length > 0)).toBe(true);
+    // 새로 생긴 쿠폰 테스트는 added, 기존 테스트는 body이고 base 짝이 있다
+    const coupon = step!.tests.find((t) => /coupon/i.test(t.symbol.name))!;
+    expect(coupon.change).toBe("added");
+    expect(coupon.baseSymbol).toBeNull();
+    const total = step!.tests.find((t) => /total/i.test(t.symbol.name))!;
+    expect(total.change).toBe("body");
+    expect(total.baseSymbol?.name).toBe(total.symbol.name);
     expect(step!.tests.map((t) => t.symbol.name).join(" ")).toMatch(/coupon/i);
   });
 
@@ -72,6 +79,8 @@ describe.each(["java", "kotlin"] as const)("쿠폰 표본 (%s)", (lang) => {
     const session = await run(lang);
     expect(stepsNamed(session, "validateCoupon")[0]!.change).toBe("added");
     expect(stepsNamed(session, "approve")[0]!.change).toBe("body");
+    expect(stepsNamed(session, "approve")[0]!.signatureChanged).toBe(true);
+    expect(stepsNamed(session, "placeOrder")[0]!.signatureChanged).toBe(false);
   });
 
   it("A2: 모든 변경 hunk가 흐름, 미확정, 메서드 밖, 테스트, 비코드 중 한 곳 이상에 나타난다", async () => {

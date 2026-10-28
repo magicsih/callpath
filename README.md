@@ -12,7 +12,8 @@ AI가 한 번에 고쳐 올린 PR을 파일 순서가 아니라 호출 흐름 �
 |---|---|---|
 | `packages/core` | 분석 코어와 CLI. diff → 메서드 매핑 → 호출 순서 비교 → 호출 그래프 → 진입점 → 흐름 정렬 → 테스트 연결 | 2단계 완료 |
 | `fixtures/` | 쿠폰 예시 표본 저장소 (Java, Kotlin) | |
-| `packages/lsp`, `packages/providers`, `packages/llm`, `apps/desktop` | 설계 4.1 참고 | 예정 |
+| `apps/desktop` | Electron 앱. 시작, 비교 선택, 리뷰 화면(흐름 목록, 메서드 diff, 호출 스택) | 3단계 |
+| `packages/lsp`, `packages/providers`, `packages/llm` | 설계 4.1 참고 | 예정 |
 
 ## 코어 CLI 사용
 
@@ -44,9 +45,19 @@ node packages/core/dist/cli.js analyze --base-dir fixtures/java/base --head-dir 
 
 `--summary`를 빼면 설계 6.1의 `ReviewSession` JSON을 출력한다. 진입점 규칙은 저장소 루트의 `.callpath.yml`로 더할 수 있다(설계 5.3).
 
+## 데스크톱 앱 실행
+
+```sh
+pnpm install
+pnpm build
+pnpm --filter @callpath/desktop dev
+```
+
 ## 개발
 
 ```sh
+pnpm build
 pnpm typecheck
 pnpm test
+pnpm --filter @callpath/desktop exec playwright test   # 데스크톱 E2E
 ```

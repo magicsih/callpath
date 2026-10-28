@@ -61,3 +61,15 @@
 - 선택: Callpath. 진입점에서 호출 경로를 따라 읽는다는 핵심 기능이 이름에 드러난다. 2026-10-28 확인 시 npm 이름이 비어 있고 GitHub 동명 저장소는 14개였다.
 - 대안: Flowread(동명 저장소 73개로 흔함), Reviewpath(덜 구체적), Tracewise(PyPI에 같은 이름의 LLM 추적 SDK가 있음), codereview(일반명사라 구분이 어려움).
 - 결과: 패키지는 `@callpath/core`, CLI는 `callpath`, 진입점 규칙 파일은 `.callpath.yml`, 저장소는 `magicsih/callpath`. 설계 폴더 이름은 링크 보존을 위해 그대로 둔다.
+
+## D9. 데스크톱 화면 구성 (3단계)
+
+- 배경: 3단계에서 Electron 화면을 처음 만들었다. 빌드 도구, 편집기, 화면 상태 저장 방식을 정해야 했다.
+- 선택:
+  - electron-vite 6과 React 19. main은 코어가 ESM이라 ESM으로 내고, preload는 sandbox를 위해 CommonJS로 둔다. 분석은 `worker_threads` 워커에서 돌린다.
+  - 편집기는 `monaco-editor` 0.57을 앱에 넣어 쓴다. `@monaco-editor/react`는 기본으로 CDN에서 불러오고 2025년 2월 이후 갱신이 없어 쓰지 않는다. 외부 요청이 없도록 CSP로 `self`만 허용한다.
+  - 메서드 단계는 base와 head의 메서드 범위만 잘라 비교하고, 줄 번호는 원래 파일 기준으로 보인다. 파일과 테스트는 파일 전체를 비교하고 바뀌지 않은 구간을 접는다.
+  - 화면 상태는 `state.json`에 임시 파일을 거쳐 쓴다. 분석 캐시는 4단계로 미룬다(설계 4.4).
+  - 좁은 창(CSS 폭 820px 이하)에서는 호출 스택을 가운데 아래로 내리고, 낮은 창(높이 560px 미만)에서는 호출 순서 띠를 요약 한 줄로 접는다.
+- 대안: VS Code의 웹뷰 구성 요소를 가져오는 방식, CodeMirror. Monaco가 diff 편집기를 기본으로 갖고 있어 골랐다.
+- 결과: 렌더러 번들이 약 5.6MB다. 데스크톱 앱이라 받아들인다.

@@ -1,0 +1,94 @@
+import { useState } from "react";
+import type { RepoInfo } from "../../../shared/api";
+import { Icon } from "../components/Icon";
+
+export function Compare(props: { repo: RepoInfo; initialBase?: string; initialHead?: string; onBack: () => void; onReload: () => void; onAnalyze: (base: string, head: string) => void }) {
+  const { repo } = props;
+  if (repo.branches.length === 0 && !repo.hasCommits) {
+    return (
+      <main className="compare" aria-labelledby="compare-title">
+        <div className="start-card">
+          <button className="link" onClick={props.onBack}>
+            <Icon name="back" /> 저장소 바꾸기
+          </button>
+          <h1 id="compare-title">{repo.name}</h1>
+          <p className="muted path">{repo.path}</p>
+          <div className="notice" role="alert" data-testid="no-branches">
+            <Icon name="warn" />
+            <div>
+              <p><strong>비교할 브랜치가 없습니다</strong></p>
+              <p className="muted">이 저장소에는 아직 커밋이 없습니다. 커밋을 만든 뒤 다시 읽으세요.</p>
+            </div>
+          </div>
+          <button className="primary big" onClick={props.onReload} autoFocus>다시 읽기</button>
+        </div>
+      </main>
+    );
+  }
+  const [base, setBase] = useState(props.initialBase ?? repo.defaultBase ?? "");
+  const [head, setHead] = useState(props.initialHead ?? repo.current ?? "");
+  const ready = base.trim() !== "" && head.trim() !== "";
+  const known = (r: string) => repo.branches.includes(r.trim()) || /^[0-9a-f]{7,40}$/i.test(r.trim()) || /[~^]/.test(r);
+  const warnings = [
+    base.trim() && !known(base) ? `브랜치 목록에 없는 기준: "${base.trim()}". 태그나 커밋이면 그대로 분석합니다.` : null,
+    head.trim() && !known(head) ? `브랜치 목록에 없는 리뷰할 변경: "${head.trim()}". 태그나 커밋이면 그대로 분석합니다.` : null,
+    ready && base.trim() === head.trim() ? "기준과 리뷰할 변경이 같아 바뀐 파일이 없습니다." : null,
+  ].filter((w): w is string => w !== null);
+  return (
+    <main className="compare" aria-labelledby="compare-title">
+      <div className="start-card">
+        <button className="link" onClick={props.onBack}>
+          <Icon name="back" /> 저장소 바꾸기
+        </button>
+        <h1 id="compare-title">{repo.name}</h1>
+        <p className="muted path">{repo.path}</p>
+        <form
+          className="compare-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (ready) props.onAnalyze(base.trim(), head.trim());
+          }}
+        >
+          <div className="ref-pair" role="group" aria-label="비교할 두 시점">
+            <div className="ref">
+              <label htmlFor="base">기준 (base)</label>
+              <input id="base" list="branches" value={base} onChange={(e) => setBase(e.target.value)} />
+              <span className="hint">합칠 대상 브랜치</span>
+            </div>
+            <span className="arrow" aria-hidden="true">←</span>
+            <div className="ref">
+              <label htmlFor="head">리뷰할 변경 (head)</label>
+              <input id="head" list="branches" value={head} onChange={(e) => setHead(e.target.value)} />
+              <span className="hint">PR 브랜치나 커밋</span>
+            </div>
+          </div>
+          <datalist id="branches">
+            {repo.branches.map((b) => (
+              <option key={b} value={b} />
+            ))}
+          </datalist>
+          {repo.branches.length === 0 && (
+            <div className="notice" role="alert" data-testid="branch-read-failed">
+              <Icon name="warn" />
+              <div>
+                <p><strong>브랜치 목록을 읽지 못했습니다</strong></p>
+                <p className="muted">{repo.branchError ?? "저장소 권한이나 상태를 확인하세요."} 커밋 SHA를 직접 넣어 비교할 수 있습니다.</p>
+              </div>
+            </div>
+          )}
+          <p className="muted">두 시점의 공통 조상부터 head까지 바뀐 것을 봅니다.</p>
+          {warnings.length > 0 && (
+            <ul className="warnings" data-testid="compare-warnings" aria-live="polite">
+              {warnings.map((w) => (
+                <li key={w}><Icon name="warn" /> {w}</li>
+              ))}
+            </ul>
+          )}
+          <button type="submit" className="primary big" disabled={!ready} autoFocus>
+            흐름 분석
+          </button>
+        </form>
+      </div>
+    </main>
+  );
+}

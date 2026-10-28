@@ -36,6 +36,8 @@ export interface CallSite {
   depth: number;
   /** 가장 가까운 제어문 종류. 없으면 null */
   control: string | null;
+  /** 다른 호출의 인자나 수신자 안에 있는 호출. 예: decrease(request.items())의 items */
+  nested: boolean;
   line: number;
 }
 
@@ -61,6 +63,8 @@ export interface Step {
   hunks: Hunk[];
   path: SymbolRef[];
   callOrderDiff?: CallOrderDiff;
+  /** 매개변수, 반환 타입, 애노테이션 같은 시그니처가 바뀜. change가 body여도 함께 켜질 수 있다 */
+  signatureChanged: boolean;
   /** 진입점부터 이 단계까지 지난 간선 중 가장 낮은 신뢰도 */
   confidence: "high" | "medium" | "low";
   /** 이 메서드를 직접 호출하는 테스트. 바뀐 테스트가 앞에 온다 */
@@ -71,7 +75,10 @@ export interface Step {
 
 export interface TestRef {
   symbol: SymbolRef;
-  changed: boolean;
+  /** 바뀐 테스트의 base 쪽 짝. 새로 생겼거나 바뀌지 않았으면 null */
+  baseSymbol: SymbolRef | null;
+  /** 이 테스트의 변경 종류. 바뀌지 않았으면 null */
+  change: Exclude<ChangeKind, "removed" | "unchanged"> | null;
   /** 이 테스트 메서드 범위에 걸친 변경 hunk */
   hunks: Hunk[];
   confidence: "high" | "medium" | "low";
