@@ -167,3 +167,13 @@ test("테스트 표시를 꺼서 위치가 바뀌어도 초점을 목록으로 �
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
   await app.close();
 });
+
+test("다시 분석이 끝나면 선택된 줄로 초점이 돌아온다", async () => {
+  const { app, page } = await launch(makeUserData());
+  await openAndAnalyze(page, java);
+  await page.keyboard.press("j");
+  await page.getByRole("button", { name: "다시 분석" }).click();
+  await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
+  await expect(page.locator(".pane.left button.row.selected")).toBeFocused();
+  await app.close();
+});
