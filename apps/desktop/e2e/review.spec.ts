@@ -1,9 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { launch, makeFixtureRepo, makeUserData, openAndAnalyze, shot } from "./harness";
+import { launch, makeFixtureRepo, makeTempDir, makeUserData, openAndAnalyze, shot } from "./harness";
 
 const repo = makeFixtureRepo("java");
 
@@ -19,7 +16,7 @@ test("A12 시작 화면: 최근 저장소 없음, Git 저장소가 아닌 경로
   await page.getByLabel("저장소 경로").press("Enter");
   await expect(page.getByRole("alert")).toContainText("폴더를 찾을 수 없습니다");
   // 커밋이 없는 저장소는 비교 선택에서 이유와 다시 읽기를 보인다
-  const empty = mkdtempSync(join(tmpdir(), "callpath-e2e-empty-"));
+  const empty = makeTempDir("callpath-e2e-empty-");
   execFileSync("git", ["-C", empty, "init", "-q", "-b", "main"]);
   await page.getByLabel("저장소 경로").fill(empty);
   await page.getByLabel("저장소 경로").press("Enter");

@@ -8,9 +8,20 @@ const APP_DIR = resolve(__dirname, "..");
 const FIXTURES = resolve(__dirname, "../../../fixtures");
 export const EVIDENCE = resolve(__dirname, "../test-results/evidence");
 
+// 테스트가 만든 임시 저장소와 앱 데이터 폴더는 실행이 끝나면 지운다
+const created: string[] = [];
+const temp = (prefix: string) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  created.push(dir);
+  return dir;
+};
+process.on("exit", () => {
+  for (const dir of created) rmSync(dir, { recursive: true, force: true });
+});
+
 /** 쿠폰 표본으로 main(base)과 feature/coupon(head) 두 브랜치가 있는 임시 저장소를 만든다 */
 export function makeFixtureRepo(lang: "java" | "kotlin" = "java"): string {
-  const dir = mkdtempSync(join(tmpdir(), `callpath-e2e-${lang}-`));
+  const dir = temp(`callpath-e2e-${lang}-`);
   const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", ...args], { stdio: "pipe" });
   git("init", "-q", "-b", "main");
   cpSync(join(FIXTURES, lang, "base"), dir, { recursive: true });
@@ -26,7 +37,7 @@ export function makeFixtureRepo(lang: "java" | "kotlin" = "java"): string {
 
 /** base 표본 위에 head 쪽 파일 하나만 고친 저장소. 진입점 바로 뒤가 바뀌지 않은 흐름을 만든다 */
 export function makeTransitRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "callpath-e2e-transit-"));
+  const dir = temp("callpath-e2e-transit-");
   const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", ...args], { stdio: "pipe" });
   git("init", "-q", "-b", "main");
   cpSync(join(FIXTURES, "java", "base"), dir, { recursive: true });
@@ -39,8 +50,12 @@ export function makeTransitRepo(): string {
   return dir;
 }
 
+export function makeTempDir(prefix: string): string {
+  return temp(prefix);
+}
+
 export function makeUserData(): string {
-  return mkdtempSync(join(tmpdir(), "callpath-e2e-data-"));
+  return temp("callpath-e2e-data-");
 }
 
 export async function launch(userData: string, env: Record<string, string> = {}): Promise<{ app: ElectronApplication; page: Page }> {
