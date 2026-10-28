@@ -13,7 +13,7 @@
 
 ## 표본 저장소 (fixtures)
 
-쿠폰 예시를 Java와 Kotlin으로 각각 재현한다. 두 저장소는 `base`와 `head` 브랜치를 가지며 다음을 포함한다.
+쿠폰 예시를 Java와 Kotlin으로 각각 재현한다. 중첩 git 저장소를 피하기 위해 `fixtures/<lang>/base`, `fixtures/<lang>/head` 디렉터리로 두 시점을 둔다. git ref 경로는 테스트가 임시 저장소를 만들어 확인한다. 각 표본은 다음을 포함한다.
 
 | 파일 | base | head |
 |---|---|---|
@@ -43,7 +43,7 @@
 
 ## 실행 규칙
 
-- 단계 PR마다 그 단계까지의 인수조건을 CI(GitHub Actions, ubuntu + macOS)에서 돌린다. LSP 통합 테스트는 `JAVA_HOME`이 있을 때만 실행하고 없으면 건너뜀을 로그에 남긴다.
+- 단계 PR마다 그 단계까지의 인수조건을 CI(GitHub Actions)에서 돌린다. PR은 ubuntu, main 반영은 ubuntu와 macOS다. 비공개 저장소의 macOS 분당 과금 배수 때문이다. LSP 통합 테스트는 `JAVA_HOME`이 있을 때만 실행하고 없으면 건너뜀을 로그에 남긴다.
 - Playwright 실행은 CI macOS 러너에서 하고 실패 시 스크린샷을 아티팩트로 남긴다. 저장소에는 넣지 않는다.
 - A9는 자동화하지 않는다. 실행 날짜, PR 주소, 결과를 PR 본문에 적는다.
 - 계획보다 테스트를 줄여야 하면 다시 승인받는다.
