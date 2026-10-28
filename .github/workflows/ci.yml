@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # macOS까지 확인해야 하는 브랜치는 손으로 전체 조합을 돌린다
+  workflow_dispatch:
 
 jobs:
   test:

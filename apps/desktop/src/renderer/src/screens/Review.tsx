@@ -50,6 +50,19 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     if (current) onPersist(current.key, showTests);
   }, [current?.key, showTests]);
 
+  // 끝에 닿아 누르던 이전, 다음 버튼이 꺼지면 초점이 사라지므로 현재 목록 줄로 옮긴다.
+  // 브라우저가 꺼진 버튼의 초점을 언제 거두는지가 환경마다 달라, 화면 갱신 직후와 다음 프레임에 모두 확인한다
+  useEffect(() => {
+    if (!current) return;
+    const rescue = () => {
+      const active = document.activeElement as HTMLButtonElement | null;
+      if (!active || active === document.body || active.disabled) rows.current.get(current.key)?.focus();
+    };
+    rescue();
+    const id = requestAnimationFrame(rescue);
+    return () => cancelAnimationFrame(id);
+  }, [current?.key]);
+
   // 분석이 끝나면 선택된 줄로 초점을 옮겨 화면 읽기가 현재 위치부터 읽게 한다
   const focusedRun = useRef(-1);
   useEffect(() => {
@@ -69,10 +82,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
       requestAnimationFrame(() => {
         const row = rows.current.get(item.key) ?? el;
         row?.scrollIntoView({ block: "nearest" });
-        // 끝에 닿아 누르던 버튼이 꺼지면 초점이 사라지므로 현재 목록 줄로 옮긴다
-        const active = document.activeElement as HTMLButtonElement | null;
-        const lost = !active || active === document.body || active.disabled;
-        if (listHasFocus || lost) row?.focus();
+        if (listHasFocus) row?.focus();
       });
     },
     [current],
