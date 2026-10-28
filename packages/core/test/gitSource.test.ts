@@ -10,7 +10,7 @@ const FIX = resolve(__dirname, "../../../fixtures/kotlin");
 
 describe("GitRefSource", () => {
   it("git 저장소의 두 ref를 비교해도 디렉터리 비교와 같은 결과를 낸다", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "flow-review-git-"));
+    const dir = mkdtempSync(join(tmpdir(), "callpath-git-"));
     const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=t@t", "-c", "user.name=t", ...args], { stdio: "pipe" });
     try {
       cpSync(join(FIX, "base"), dir, { recursive: true });

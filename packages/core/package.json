@@ -1,11 +1,11 @@
 {
-  "name": "@flow-review/core",
+  "name": "@callpath/core",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "flow-review": "./dist/cli.js"
+    "callpath": "./dist/cli.js"
   },
   "files": [
     "dist"

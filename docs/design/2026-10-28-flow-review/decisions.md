@@ -45,7 +45,7 @@
 ## D6. 모노레포와 코어 CLI
 
 - 배경: 분석 로직을 Electron 없이 테스트하고, 2차에 다른 껍데기를 붙이고, CI에서 fixture를 돌려야 한다.
-- 선택: pnpm 워크스페이스. `packages/core`에 `flow-review analyze` CLI를 두어 JSON을 출력한다. 앱은 같은 함수를 worker에서 호출한다.
+- 선택: pnpm 워크스페이스. `packages/core`에 `callpath analyze` CLI를 두어 JSON을 출력한다. 앱은 같은 함수를 worker에서 호출한다.
 - 결과: 인수조건 A1~A4, A11은 CLI와 vitest만으로 검증한다.
 
 ## D7. tree-sitter는 wasm으로, Kotlin 문법은 tree-sitter-grammars 패키지
@@ -54,3 +54,10 @@
 - 선택: `web-tree-sitter` 0.27과 각 문법 패키지에 포함된 wasm(`tree-sitter-java` 0.23.5, `@tree-sitter-grammars/tree-sitter-kotlin` 1.1.0, MIT)을 쓴다. pnpm `allowBuilds`로 두 문법 패키지의 네이티브 빌드 스크립트를 명시적으로 끈다.
 - 대안: node-tree-sitter 네이티브 바인딩. 더 빠르지만 Electron 버전마다 재빌드가 필요하고 Kotlin은 prebuild가 없다.
 - 결과: 설계 4.3의 분석 워커 설명을 wasm으로 고쳤다. 성능 기준(7절, 빠른 분석 3초)은 wasm 기준으로 2단계에서 측정한다.
+
+## D8. 앱 이름 Callpath
+
+- 배경: 설계와 1, 2단계 구현 동안 임시 이름 `flow-review`를 썼다. Electron 앱 이름과 앱 ID를 정하기 전에 이름이 필요했다.
+- 선택: Callpath. 진입점에서 호출 경로를 따라 읽는다는 핵심 기능이 이름에 드러난다. 2026-10-28 확인 시 npm 이름이 비어 있고 GitHub 동명 저장소는 14개였다.
+- 대안: Flowread(동명 저장소 73개로 흔함), Reviewpath(덜 구체적), Tracewise(PyPI에 같은 이름의 LLM 추적 SDK가 있음), codereview(일반명사라 구분이 어려움).
+- 결과: 패키지는 `@callpath/core`, CLI는 `callpath`, 진입점 규칙 파일은 `.callpath.yml`, 저장소는 `magicsih/callpath`. 설계 폴더 이름은 링크 보존을 위해 그대로 둔다.

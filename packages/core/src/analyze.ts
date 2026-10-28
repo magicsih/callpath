@@ -7,15 +7,15 @@ import { buildCallGraph, methodId, type CallGraph } from "./graph/callGraph.js";
 import { detectEntries } from "./flow/entries.js";
 import { buildFlows, toRef } from "./flow/flows.js";
 import { isTestFile, isTestPath } from "./classify/test.js";
-import { loadConfig, type FlowReviewConfig } from "./config.js";
+import { loadConfig, type CallpathConfig } from "./config.js";
 import type { ChangeKind, FileChange, Hunk, Range, ReviewSession, Step, TestRef } from "./types.js";
 
 export interface AnalyzeOptions {
   repo: string;
   baseLabel: string;
   headLabel: string;
-  /** 주지 않으면 head 시점의 .flow-review.yml을 읽는다 */
-  config?: FlowReviewConfig;
+  /** 주지 않으면 head 시점의 .callpath.yml을 읽는다 */
+  config?: CallpathConfig;
 }
 
 const MAX_TESTS_PER_STEP = 20;

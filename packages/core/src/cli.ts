@@ -36,8 +36,8 @@ function printSummary(session: ReviewSession): void {
 }
 
 const USAGE = `사용법:
-  flow-review analyze <repo> --base <ref> --head <ref>     git 저장소의 두 ref 비교
-  flow-review analyze --base-dir <dir> --head-dir <dir>   두 디렉터리 비교
+  callpath analyze <repo> --base <ref> --head <ref>     git 저장소의 두 ref 비교
+  callpath analyze --base-dir <dir> --head-dir <dir>   두 디렉터리 비교
 옵션:
   --json        JSON만 출력 (기본)
   --summary     사람이 읽는 요약 출력`;
