@@ -2,26 +2,29 @@ import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import workerPath from "./analyzeWorker?modulePath";
-import { inspectRepo, readAt } from "./repo";
+import { inspectRepo, PathError, readAt } from "./repo";
 import { loadState, saveState } from "./state";
-import type { CompareRequest, FileRequest, Result, UiState } from "../shared/api";
+import type { CompareRequest, ErrorKind, FileRequest, Result, UiState } from "../shared/api";
 import type { ReviewSession } from "@callpath/core";
 
 // 테스트와 여러 프로필 실행을 위해 앱 데이터 폴더를 바꿀 수 있게 한다. ready 전에 정해야 한다
 if (process.env.CALLPATH_USER_DATA) app.setPath("userData", process.env.CALLPATH_USER_DATA);
 app.setName("Callpath");
 
-function friendly(e: unknown): string {
+function friendly(e: unknown): { error: string; kind: ErrorKind } {
   const msg = e instanceof Error ? e.message : String(e);
-  if (/merge-base|unknown revision|bad revision|Not a valid object name/i.test(msg)) return "비교할 브랜치나 커밋을 찾을 수 없습니다. 비교를 다시 고르세요.";
-  return msg.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+  if (e instanceof PathError) return { error: msg, kind: "path" };
+  if (/merge-base|unknown revision|bad revision|Not a valid object name|no merge base/i.test(msg)) {
+    return { error: "비교할 브랜치나 커밋을 찾을 수 없습니다. 비교를 다시 고르세요.", kind: "ref" };
+  }
+  return { error: msg, kind: "other" };
 }
 
 async function wrap<T>(fn: () => Promise<T>): Promise<Result<T>> {
   try {
     return { ok: true, value: await fn() };
   } catch (e) {
-    return { ok: false, error: friendly(e) };
+    return { ok: false, ...friendly(e) };
   }
 }
 
@@ -29,20 +32,24 @@ async function wrap<T>(fn: () => Promise<T>): Promise<Result<T>> {
 
 let worker: Worker | null = null;
 let nextId = 1;
-const pending = new Map<number, (r: Result<ReviewSession>) => void>();
+type WorkerReply = { ok: true; value: ReviewSession } | { ok: false; error: string };
+const pending = new Map<number, (r: WorkerReply | Result<ReviewSession>) => void>();
 
 function getWorker(): Worker {
   if (worker) return worker;
   const w = new Worker(workerPath);
-  w.on("message", (m: { id: number } & Result<ReviewSession>) => {
+  w.on("message", (m: { id: number } & ({ ok: true; value: ReviewSession } | { ok: false; error: string })) => {
     pending.get(m.id)?.(m);
     pending.delete(m.id);
   });
-  w.on("error", (err) => {
-    for (const resolve of pending.values()) resolve({ ok: false, error: `분석 중 오류: ${err.message}` });
+  const fail = (message: string) => {
+    for (const resolve of pending.values()) resolve({ ok: false, error: message, kind: "other" });
     pending.clear();
-    worker = null;
-  });
+    if (worker === w) worker = null;
+  };
+  w.on("error", (err) => fail(`분석 중 오류: ${err.message}`));
+  // 오류 이벤트 없이 끝나도(메모리 부족 등) 기다리던 요청이 멈추지 않게 한다
+  w.on("exit", (code) => fail(`분석 작업이 멈췄습니다 (종료 코드 ${code}). 다시 분석하세요.`));
   worker = w;
   return w;
 }
@@ -53,7 +60,7 @@ async function analyzeInWorker(req: CompareRequest): Promise<Result<ReviewSessio
   if (delay > 0) await new Promise((r) => setTimeout(r, delay));
   const id = nextId++;
   return new Promise((resolve) => {
-    pending.set(id, (r) => resolve(r.ok ? r : { ok: false, error: friendly(new Error(r.error)) }));
+    pending.set(id, (r) => resolve(r.ok ? r : { ok: false, ...friendly(new Error(r.error)) }));
     getWorker().postMessage({ id, req });
   });
 }

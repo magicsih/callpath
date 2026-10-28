@@ -74,6 +74,7 @@ export function App() {
           persist({ ...state.current, last: null });
           setScreen({ name: "start", error: null });
         }}
+        onReload={() => void open(screen.repo.path)}
         onAnalyze={(base, head) => {
           const req = { repo: screen.repo.path, base, head };
           persist({ ...state.current, last: { ...req, selection: null, showTests: false } });

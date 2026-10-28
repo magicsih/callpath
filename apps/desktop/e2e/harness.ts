@@ -41,8 +41,19 @@ export async function launch(userData: string, env: Record<string, string> = {})
 /** 확대 상태에서도 창 전체가 찍히도록 Electron의 capturePage로 찍는다 */
 export async function shot(app: ElectronApplication, name: string): Promise<void> {
   mkdirSync(EVIDENCE, { recursive: true });
-  const b64 = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0]!.webContents.capturePage()).toPNG().toString("base64"));
-  writeFileSync(join(EVIDENCE, `${name}.png`), Buffer.from(b64, "base64"));
+  const path = join(EVIDENCE, `${name}.png`);
+  // Linux xvfb에서는 창을 띄운 직후 capturePage가 UnknownVizError로 실패할 때가 있어 몇 번 다시 시도한다
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const b64 = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0]!.webContents.capturePage()).toPNG().toString("base64"));
+      writeFileSync(path, Buffer.from(b64, "base64"));
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+  // 증거 캡처 실패가 기능 판정을 바꾸지 않도록 일반 스크린샷으로 대신한다
+  await (await app.firstWindow()).screenshot({ path });
 }
 
 /** 시작 화면에서 경로를 입력해 열고 기본 비교로 분석까지 간다 */

@@ -28,9 +28,9 @@ export function StackPane({ item, nav, onSelect }: { item: NavItem; nav: Nav; on
             return (
               <li key={`${p.qualifiedName}@${p.range.startLine}`} className={`${target ? "" : "transit"}${current ? " current" : ""}`} style={{ paddingLeft: `${Math.min(i, 8) * 10}px` }}>
                 {target && !current ? (
-                  <button className="link" onClick={() => onSelect(target)}>{shortName(p)}</button>
+                  <button className="link" onClick={() => onSelect(target)} title={p.qualifiedName}>{shortName(p)}</button>
                 ) : (
-                  <span aria-current={current ? "step" : undefined}>{shortName(p)}</span>
+                  <span aria-current={current ? "step" : undefined} title={p.qualifiedName}>{shortName(p)}</span>
                 )}
                 <span className="role">{role}</span>
               </li>
@@ -45,7 +45,7 @@ export function StackPane({ item, nav, onSelect }: { item: NavItem; nav: Nav; on
         <ul className="next-steps">
           {children.map((c, i) => (
             <li key={c.key}>
-              <button className="link" onClick={() => onSelect(c)}>
+              <button className="link" onClick={() => onSelect(c)} title={c.step.symbol.qualifiedName}>
                 {c.pos}단계 {shortName(c.step.symbol)}
               </button>
               {i === 0 && <kbd aria-hidden="true">Enter</kbd>}

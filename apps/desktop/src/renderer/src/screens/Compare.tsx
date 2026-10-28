@@ -2,8 +2,29 @@ import { useState } from "react";
 import type { RepoInfo } from "../../../shared/api";
 import { Icon } from "../components/Icon";
 
-export function Compare(props: { repo: RepoInfo; initialBase?: string; initialHead?: string; onBack: () => void; onAnalyze: (base: string, head: string) => void }) {
+export function Compare(props: { repo: RepoInfo; initialBase?: string; initialHead?: string; onBack: () => void; onReload: () => void; onAnalyze: (base: string, head: string) => void }) {
   const { repo } = props;
+  if (repo.branches.length === 0) {
+    return (
+      <main className="compare" aria-labelledby="compare-title">
+        <div className="start-card">
+          <button className="link" onClick={props.onBack}>
+            <Icon name="back" /> 저장소 바꾸기
+          </button>
+          <h1 id="compare-title">{repo.name}</h1>
+          <p className="muted path">{repo.path}</p>
+          <div className="notice" role="alert" data-testid="no-branches">
+            <Icon name="warn" />
+            <div>
+              <p><strong>비교할 브랜치가 없습니다</strong></p>
+              <p className="muted">이 저장소에는 아직 커밋이 없습니다. 커밋을 만든 뒤 다시 읽으세요.</p>
+            </div>
+          </div>
+          <button className="primary big" onClick={props.onReload} autoFocus>다시 읽기</button>
+        </div>
+      </main>
+    );
+  }
   const [base, setBase] = useState(props.initialBase ?? repo.defaultBase ?? "");
   const [head, setHead] = useState(props.initialHead ?? repo.current ?? "");
   const ready = base.trim() !== "" && head.trim() !== "";

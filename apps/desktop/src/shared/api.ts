@@ -35,7 +35,10 @@ export interface UiState {
   last: LastReview | null;
 }
 
-export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+/** ref: 비교할 브랜치나 커밋을 못 찾음(비교를 바꿔야 함), path: 경로 문제 */
+export type ErrorKind = "ref" | "path" | "other";
+
+export type Result<T> = { ok: true; value: T } | { ok: false; error: string; kind: ErrorKind };
 
 /** preload가 window.callpath로 노출하는 API */
 export interface CallpathApi {

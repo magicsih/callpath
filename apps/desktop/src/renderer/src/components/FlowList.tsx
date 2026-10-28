@@ -1,5 +1,5 @@
 import type { ReviewSession } from "@callpath/core";
-import { CHANGE_LABEL, shortName, type FileItem, type GroupKind, type Nav, type NavItem, type StepItem, type TestItem } from "../nav";
+import { CHANGE_LABEL, methodLabel, shortName, type FileItem, type GroupKind, type Nav, type NavItem, type StepItem, type TestItem } from "../nav";
 import { Icon } from "./Icon";
 
 const KIND_LABEL: Record<GroupKind, string> = {
@@ -16,6 +16,10 @@ interface Props {
   onSelect: (item: NavItem) => void;
   onToggleTests: () => void;
   registerRow: (key: string, el: HTMLButtonElement | null) => void;
+}
+
+function movedCount(g: Nav["groups"][number]): number {
+  return g.items.filter((i) => i.kind === "step" && !i.step.refOf && (i.step.callOrderDiff?.moved.length ?? 0) > 0).length;
 }
 
 export function FlowList({ nav, session, selectedKey, showTests, onSelect, onToggleTests, registerRow }: Props) {
@@ -37,7 +41,7 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
         <span className="line1">
           <span className="num" aria-label={`${item.pos}단계`}>{item.pos}</span>
           <span className="name" title={s.symbol.qualifiedName}>
-            <span className="method">{s.symbol.name}</span>
+            <span className="method">{methodLabel(s.symbol)}</span>
             {s.symbol.container && <span className="cls"> {s.symbol.container.split(".").pop()}</span>}
           </span>
           <span className={`chip change-${s.change}`}>{CHANGE_LABEL[s.change]}</span>
@@ -56,7 +60,7 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
   const fileRow = (item: FileItem) => {
     const parts = item.file.path.split("/");
     return (
-      <button {...rowProps(item)} data-testid="file-row">
+      <button {...rowProps(item)} data-testid="file-row" title={item.file.path}>
         <span className="line1">
           <span className="name">{parts.pop()}</span>
           <span className="chip">{STATUS_LABEL[item.file.status]}</span>
@@ -67,10 +71,10 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
   };
 
   const testRow = (item: TestItem) => (
-    <button {...rowProps(item)} data-testid="test-row">
+    <button {...rowProps(item)} data-testid="test-row" title={item.test.symbol.qualifiedName.replace(/`/g, "")}>
       <span className="line1">
         <Icon name="test" size={12} />
-        <span className="name">{item.test.symbol.name.replace(/`/g, "")}</span>
+        <span className="name test-name">{item.test.symbol.name.replace(/`/g, "")}</span>
         {item.test.changed && <span className="chip change-body">바뀜</span>}
       </span>
       {item.test.confidence === "low" && <span className="line2"><span className="flag low">연결 불확실</span></span>}
@@ -85,7 +89,8 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
             <h2 id={`g-${g.id}`} className={`group-title kind-${g.kind}`} title={KIND_LABEL[g.kind]}>
               <Icon name={g.kind} />
               <span className="sr-only">{KIND_LABEL[g.kind]}: </span>
-              <span className="glabel">{g.label}</span>
+              <span className="glabel" title={g.label}>{g.label}</span>
+              {movedCount(g) > 0 && <span className="flag warn" data-testid="group-moved"><Icon name="warn" size={11} />순서 변경 {movedCount(g)}</span>}
               <span className="count" aria-label={`${g.items.length}개`}>{g.items.length}</span>
             </h2>
             <ul>

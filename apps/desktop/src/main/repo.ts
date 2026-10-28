@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { promisify } from "node:util";
 import { GitRefSource } from "@callpath/core";
@@ -19,9 +20,14 @@ async function tryGit(repo: string, ...args: string[]): Promise<string | null> {
   }
 }
 
+export class PathError extends Error {}
+
 export async function inspectRepo(path: string): Promise<RepoInfo> {
+  const info = await stat(path).catch(() => null);
+  if (!info) throw new PathError("폴더를 찾을 수 없습니다. 경로를 확인하세요.");
+  if (!info.isDirectory()) throw new PathError("파일이 아니라 저장소 폴더를 고르세요.");
   const top = await tryGit(path, "rev-parse", "--show-toplevel");
-  if (!top) throw new Error("Git 저장소가 아닙니다. 저장소의 최상위 폴더나 그 안의 폴더를 고르세요.");
+  if (!top) throw new PathError("Git 저장소가 아닙니다. 저장소의 최상위 폴더나 그 안의 폴더를 고르세요.");
   const refs = (await git(top, "for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"))
     .split("\n")
     .filter((r) => r && !r.endsWith("/HEAD") && r !== "origin");

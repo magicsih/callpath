@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReviewSession } from "@callpath/core";
-import type { CompareRequest } from "../../../shared/api";
-import { childSteps, neighbor, refTarget, resolveSelection, shortName, buildNav, CHANGE_LABEL, type NavItem } from "../nav";
+import type { CompareRequest, ErrorKind } from "../../../shared/api";
+import { childSteps, neighbor, refTarget, resolveSelection, shortName, buildNav, CHANGE_LABEL, type NavItem, type StepItem } from "../nav";
 import { FlowList } from "../components/FlowList";
 import { Detail } from "../components/Detail";
 import { StackPane } from "../components/StackPane";
 import { Icon } from "../components/Icon";
 
-type Analysis = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; session: ReviewSession };
+type Analysis = { status: "loading" } | { status: "error"; message: string; kind: ErrorKind } | { status: "ready"; session: ReviewSession };
 
 interface Props {
   req: CompareRequest;
@@ -31,7 +31,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     setAnalysis({ status: "loading" });
     window.callpath.analyze(req).then((r) => {
       if (!alive) return;
-      setAnalysis(r.ok ? { status: "ready", session: r.value } : { status: "error", message: r.error });
+      setAnalysis(r.ok ? { status: "ready", session: r.value } : { status: "error", message: r.error, kind: r.kind });
     });
     return () => {
       alive = false;
@@ -74,7 +74,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement;
-      if (target.closest("input, textarea, select")) return;
+      if (target.closest("textarea, select, input:not([type=checkbox])")) return;
       const inEditor = target.closest(".monaco-editor") != null;
       switch (e.key) {
         case "j":
@@ -121,7 +121,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
       </span>
       {session && (
         <span className="stats muted" aria-label="분석 요약">
-          메서드 {session.stats.methods} · 진입점 {session.stats.entries} · {session.stats.ms}ms
+          흐름 {session.flows.length} · 바뀐 메서드 {session.flows.flatMap((f) => f.steps).filter((s) => s.change !== "unchanged" && !s.refOf).length + session.orphans.length} · {session.stats.ms}ms
         </span>
       )}
       <span className="spacer" />
@@ -152,10 +152,17 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
           <Icon name="warn" size={28} />
           <p className="state-title">분석하지 못했습니다</p>
           <p className="muted">{analysis.message}</p>
-          <div className="row">
-            <button className="primary" onClick={() => setRun((n) => n + 1)}>다시 분석</button>
-            <button onClick={onChangeCompare}>비교 바꾸기</button>
-          </div>
+          {analysis.kind === "ref" ? (
+            <div className="row">
+              <button className="primary" onClick={onChangeCompare}>비교 바꾸기</button>
+              <button onClick={() => setRun((n) => n + 1)}>다시 분석</button>
+            </div>
+          ) : (
+            <div className="row">
+              <button className="primary" onClick={() => setRun((n) => n + 1)}>다시 분석</button>
+              <button onClick={onChangeCompare}>비교 바꾸기</button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -167,7 +174,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
         <div className="state" data-testid="state-empty">
           <Icon name="nonCode" size={28} />
           <p className="state-title">바뀐 파일이 없습니다</p>
-          <p className="muted">{req.base}와 {req.head} 사이에 차이가 없습니다.</p>
+          <p className="muted"><code>{req.base}</code> ← <code>{req.head}</code> 비교에 바뀐 파일이 없습니다.</p>
           <button className="primary" onClick={onChangeCompare}>비교 바꾸기</button>
         </div>
       </div>
@@ -180,6 +187,11 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     current.kind === "test" ? `${group?.label ?? ""} · 테스트` : `${group?.label ?? ""} · ${current.pos} / ${current.total}`;
   const target = current.kind === "step" ? refTarget(current, nav, session!) : null;
   const refFlow = current.kind === "step" && current.step.refOf ? session!.flows.find((f) => f.id === current.step.refOf!.flow) : undefined;
+  const stepForCrumbs: StepItem | null =
+    current.kind === "step" ? current : current.kind === "test" ? ((nav.order.find((x) => x.key === current.parentKey) as StepItem | undefined) ?? null) : null;
+  const crumbs = stepForCrumbs
+    ? { path: stepForCrumbs.step.path.map((p) => shortName(p)), next: childSteps(stepForCrumbs, nav)[0] ? shortName(childSteps(stepForCrumbs, nav)[0]!.step.symbol) : null }
+    : null;
   const announce =
     current.kind === "step"
       ? `${position}, ${shortName(current.step.symbol)}, ${CHANGE_LABEL[current.step.change]}${current.step.callOrderDiff?.moved.length ? ", 순서 변경" : ""}`
@@ -205,6 +217,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
           session={session!}
           onGoRef={target ? () => select(target) : null}
           refLabel={refFlow && current.kind === "step" ? `${refFlow.label} ${current.step.refOf!.n}단계` : null}
+          crumbs={crumbs}
         />
         <StackPane item={current} nav={nav} onSelect={(i) => select(i)} />
       </div>
@@ -216,12 +229,12 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
           <strong>{position}</strong>
           <span className="muted"> · 전체 {idx + 1} / {nav.order.length}</span>
         </span>
-        <button onClick={() => select(neighbor(nav, current.key, 1))} disabled={idx >= nav.order.length - 1} aria-label="다음 항목">
+        <button className="primary" onClick={() => select(neighbor(nav, current.key, 1))} disabled={idx >= nav.order.length - 1} aria-label="다음 항목">
           다음 <Icon name="next" />
         </button>
         <span className="spacer" />
         <span className="keys muted" aria-hidden="true">
-          <kbd>j</kbd>/<kbd>k</kbd> 이동 · <kbd>t</kbd> 테스트 · <kbd>Enter</kbd> 다음 단계 · <kbd>⌫</kbd> 되돌아가기
+          <kbd>j</kbd>/<kbd>k</kbd> 이동 · <kbd>t</kbd> 테스트<span className="keys-long"> · <kbd>Enter</kbd> 다음 단계 · <kbd>⌫</kbd> 되돌아가기</span>
         </span>
       </footer>
       <div className="sr-only" aria-live="polite" data-testid="announce">{announce}</div>

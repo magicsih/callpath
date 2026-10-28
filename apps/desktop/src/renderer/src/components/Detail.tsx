@@ -36,9 +36,10 @@ async function buildInput(item: NavItem, session: ReviewSession): Promise<DiffIn
     const path = item.kind === "file" ? item.file.path : item.test.symbol.path;
     const [b, h] = await Promise.all([read(repo, base, path), read(repo, head, path)]);
     if (isBinary(b) || isBinary(h)) {
-      return { original: "이진 파일은 비교하지 않습니다.", modified: "이진 파일은 비교하지 않습니다.", language: "plaintext", originalStart: 1, modifiedStart: 1, collapseUnchanged: false, revealLine: null };
+      return { kind: "context", original: "", modified: "이진 파일은 비교하지 않습니다.", language: "plaintext", originalStart: 1, modifiedStart: 1, collapseUnchanged: false, revealLine: null };
     }
     return {
+      kind: b === null ? "added" : h === null ? "removed" : "diff",
       original: b ?? "",
       modified: h ?? "",
       language: languageFor(path),
@@ -53,15 +54,16 @@ async function buildInput(item: NavItem, session: ReviewSession): Promise<DiffIn
   const language = languageFor(path);
   if (s.change === "removed") {
     const b = await read(repo, base, path);
-    return { original: slice(b, s.symbol.range), modified: "", language, originalStart: s.symbol.range.startLine + 1, modifiedStart: 1, collapseUnchanged: false, revealLine: null };
+    return { kind: "removed", original: slice(b, s.symbol.range), modified: "", language, originalStart: s.symbol.range.startLine + 1, modifiedStart: 1, collapseUnchanged: false, revealLine: null };
   }
   const h = await read(repo, head, path);
   const headSlice = slice(h, s.symbol.range);
   if (s.change === "unchanged") {
-    return { original: headSlice, modified: headSlice, language, originalStart: s.symbol.range.startLine + 1, modifiedStart: s.symbol.range.startLine + 1, collapseUnchanged: false, revealLine: null };
+    return { kind: "context", original: "", modified: headSlice, language, originalStart: s.symbol.range.startLine + 1, modifiedStart: s.symbol.range.startLine + 1, collapseUnchanged: false, revealLine: null };
   }
   const b = s.baseSymbol ? await read(repo, base, s.baseSymbol.path) : null;
   return {
+    kind: s.baseSymbol ? "diff" : "added",
     original: slice(b, s.baseSymbol?.range ?? null),
     modified: headSlice,
     language,
@@ -72,7 +74,12 @@ async function buildInput(item: NavItem, session: ReviewSession): Promise<DiffIn
   };
 }
 
-export function Detail({ item, session, onGoRef, refLabel }: { item: NavItem; session: ReviewSession; onGoRef: (() => void) | null; refLabel: string | null }) {
+export interface Crumbs {
+  path: string[];
+  next: string | null;
+}
+
+export function Detail({ item, session, onGoRef, refLabel, crumbs }: { item: NavItem; session: ReviewSession; onGoRef: (() => void) | null; refLabel: string | null; crumbs: Crumbs | null }) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [highlight, setHighlight] = useState<number | null>(null);
   // 창 높이가 낮으면 호출 순서 띠를 요약 한 줄로 접어 diff 자리를 남긴다
@@ -100,6 +107,9 @@ export function Detail({ item, session, onGoRef, refLabel }: { item: NavItem; se
   }, [item.key, session]);
 
   const title = item.kind === "file" ? item.file.path.split("/").pop()! : item.kind === "test" ? item.test.symbol.name.replace(/`/g, "") : shortName(item.step.symbol);
+  const viewNote = load.status === "ready" && load.input.kind !== "diff"
+    ? { added: "새로 추가된 코드입니다.", removed: "삭제된 코드입니다.", context: "" }[load.input.kind]
+    : "";
   const path = item.kind === "file" ? item.file.path : item.kind === "test" ? item.test.symbol.path : item.step.symbol.path;
   const line = item.kind === "file" ? null : (item.kind === "test" ? item.test.symbol : item.step.symbol).range.startLine + 1;
   const step = item.kind === "step" ? item.step : null;
@@ -114,6 +124,12 @@ export function Detail({ item, session, onGoRef, refLabel }: { item: NavItem; se
           {step && <span className={`chip change-${step.change}`}>{CHANGE_LABEL[step.change]}</span>}
         </div>
         <p className="muted path">{path}{line ? `:${line}` : ""}</p>
+        {crumbs && crumbs.path.length > 0 && (
+          <p className="crumbs" aria-label="호출 경로">
+            {crumbs.path.join(" › ")}
+            {crumbs.next && <span className="muted"> · 다음 단계 {crumbs.next} <kbd aria-hidden="true">Enter</kbd></span>}
+          </p>
+        )}
       </header>
 
       {step?.refOf && onGoRef && (
@@ -183,6 +199,7 @@ export function Detail({ item, session, onGoRef, refLabel }: { item: NavItem; se
         {load.status === "loading" && <div className="placeholder" role="status">코드를 읽는 중</div>}
         {load.status === "error" && <div className="placeholder error-text" role="alert"><Icon name="warn" /> 코드를 읽지 못했습니다: {load.message}</div>}
         {load.status === "ready" && <DiffView input={load.input} highlightLine={highlight} label={`${title} 비교`} />}
+        {viewNote && <span className="view-note">{viewNote}</span>}
       </div>
     </section>
   );
