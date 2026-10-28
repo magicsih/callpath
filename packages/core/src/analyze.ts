@@ -67,7 +67,7 @@ export async function mapMethods(change: ChangedFile): Promise<{ steps: Step[]; 
   for (const [m, hunks] of touchedHead) {
     const partner = pairSymbol(m, baseMethods, pairedBase);
     if (partner) pairedBase.add(partner);
-    const change = classifyChange(m, partner, hunks);
+    const change = classifyChange(m, partner);
     const step: Step = {
       n: 0,
       symbol: m,
@@ -102,11 +102,11 @@ function pairSymbol(m: MethodSymbol, candidates: MethodSymbol[], used: Set<Metho
   return renamed[0] ?? null;
 }
 
-function classifyChange(m: MethodSymbol, partner: MethodSymbol | null, hunks: Hunk[]): ChangeKind {
+function classifyChange(m: MethodSymbol, partner: MethodSymbol | null): ChangeKind {
   if (!partner) return "added";
   if (partner.name !== m.name) return "renamed";
-  const bodyTouched = hunks.some((h) => h.head && m.body && overlaps(m.body, h.head)) || partner.bodyFingerprint !== m.bodyFingerprint;
-  return bodyTouched ? "body" : "signature";
+  // hunk 위치로 판정하면 여는 중괄호가 시그니처와 같은 줄이라 시그니처 변경이 본문 변경으로 잡힌다. 본문 내용으로 비교한다.
+  return partner.bodyFingerprint !== m.bodyFingerprint ? "body" : "signature";
 }
 
 function similarity(a: string, b: string): number {
