@@ -8,7 +8,11 @@ const file = () => join(app.getPath("userData"), "state.json");
 export async function loadState(): Promise<UiState> {
   try {
     const raw = JSON.parse(await readFile(file(), "utf8")) as Partial<UiState>;
-    return { recent: Array.isArray(raw.recent) ? raw.recent.slice(0, 10) : [], last: raw.last ?? null };
+    return {
+      recent: Array.isArray(raw.recent) ? raw.recent.slice(0, 10) : [],
+      lastRepo: typeof raw.lastRepo === "string" ? raw.lastRepo : null,
+      repos: raw.repos && typeof raw.repos === "object" ? raw.repos : {},
+    };
   } catch {
     return EMPTY_STATE;
   }

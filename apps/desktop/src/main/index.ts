@@ -15,7 +15,14 @@ function friendly(e: unknown): { error: string; kind: ErrorKind } {
   const msg = e instanceof Error ? e.message : String(e);
   if (e instanceof PathError) return { error: msg, kind: "path" };
   if (/merge-base|unknown revision|bad revision|Not a valid object name|no merge base/i.test(msg)) {
-    return { error: "비교할 브랜치나 커밋을 찾을 수 없습니다. 비교를 다시 고르세요.", kind: "ref" };
+    const ref = /Not a valid object name ([^\s]+)/.exec(msg)?.[1] ?? /bad revision '([^']+)'/.exec(msg)?.[1] ?? /unknown revision[^']*'([^']+)'/.exec(msg)?.[1];
+    // merge-base는 공통 조상이 없으면 오류 문구 없이 종료 코드 1로 끝난다
+    const what = ref
+      ? `찾을 수 없는 이름: "${ref}".`
+      : /merge-base/.test(msg) && !/fatal/i.test(msg)
+        ? "두 시점에 공통 조상이 없습니다."
+        : "비교할 브랜치나 커밋을 찾을 수 없습니다.";
+    return { error: `${what} 비교를 다시 고르세요.`, kind: "ref" };
   }
   return { error: msg, kind: "other" };
 }

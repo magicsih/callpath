@@ -29,10 +29,11 @@ export function App() {
       const s = await window.callpath.loadState();
       state.current = s;
       setRecent(s.recent);
-      if (s.last) {
-        const r = await window.callpath.inspectRepo(s.last.repo);
+      const last = s.lastRepo ? s.repos[s.lastRepo] : undefined;
+      if (last) {
+        const r = await window.callpath.inspectRepo(last.repo);
         if (r.ok) {
-          setScreen({ name: "review", repo: r.value, req: { repo: r.value.path, base: s.last.base, head: s.last.head }, selection: s.last.selection, showTests: s.last.showTests });
+          setScreen({ name: "review", repo: r.value, req: { repo: r.value.path, base: last.base, head: last.head }, selection: last.selection, showTests: last.showTests });
           return;
         }
         setScreen({ name: "start", error: `마지막 저장소를 열 수 없습니다: ${r.error}` });
@@ -52,7 +53,9 @@ export function App() {
         return;
       }
       persist({ ...state.current, recent: [r.value.path, ...state.current.recent.filter((p) => p !== r.value.path)].slice(0, 10) });
-      setScreen({ name: "compare", repo: r.value });
+      // 저장소마다 마지막으로 고른 비교를 기본값으로 채운다
+      const remembered = state.current.repos[r.value.path];
+      setScreen({ name: "compare", repo: r.value, ...(remembered ? { base: remembered.base, head: remembered.head } : {}) });
     },
     [persist],
   );
@@ -71,14 +74,19 @@ export function App() {
         {...(screen.base ? { initialBase: screen.base } : {})}
         {...(screen.head ? { initialHead: screen.head } : {})}
         onBack={() => {
-          persist({ ...state.current, last: null });
+          persist({ ...state.current, lastRepo: null });
           setScreen({ name: "start", error: null });
         }}
         onReload={() => void open(screen.repo.path)}
         onAnalyze={(base, head) => {
           const req = { repo: screen.repo.path, base, head };
-          persist({ ...state.current, last: { ...req, selection: null, showTests: false } });
-          setScreen({ name: "review", repo: screen.repo, req, selection: null, showTests: false });
+          // 같은 비교를 다시 열면 보던 위치까지, 다른 비교면 테스트 표시만 저장소별로 이어간다
+          const remembered = state.current.repos[req.repo];
+          const same = remembered !== undefined && remembered.base === base && remembered.head === head;
+          const selection = same ? remembered.selection : null;
+          const showTests = remembered?.showTests ?? false;
+          persist({ ...state.current, lastRepo: req.repo, repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } });
+          setScreen({ name: "review", repo: screen.repo, req, selection, showTests });
         }}
       />
     );
@@ -92,7 +100,9 @@ export function App() {
       initialSelection={screen.selection}
       initialShowTests={screen.showTests}
       onChangeCompare={() => setScreen({ name: "compare", repo, base: req.base, head: req.head })}
-      onPersist={(selection, showTests) => persist({ ...state.current, last: { ...req, selection, showTests } })}
+      onPersist={(selection, showTests) =>
+        persist({ ...state.current, lastRepo: req.repo, repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } })
+      }
     />
   );
 }

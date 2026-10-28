@@ -8,6 +8,7 @@ const MARK: Record<Step["change"], string> = { body: "본문", signature: "시�
 
 function printStep(s: Step): void {
   const flags = [
+    s.signatureChanged && s.change === "body" ? "시그니처도 바뀜" : "",
     s.callOrderDiff?.moved.length ? "⚠ 순서 변경" : "",
     s.confidence === "low" ? "연결 불확실" : "",
     s.refOf ? `${s.refOf.flow} ${s.refOf.n}단계 참조` : "",

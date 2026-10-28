@@ -21,22 +21,31 @@ export interface DiffInput {
   revealLine: number | null;
 }
 
+/** 강조할 줄. 원본 파일 기준 줄 번호(1부터) */
+export interface Highlight {
+  original: number[];
+  modified: number[];
+}
+
 interface Props {
   input: DiffInput;
-  /** head 쪽 원본 파일 기준 줄 번호(1부터) */
-  highlightLine: number | null;
+  highlight: Highlight | null;
   label: string;
 }
+
+const deco = (lines: number[], start: number) =>
+  lines.map((l) => ({ range: new monaco.Range(l - start + 1, 1, l - start + 1, 1), options: { isWholeLine: true, className: "line-highlight" } }));
 
 export function DiffView(props: Props) {
   return props.input.kind === "diff" ? <SideBySide {...props} /> : <SingleView {...props} />;
 }
 
-function SideBySide({ input, highlightLine, label }: Props) {
+function SideBySide({ input, highlight, label }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const models = useRef<{ original: monaco.editor.ITextModel; modified: monaco.editor.ITextModel } | null>(null);
   const decorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  const baseDecorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
 
   useEffect(() => {
     const e = monaco.editor.createDiffEditor(host.current!, {
@@ -54,6 +63,7 @@ function SideBySide({ input, highlightLine, label }: Props) {
     editor.current = e;
     models.current = { original, modified };
     decorations.current = e.getModifiedEditor().createDecorationsCollection();
+    baseDecorations.current = e.getOriginalEditor().createDecorationsCollection();
     return () => {
       e.dispose();
       original.dispose();
@@ -72,25 +82,25 @@ function SideBySide({ input, highlightLine, label }: Props) {
     e.getOriginalEditor().updateOptions({ lineNumbers: (n: number) => String(n + input.originalStart - 1), ariaLabel: `${label}, 이전` });
     e.getModifiedEditor().updateOptions({ lineNumbers: (n: number) => String(n + input.modifiedStart - 1), ariaLabel: `${label}, 이후` });
     decorations.current?.clear();
+    baseDecorations.current?.clear();
     const target = input.revealLine !== null ? input.revealLine - input.modifiedStart + 1 : 1;
     e.getModifiedEditor().revealLineNearTop(target);
     e.getOriginalEditor().setScrollTop(0);
   }, [input, label]);
 
   useEffect(() => {
-    if (highlightLine === null) {
-      decorations.current?.clear();
-      return;
-    }
-    const line = highlightLine - input.modifiedStart + 1;
-    decorations.current?.set([{ range: new monaco.Range(line, 1, line, 1), options: { isWholeLine: true, className: "line-highlight" } }]);
-    editor.current!.getModifiedEditor().revealLineInCenterIfOutsideViewport(line);
-  }, [highlightLine, input]);
+    decorations.current?.set(deco(highlight?.modified ?? [], input.modifiedStart));
+    baseDecorations.current?.set(deco(highlight?.original ?? [], input.originalStart));
+    const m = highlight?.modified[0];
+    const o = highlight?.original[0];
+    if (m !== undefined) editor.current!.getModifiedEditor().revealLineInCenterIfOutsideViewport(m - input.modifiedStart + 1);
+    if (o !== undefined) editor.current!.getOriginalEditor().revealLineInCenterIfOutsideViewport(o - input.originalStart + 1);
+  }, [highlight, input]);
 
-  return <div className="diff" ref={host} data-testid="diff" />;
+  return <div className="diff" ref={host} data-testid="diff" data-view="diff" />;
 }
 
-function SingleView({ input, highlightLine, label }: Props) {
+function SingleView({ input, highlight, label }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const tint = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
@@ -124,14 +134,10 @@ function SingleView({ input, highlightLine, label }: Props) {
   }, [input, label, text, start]);
 
   useEffect(() => {
-    if (highlightLine === null || removed) {
-      mark.current?.clear();
-      return;
-    }
-    const line = highlightLine - start + 1;
-    mark.current?.set([{ range: new monaco.Range(line, 1, line, 1), options: { isWholeLine: true, className: "line-highlight" } }]);
-    editor.current!.revealLineInCenterIfOutsideViewport(line);
-  }, [highlightLine, input, removed, start]);
+    const lines = (removed ? highlight?.original : highlight?.modified) ?? [];
+    mark.current?.set(deco(lines, start));
+    if (lines[0] !== undefined) editor.current!.revealLineInCenterIfOutsideViewport(lines[0] - start + 1);
+  }, [highlight, input, removed, start]);
 
   return <div className="diff" ref={host} data-testid="diff" data-view={input.kind} />;
 }

@@ -56,7 +56,7 @@ export function buildFlows(
         ? { ...base, n, path: pathRefs, confidence: v.confidence, tests: [] }
         : {
             n, symbol: toRef(graph.methods.get(v.id)!), baseSymbol: null, change: "unchanged", hunks: [], path: pathRefs,
-            confidence: v.confidence, tests: [],
+            signatureChanged: false, confidence: v.confidence, tests: [],
           };
       const prior = owner.get(v.id);
       if (prior) step.refOf = prior;

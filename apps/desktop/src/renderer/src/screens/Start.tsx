@@ -3,6 +3,9 @@ import { Icon } from "../components/Icon";
 
 export function Start(props: { recent: string[]; error: string | null; busy: boolean; onOpen: (path: string) => void; onPick: () => void }) {
   const [path, setPath] = useState("");
+  // 입력을 고치기 시작하면 이전 시도의 오류는 숨긴다
+  const [edited, setEdited] = useState(false);
+  const error = edited ? null : props.error;
   const name = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
   return (
     <main className="start" aria-labelledby="start-title">
@@ -16,7 +19,9 @@ export function Start(props: { recent: string[]; error: string | null; busy: boo
           className="path-row"
           onSubmit={(e) => {
             e.preventDefault();
-            if (path.trim()) props.onOpen(path.trim());
+            if (!path.trim()) return;
+            setEdited(false);
+            props.onOpen(path.trim());
           }}
         >
           <label htmlFor="repo-path">저장소 경로</label>
@@ -24,17 +29,20 @@ export function Start(props: { recent: string[]; error: string | null; busy: boo
             <input
               id="repo-path"
               value={path}
-              onChange={(e) => setPath(e.target.value)}
+              onChange={(e) => {
+                setPath(e.target.value);
+                setEdited(true);
+              }}
               placeholder="/Users/me/work/order-service"
               autoFocus
-              aria-describedby={props.error ? "path-error" : undefined}
-              aria-invalid={props.error ? true : undefined}
+              aria-describedby={error ? "path-error" : undefined}
+              aria-invalid={error ? true : undefined}
             />
             <button type="submit" disabled={props.busy || !path.trim()}>열기</button>
           </div>
-          {props.error && (
+          {error && (
             <p id="path-error" className="error-text" role="alert">
-              <Icon name="warn" /> {props.error}
+              <Icon name="warn" /> {error}
             </p>
           )}
         </form>

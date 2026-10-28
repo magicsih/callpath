@@ -12,6 +12,8 @@
   --accent-text: #ffffff;
   /* 주 버튼 배경. 흰 글자와 대비 4.5:1 이상 */
   --accent-strong: #2f6fed;
+  /* 작은 라벨 글자. 목록 배경과 선택 줄 배경 모두에서 4.5:1 이상 */
+  --accent-ink: #1f4fb8;
   --warn: #b25600;
   --warn-bg: #fff1e0;
   --low: #6b5bd6;
@@ -39,6 +41,7 @@
     --text-muted: #9aa2b1;
     --accent: #5b8cff;
     --accent-strong: #2a5fd0;
+    --accent-ink: #a9c1ff;
     --warn: #ffb057;
     --warn-bg: #3a2a16;
     --low: #a99cff;
@@ -53,6 +56,8 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+/* 앱 화면이라 문서 자체는 스크롤하지 않는다. 각 영역이 자기 스크롤을 갖는다 */
+html, body { overflow: hidden; }
 body { background: var(--bg); color: var(--text); font: var(--fs)/1.45 var(--font); }
 h1, h2, p { margin: 0; }
 button {
@@ -82,7 +87,7 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ---------- 시작, 비교 선택 ---------- */
-.start, .compare { height: 100%; overflow: auto; display: flex; justify-content: center; padding: 48px 24px; }
+.start, .compare { height: 100%; overflow: auto; position: relative; display: flex; justify-content: center; padding: 48px 24px; }
 .start-card { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 16px; }
 .start-card h1 { font-size: 26px; }
 .lead { font-size: 15px; color: var(--text-muted); }
@@ -113,7 +118,7 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 .position { flex: 0 1 auto !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stats { font-size: var(--fs-small); }
 .panes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(190px, 260px); }
-.pane { min-width: 0; min-height: 0; overflow: hidden; }
+.pane { min-width: 0; min-height: 0; overflow: hidden; position: relative; }
 .pane.left { border-right: 1px solid var(--border); background: var(--bg-pane); display: flex; flex-direction: column; }
 .pane.right { border-left: 1px solid var(--border); background: var(--bg-pane); padding: 10px 12px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .pane.center { display: flex; flex-direction: column; overflow-y: auto; }
@@ -143,12 +148,16 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 .chip { flex: none; font-size: 11px; border-radius: 10px; padding: 0 7px; border: 1px solid var(--border); color: var(--text-muted); display: inline-flex; gap: 4px; align-items: center; }
 .change-added { color: var(--add); background: var(--add-bg); border-color: transparent; }
 .change-removed { color: var(--del); background: var(--del-bg); border-color: transparent; }
-.change-body, .change-signature, .change-renamed { color: var(--accent); border-color: var(--accent); }
+.change-body, .change-signature, .change-renamed { color: var(--accent-ink); border-color: var(--accent-ink); }
 .change-unchanged { color: var(--text-muted); }
 .flag { font-size: 11px; display: inline-flex; gap: 3px; align-items: center; border-radius: 4px; padding: 0 5px; }
 .flag.warn { color: var(--warn); background: var(--warn-bg); font-weight: 600; }
 .flag.low { color: var(--low); background: var(--low-bg); border: 1px dashed var(--low); }
 .flag.ref { color: var(--text-muted); border: 1px solid var(--border); }
+.flag.sig { color: var(--accent-ink); border: 1px solid var(--accent-ink); }
+.legend { font-size: 11px; margin-top: 6px; }
+.warnings { list-style: none; margin: 0; padding: 8px 10px; border: 1px solid var(--warn); border-radius: var(--radius); background: var(--warn-bg); color: var(--warn); display: flex; flex-direction: column; gap: 4px; }
+.warnings li { display: flex; gap: 6px; align-items: flex-start; }
 .tests { padding-left: 28px !important; }
 .tests button.row { padding-left: 8px !important; }
 .tests-toggle { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); flex-wrap: wrap; cursor: pointer; }
@@ -170,6 +179,7 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 .chips li + li::before { content: "→"; color: var(--text-muted); margin-right: 4px; font-size: 11px; }
 .call { font: 12px var(--mono); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; background: var(--bg); display: inline-flex; gap: 3px; align-items: center; }
 .call.nested { opacity: 0.6; font-size: 11px; border-style: dotted; }
+.call.added::first-letter, .call.removed::first-letter { font-weight: 700; }
 .call.moved { color: var(--warn); border-color: var(--warn); font-weight: 700; }
 .call.added { color: var(--add); border-color: var(--add); }
 .call.removed { color: var(--del); border-color: var(--del); text-decoration: line-through; }
@@ -187,8 +197,8 @@ code { font: 12px var(--mono); }
 
 .pane-title { font-size: var(--fs-small); font-weight: 700; margin-top: 4px; }
 .stack, .next-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-.stack li { display: flex; gap: 6px; align-items: baseline; font: 12px var(--mono); min-width: 0; }
-.stack li > span:first-child, .stack li > button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.stack li { display: flex; gap: 6px; align-items: baseline; font: 12px var(--mono); min-width: 0; overflow: hidden; }
+.stack li > :first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; display: block; }
 .stack li.transit { color: var(--text-muted); }
 .stack li.current > span:first-child { font-weight: 700; }
 .stack .role { flex: none; font: 11px var(--font); color: var(--text-muted); }
@@ -201,7 +211,7 @@ code { font: 12px var(--mono); }
 .keys { font-size: var(--fs-small); }
 
 .state { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; }
-.state-title { font-size: 16px; font-weight: 600; }
+.state-title { font-size: 16px; font-weight: 600; margin: 0; }
 .spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }

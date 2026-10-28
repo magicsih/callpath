@@ -30,6 +30,8 @@ export interface MethodSymbol extends SymbolRef {
   calls: CallSite[];
   /** 본문 텍스트에서 공백을 제거한 것. 본문 변경 판정과 이름 변경 짝짓기에 쓴다 */
   bodyFingerprint: string;
+  /** 본문을 뺀 선언부(애노테이션, 이름, 매개변수, 반환 타입)에서 공백을 제거한 것 */
+  signatureFingerprint: string;
   annotations: Annotation[];
   visibility: "public" | "protected" | "private" | "internal" | "package";
   isStatic: boolean;
@@ -447,6 +449,7 @@ function toSymbol(path: string, language: Language, spec: LanguageSpec, node: No
     body: body ? rangeOf(body) : null,
     calls,
     bodyFingerprint: body ? body.text.replace(/\s+/g, "") : "",
+    signatureFingerprint: (body ? node.text.replace(body.text, "") : node.text).replace(/\s+/g, ""),
     classQualifiedName,
     ...spec.methodInfo(node, body),
   };
@@ -482,6 +485,7 @@ function syntheticSpec(path: string, lambda: Node, pkg: string, chain: string[],
     body: rangeOf(lambda),
     calls,
     bodyFingerprint: lambda.text.replace(/\s+/g, ""),
+    signatureFingerprint: "",
     annotations: [],
     visibility: "public",
     isStatic: false,

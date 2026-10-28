@@ -92,7 +92,7 @@ export function buildNav(session: ReviewSession, showTests: boolean): Nav {
 
   const testFiles = new Set<string>();
   for (const s of [...session.flows.flatMap((f) => f.steps), ...session.orphans]) {
-    for (const t of s.tests) if (t.changed) testFiles.add(t.symbol.path);
+    for (const t of s.tests) if (t.change !== null) testFiles.add(t.symbol.path);
   }
   for (const f of session.otherTests) testFiles.add(f.path);
 

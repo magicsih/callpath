@@ -50,6 +50,14 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     if (current) onPersist(current.key, showTests);
   }, [current?.key, showTests]);
 
+  // 분석이 끝나면 선택된 줄로 초점을 옮겨 화면 읽기가 현재 위치부터 읽게 한다
+  const focusedRun = useRef(-1);
+  useEffect(() => {
+    if (analysis.status !== "ready" || !current || focusedRun.current === run) return;
+    focusedRun.current = run;
+    requestAnimationFrame(() => rows.current.get(current.key)?.focus());
+  }, [analysis.status, current?.key, run]);
+
   const select = useCallback(
     (item: NavItem | null, remember = true) => {
       if (!item) return;
@@ -93,12 +101,16 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
           e.preventDefault();
           toggleTests();
           break;
-        case "Enter":
-          if (current.kind === "step" && !target.closest("button")) {
+        case "Enter": {
+          // 이미 선택된 목록 줄에서 누른 Enter는 다음 단계로, 다른 버튼에서 누른 Enter는 그 버튼을 누른다
+          const row = target.closest<HTMLElement>(".pane.left button.row");
+          const onSelectedRow = row?.dataset.key === current.key;
+          if (current.kind === "step" && (onSelectedRow || !target.closest("button"))) {
             e.preventDefault();
             select(childSteps(current, nav)[0] ?? null);
           }
           break;
+        }
         case "Backspace": {
           e.preventDefault();
           const prev = history.current.pop();
@@ -116,8 +128,8 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     <header className="toolbar">
       <span className="brand">Callpath</span>
       <span className="repo">{repoName}</span>
-      <span className="refs" title={`${req.base} 와 ${req.head} 비교`}>
-        {req.base} <span aria-hidden="true">←</span><span className="sr-only">에</span> {req.head}
+      <span className="refs" title={`기준 ${req.base}, 리뷰할 변경 ${req.head}`} aria-label={`기준 ${req.base}, 리뷰할 변경 ${req.head}`}>
+        <span aria-hidden="true">{req.base} ← {req.head}</span>
       </span>
       {session && (
         <span className="stats muted" aria-label="분석 요약">
@@ -150,16 +162,16 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
         {head}
         <div className="state" role="alert" data-testid="state-error">
           <Icon name="warn" size={28} />
-          <p className="state-title">분석하지 못했습니다</p>
+          <h2 className="state-title">분석하지 못했습니다</h2>
           <p className="muted">{analysis.message}</p>
           {analysis.kind === "ref" ? (
             <div className="row">
-              <button className="primary" onClick={onChangeCompare}>비교 바꾸기</button>
+              <button className="primary" onClick={onChangeCompare} autoFocus>비교 바꾸기</button>
               <button onClick={() => setRun((n) => n + 1)}>다시 분석</button>
             </div>
           ) : (
             <div className="row">
-              <button className="primary" onClick={() => setRun((n) => n + 1)}>다시 분석</button>
+              <button className="primary" onClick={() => setRun((n) => n + 1)} autoFocus>다시 분석</button>
               <button onClick={onChangeCompare}>비교 바꾸기</button>
             </div>
           )}
@@ -171,11 +183,11 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     return (
       <div className="review">
         {head}
-        <div className="state" data-testid="state-empty">
+        <div className="state" data-testid="state-empty" role="status">
           <Icon name="nonCode" size={28} />
-          <p className="state-title">바뀐 파일이 없습니다</p>
-          <p className="muted"><code>{req.base}</code> ← <code>{req.head}</code> 비교에 바뀐 파일이 없습니다.</p>
-          <button className="primary" onClick={onChangeCompare}>비교 바꾸기</button>
+          <h2 className="state-title">바뀐 파일이 없습니다</h2>
+          <p className="muted">기준 <code>{req.base}</code>와 리뷰할 변경 <code>{req.head}</code> 사이에 바뀐 파일이 없습니다.</p>
+          <button className="primary" onClick={onChangeCompare} autoFocus>비교 바꾸기</button>
         </div>
       </div>
     );

@@ -32,7 +32,10 @@ export interface LastReview extends CompareRequest {
 
 export interface UiState {
   recent: string[];
-  last: LastReview | null;
+  /** 마지막으로 리뷰 화면에 있던 저장소. 시작 화면으로 나가면 null */
+  lastRepo: string | null;
+  /** 저장소 경로별 마지막 비교, 위치, 테스트 표시 */
+  repos: Record<string, LastReview>;
 }
 
 /** ref: 비교할 브랜치나 커밋을 못 찾음(비교를 바꿔야 함), path: 경로 문제 */
@@ -51,4 +54,4 @@ export interface CallpathApi {
   saveState(state: UiState): Promise<void>;
 }
 
-export const EMPTY_STATE: UiState = { recent: [], last: null };
+export const EMPTY_STATE: UiState = { recent: [], lastRepo: null, repos: {} };

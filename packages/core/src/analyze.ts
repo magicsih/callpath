@@ -57,13 +57,13 @@ export async function analyze(base: FileSource, head: FileSource, opts: AnalyzeO
   orphans.forEach((s, i) => (s.n = i + 1));
 
   // 테스트 파일도 메서드에 매핑해 base 쪽에만 있는 삭제 hunk까지 해당 테스트 메서드에 붙인다
-  const testHunks = new Map<string, Hunk[]>();
+  const testChangesById = new Map<string, Step>();
   for (const tc of testChanges) {
     if (tc.language === null || tc.headText === null) continue;
     const { steps } = await mapMethods(tc, indexes.get(tc.path)?.methods);
-    for (const s of steps) if (s.change !== "removed") testHunks.set(methodId(s.symbol), s.hunks);
+    for (const s of steps) if (s.change !== "removed") testChangesById.set(methodId(s.symbol), s);
   }
-  const attached = attachTests(graph, [...flows.flatMap((f) => f.steps), ...orphans], testHunks, isTestId);
+  const attached = attachTests(graph, [...flows.flatMap((f) => f.steps), ...orphans], testChangesById, isTestId);
   const otherTests: FileChange[] = [];
   for (const tc of testChanges) {
     const left = tc.hunks.filter((h) => !attached.has(hunkKey(h)));
@@ -105,7 +105,7 @@ async function indexSource(source: FileSource): Promise<Map<string, FileIndex>> 
  * 바뀐 메서드마다 그 메서드를 직접 호출하는 테스트를 붙인다. 테스트 hunk 중 붙은 것을 돌려준다.
  * 같은 메서드가 여러 흐름에 참조로 나오면 같은 목록을 공유한다.
  */
-function attachTests(graph: CallGraph, steps: Step[], testHunks: Map<string, Hunk[]>, isTestId: (id: string) => boolean): Set<string> {
+function attachTests(graph: CallGraph, steps: Step[], testChanges: Map<string, Step>, isTestId: (id: string) => boolean): Set<string> {
   const attached = new Set<string>();
   for (const step of steps) {
     if (step.change === "unchanged" || step.change === "removed") continue;
@@ -114,12 +114,15 @@ function attachTests(graph: CallGraph, steps: Step[], testHunks: Map<string, Hun
     for (const e of graph.incoming(id)) {
       if (!isTestId(e.caller) || refs.has(e.caller)) continue;
       const t = graph.methods.get(e.caller)!;
-      const hunks = testHunks.get(e.caller) ?? [];
+      const changed = testChanges.get(e.caller);
+      const hunks = changed?.hunks ?? [];
       hunks.forEach((h) => attached.add(hunkKey(h)));
-      refs.set(e.caller, { symbol: toRef(t), changed: hunks.length > 0, hunks, confidence: e.confidence });
+      const change = changed && changed.change !== "removed" && changed.change !== "unchanged" ? changed.change : null;
+      const baseSymbol = changed?.baseSymbol ? toRef(changed.baseSymbol) : null;
+      refs.set(e.caller, { symbol: toRef(t), baseSymbol, change, hunks, confidence: e.confidence });
     }
     step.tests = [...refs.values()]
-      .sort((a, b) => Number(b.changed) - Number(a.changed) || a.symbol.path.localeCompare(b.symbol.path) || a.symbol.range.startLine - b.symbol.range.startLine)
+      .sort((a, b) => Number(b.change !== null) - Number(a.change !== null) || a.symbol.path.localeCompare(b.symbol.path) || a.symbol.range.startLine - b.symbol.range.startLine)
       .slice(0, MAX_TESTS_PER_STEP);
   }
   return attached;
@@ -164,6 +167,7 @@ export async function mapMethods(change: ChangedFile, headMethods?: MethodSymbol
       change: kind,
       hunks: dedupe([...hunks, ...(partner ? touchedBase.get(partner) ?? [] : [])]),
       path: [],
+      signatureChanged: partner !== null && partner.signatureFingerprint !== m.signatureFingerprint,
       confidence: "medium",
       tests: [],
     };
@@ -175,7 +179,7 @@ export async function mapMethods(change: ChangedFile, headMethods?: MethodSymbol
   }
   for (const [m, hunks] of touchedBase) {
     if (pairedBase.has(m)) continue;
-    steps.push({ n: 0, symbol: m, baseSymbol: m, change: "removed", hunks, path: [], confidence: "medium", tests: [] });
+    steps.push({ n: 0, symbol: m, baseSymbol: m, change: "removed", hunks, path: [], signatureChanged: false, confidence: "medium", tests: [] });
   }
   steps.sort((a, b) => a.symbol.range.startLine - b.symbol.range.startLine);
   return { steps, leftover };

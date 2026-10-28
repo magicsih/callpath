@@ -141,7 +141,7 @@ test("A12 리뷰 화면: 분석 중, 변경 없음, 분석 실패", async () => 
   await page.getByLabel("리뷰할 변경 (head)").fill("no-such-branch");
   await page.getByRole("button", { name: "흐름 분석" }).click();
   await expect(page.getByTestId("state-error")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("state-error")).toContainText("찾을 수 없습니다");
+  await expect(page.getByTestId("state-error")).toContainText("찾을 수 없는 이름: \"no-such-branch\"");
   // 비교를 바꿔야 하는 실패라 주 행동은 비교 바꾸기다
   await expect(page.locator(".state button.primary")).toHaveText("비교 바꾸기");
   await shot(app, "08-state-error");

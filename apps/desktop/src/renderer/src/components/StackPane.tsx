@@ -5,7 +5,11 @@ export function StackPane({ item, nav, onSelect }: { item: NavItem; nav: Nav; on
     return (
       <aside className="pane right" aria-label="호출 스택">
         <h2 className="pane-title">파일</h2>
-        <p className="muted">바뀐 구간 {item.file.hunks.length}곳</p>
+        <p className="muted">
+          {item.groupId === "outside" ? "메서드 밖에서 바뀐 곳" : "바뀐 구간"} {item.file.hunks.length}곳
+          {item.groupId === "outside" &&
+            `: ${item.file.hunks.map((h) => `${((h.head ?? h.base)!.startLine + 1)}번째 줄`).join(", ")}`}
+        </p>
         <p className="muted small">메서드에 속하지 않는 변경이라 호출 스택이 없습니다.</p>
       </aside>
     );

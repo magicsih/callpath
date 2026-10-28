@@ -28,6 +28,12 @@ export function Compare(props: { repo: RepoInfo; initialBase?: string; initialHe
   const [base, setBase] = useState(props.initialBase ?? repo.defaultBase ?? "");
   const [head, setHead] = useState(props.initialHead ?? repo.current ?? "");
   const ready = base.trim() !== "" && head.trim() !== "";
+  const known = (r: string) => repo.branches.includes(r.trim()) || /^[0-9a-f]{7,40}$/i.test(r.trim()) || /[~^]/.test(r);
+  const warnings = [
+    base.trim() && !known(base) ? `브랜치 목록에 없는 기준: "${base.trim()}". 태그나 커밋이면 그대로 분석합니다.` : null,
+    head.trim() && !known(head) ? `브랜치 목록에 없는 리뷰할 변경: "${head.trim()}". 태그나 커밋이면 그대로 분석합니다.` : null,
+    ready && base.trim() === head.trim() ? "기준과 리뷰할 변경이 같아 바뀐 파일이 없습니다." : null,
+  ].filter((w): w is string => w !== null);
   return (
     <main className="compare" aria-labelledby="compare-title">
       <div className="start-card">
@@ -62,6 +68,13 @@ export function Compare(props: { repo: RepoInfo; initialBase?: string; initialHe
             ))}
           </datalist>
           <p className="muted">두 시점의 공통 조상부터 head까지 바뀐 것을 봅니다.</p>
+          {warnings.length > 0 && (
+            <ul className="warnings" data-testid="compare-warnings" aria-live="polite">
+              {warnings.map((w) => (
+                <li key={w}><Icon name="warn" /> {w}</li>
+              ))}
+            </ul>
+          )}
           <button type="submit" className="primary big" disabled={!ready} autoFocus>
             흐름 분석
           </button>

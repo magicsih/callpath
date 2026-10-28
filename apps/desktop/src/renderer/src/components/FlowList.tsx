@@ -37,7 +37,7 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
     const moved = (s.callOrderDiff?.moved.length ?? 0) > 0;
     const ref = s.refOf ? `${flowLabel.get(s.refOf.flow) ?? s.refOf.flow} ${s.refOf.n}단계 참조` : null;
     return (
-      <button {...rowProps(item)} data-testid="step-row">
+      <button {...rowProps(item)} data-testid="step-row" title={s.symbol.qualifiedName}>
         <span className="line1">
           <span className="num" aria-label={`${item.pos}단계`}>{item.pos}</span>
           <span className="name" title={s.symbol.qualifiedName}>
@@ -46,8 +46,9 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
           </span>
           <span className={`chip change-${s.change}`}>{CHANGE_LABEL[s.change]}</span>
         </span>
-        {(moved || s.confidence === "low" || ref) && (
+        {(moved || s.confidence === "low" || ref || (s.signatureChanged && s.change === "body")) && (
           <span className="line2">
+            {s.signatureChanged && s.change === "body" && <span className="flag sig">시그니처도 바뀜</span>}
             {moved && <span className="flag warn"><Icon name="warn" size={12} />순서 변경</span>}
             {s.confidence === "low" && <span className="flag low"><Icon name="link" size={12} />연결 불확실</span>}
             {ref && <span className="flag ref">{ref}</span>}
@@ -75,7 +76,8 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
       <span className="line1">
         <Icon name="test" size={12} />
         <span className="name test-name">{item.test.symbol.name.replace(/`/g, "")}</span>
-        {item.test.changed && <span className="chip change-body">바뀜</span>}
+        {item.test.change === "added" && <span className="chip change-added">추가</span>}
+        {item.test.change !== null && item.test.change !== "added" && <span className="chip change-body">바뀜</span>}
       </span>
       {item.test.confidence === "low" && <span className="line2"><span className="flag low">연결 불확실</span></span>}
     </button>
@@ -90,8 +92,12 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
               <Icon name={g.kind} />
               <span className="sr-only">{KIND_LABEL[g.kind]}: </span>
               <span className="glabel" title={g.label}>{g.label}</span>
-              {movedCount(g) > 0 && <span className="flag warn" data-testid="group-moved"><Icon name="warn" size={11} />순서 변경 {movedCount(g)}</span>}
-              <span className="count" aria-label={`${g.items.length}개`}>{g.items.length}</span>
+              {movedCount(g) > 0 && (
+                <span className="flag warn" data-testid="group-moved">
+                  <Icon name="warn" size={11} />순서 변경 {movedCount(g)}<span className="sr-only">곳,</span>
+                </span>
+              )}
+              <span className="count"><span className="sr-only">항목 </span>{g.items.length}<span className="sr-only">개</span></span>
             </h2>
             <ul>
               {g.items.map((item) => (
