@@ -2,7 +2,7 @@ import { parse as parseYaml } from "yaml";
 import type { FileSource } from "./source/fileSource.js";
 import type { EntryKind } from "./types.js";
 
-export const CONFIG_FILE = ".flow-review.yml";
+export const CONFIG_FILE = ".callpath.yml";
 
 export interface EntryRule {
   /** 메서드에 달린 애노테이션의 단순 이름 */
@@ -12,13 +12,13 @@ export interface EntryRule {
   prefix?: string;
 }
 
-export interface FlowReviewConfig {
+export interface CallpathConfig {
   entries: EntryRule[];
 }
 
 const KINDS = new Set(["http", "message", "schedule", "event", "grpc", "main"]);
 
-export function parseConfig(text: string): FlowReviewConfig {
+export function parseConfig(text: string): CallpathConfig {
   const raw = parseYaml(text) as unknown;
   const entries: EntryRule[] = [];
   const list = raw && typeof raw === "object" && "entries" in raw ? (raw as { entries: unknown }).entries : [];
@@ -33,7 +33,7 @@ export function parseConfig(text: string): FlowReviewConfig {
 }
 
 /** head 시점 저장소 루트의 설정 파일을 읽는다. 없으면 기본값 */
-export async function loadConfig(head: FileSource): Promise<FlowReviewConfig> {
+export async function loadConfig(head: FileSource): Promise<CallpathConfig> {
   const files = await head.listFiles();
   if (!files.includes(CONFIG_FILE)) return { entries: [] };
   return parseConfig(await head.read(CONFIG_FILE));

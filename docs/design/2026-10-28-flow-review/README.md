@@ -1,5 +1,7 @@
 # 흐름 중심 코드 리뷰 앱 설계
 
+- 앱 이름: Callpath (2026-10-28 결정, [D8](decisions.md#d8-앱-이름-callpath))
+
 - 상태: 승인 (v0.1, 2026-10-28 승인). v0.1.1에서 2단계 구현 중 확정한 규칙을 반영 (5.2, 5.4, 5.6, 6.1)
 - 범위: 1차(PR 리뷰 흐름 3종), 2차(새 저장소 안내자)는 구조만 예약
 - 함께 읽기: [테스트 계획](test-plan.md), [결정 기록](decisions.md)
@@ -169,7 +171,7 @@ packages/core        분석 코어 (순수 TS)
   graph/             호출 그래프, 출처와 신뢰도 태그, LSP 결과 병합
   flow/              진입점 감지, 흐름 정렬, 호출 순서 비교
   classify/          테스트 코드 분류
-  cli.ts             `flow-review analyze <repo> --base --head` → JSON
+  cli.ts             `callpath analyze <repo> --base --head` → JSON
 packages/providers   PR 제공자: GitHub(Octokit, baseUrl로 GHE), GitLab REST, 로컬 git
 packages/lsp         JDT LS 내려받기와 기동, kotlin-lsp 탐지, LSP 클라이언트(vscode-jsonrpc)
 packages/llm         OpenAI 호환 클라이언트, 프롬프트 템플릿, 전송 내용 미리보기 생성
@@ -247,7 +249,7 @@ core는 어느 패키지에도 의존하지 않는다. lsp는 core의 그래프 
 
 ### 5.3 진입점 감지
 
-규칙은 head 시점 저장소 루트의 `.flow-review.yml`에 추가할 수 있고 기본값은 다음과 같다.
+규칙은 head 시점 저장소 루트의 `.callpath.yml`에 추가할 수 있고 기본값은 다음과 같다.
 
 ```yaml
 entries:
