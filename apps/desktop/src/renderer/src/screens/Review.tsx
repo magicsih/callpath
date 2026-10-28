@@ -72,20 +72,21 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
   // 분석 결과를 새로 받으면 선택된 줄로 초점을 옮겨 화면 읽기가 현재 위치부터 읽게 한다.
   // 실행 번호가 아니라 결과를 기준으로 삼아, 다시 분석을 누른 직후 이전 결과 위에서 먼저 돌지 않게 한다
   const focusedSession = useRef<ReviewSession | null>(null);
-  const rerunFocus = useRef(false);
+  // 다시 분석을 누를 때 초점이 있던 요소. 끝났을 때 초점이 아직 거기 있으면 목록 줄로 옮긴다
+  const rerunFrom = useRef<Element | null>(null);
   const rerun = () => {
-    rerunFocus.current = true;
+    rerunFrom.current = document.activeElement;
     setRun((n) => n + 1);
   };
   useEffect(() => {
     if (analysis.status !== "ready" || !current || focusedSession.current === analysis.session) return;
     focusedSession.current = analysis.session;
-    // 그사이 사용자가 다른 곳에 초점을 두었으면 빼앗지 않는다. 다시 분석 버튼에 남은 초점은 분석을 시작한 자리라 옮긴다
-    const fromRerun = rerunFocus.current;
-    rerunFocus.current = false;
+    // 그사이 사용자가 다른 곳에 초점을 두었으면 빼앗지 않는다. 다시 분석을 누른 자리에 초점이 남아 있으면 옮긴다
+    const from = rerunFrom.current;
+    rerunFrom.current = null;
     requestAnimationFrame(() => {
       const active = document.activeElement as HTMLButtonElement | null;
-      if (fromRerun || !active || active === document.body || active.disabled) rows.current.get(current.key)?.focus();
+      if (!active || active === document.body || active.disabled || (from !== null && active === from)) rows.current.get(current.key)?.focus();
     });
   }, [analysis, current?.key]);
 
