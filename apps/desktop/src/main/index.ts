@@ -1,10 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, type WebContents } from "electron";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import workerPath from "./analyzeWorker?modulePath";
 import { inspectRepo, PathError, readAt } from "./repo";
 import { loadState, saveState } from "./state";
-import type { CompareRequest, ErrorKind, FileRequest, Result, UiState } from "../shared/api";
+import type { AnalysisEvent, CompareRequest, ErrorKind, FileRequest, Result, UiState } from "../shared/api";
+import type { WorkerEvent } from "./analyzeWorker";
 import type { ReviewSession } from "@callpath/core";
 
 // 테스트와 여러 프로필 실행을 위해 앱 데이터 폴더를 바꿀 수 있게 한다. ready 전에 정해야 한다
@@ -41,13 +42,29 @@ let worker: Worker | null = null;
 let nextId = 1;
 type WorkerReply = { ok: true; value: ReviewSession } | { ok: false; error: string };
 const pending = new Map<number, (r: WorkerReply | Result<ReviewSession>) => void>();
+/** 요청 번호별로, 정밀 분석 소식을 보낼 창과 요청 */
+const listeners = new Map<number, { sender: WebContents; req: CompareRequest }>();
+
+function forward(id: number, ev: AnalysisEvent): void {
+  const l = listeners.get(id);
+  if (l && !l.sender.isDestroyed()) l.sender.send("analysis-event", ev);
+}
 
 function getWorker(): Worker {
   if (worker) return worker;
-  const w = new Worker(workerPath);
-  w.on("message", (m: { id: number } & ({ ok: true; value: ReviewSession } | { ok: false; error: string })) => {
-    pending.get(m.id)?.(m);
-    pending.delete(m.id);
+  const w = new Worker(workerPath, { workerData: { userData: app.getPath("userData") } });
+  w.on("message", (m: WorkerEvent) => {
+    const l = listeners.get(m.id);
+    if (m.kind === "fast") {
+      pending.get(m.id)?.(m.ok ? { ok: true, value: m.value } : { ok: false, error: m.error });
+      pending.delete(m.id);
+      if (!m.ok) listeners.delete(m.id);
+    } else if (l && m.kind === "status") {
+      forward(m.id, { req: l.req, kind: "status", message: m.message });
+    } else if (l && m.kind === "precise") {
+      forward(m.id, m.ok ? { req: l.req, kind: "precise", session: m.value } : { req: l.req, kind: "precise-error", error: m.error });
+      listeners.delete(m.id);
+    }
   });
   const fail = (message: string) => {
     for (const resolve of pending.values()) resolve({ ok: false, error: message, kind: "other" });
@@ -61,11 +78,12 @@ function getWorker(): Worker {
   return w;
 }
 
-async function analyzeInWorker(req: CompareRequest): Promise<Result<ReviewSession>> {
+async function analyzeInWorker(req: CompareRequest, sender: WebContents): Promise<Result<ReviewSession>> {
   // 분석 중 화면을 검수하려고 일부러 늦출 때만 쓰는 값이다
   const delay = Number(process.env.CALLPATH_ANALYZE_DELAY_MS ?? 0);
   if (delay > 0) await new Promise((r) => setTimeout(r, delay));
   const id = nextId++;
+  listeners.set(id, { sender, req });
   return new Promise((resolve) => {
     pending.set(id, (r) => resolve(r.ok ? r : { ok: false, ...friendly(new Error(r.error)) }));
     getWorker().postMessage({ id, req });
@@ -80,7 +98,7 @@ ipcMain.handle("pickFolder", async (e) => {
   return r.canceled ? null : (r.filePaths[0] ?? null);
 });
 ipcMain.handle("inspectRepo", (_e, path: string) => wrap(() => inspectRepo(path)));
-ipcMain.handle("analyze", (_e, req: CompareRequest) => analyzeInWorker(req));
+ipcMain.handle("analyze", (e, req: CompareRequest) => analyzeInWorker(req, e.sender));
 ipcMain.handle("readFile", (_e, req: FileRequest) => wrap(() => readAt(req.repo, req.ref, req.path)));
 ipcMain.handle("loadState", () => loadState());
 ipcMain.handle("saveState", (_e, s: UiState) => saveState(s));

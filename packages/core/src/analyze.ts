@@ -8,7 +8,24 @@ import { detectEntries } from "./flow/entries.js";
 import { buildFlows, toRef } from "./flow/flows.js";
 import { isTestFile, isTestPath } from "./classify/test.js";
 import { loadConfig, type CallpathConfig } from "./config.js";
-import type { ChangeKind, FileChange, Hunk, Range, ReviewSession, Step, TestRef } from "./types.js";
+import type { ChangeKind, FileChange, Hunk, Language, LanguageAnalysis, PreciseStatus, Range, ReviewSession, Step, TestRef } from "./types.js";
+
+export interface RefineContext {
+  graph: CallGraph;
+  /** 바뀐 메서드(삭제 제외)의 식별자. 정밀 분석은 이 메서드들의 주변만 질의한다 */
+  changed: string[];
+  files: Map<string, FileIndex>;
+}
+
+/** 정밀 분석(설계 5.2의 2계층). 그래프를 고치고 언어별 결과를 돌려준다 */
+export type Refiner = (ctx: RefineContext) => Promise<Partial<Record<Language, LanguageAnalysis>>>;
+
+function overall(languages: Partial<Record<Language, LanguageAnalysis>>): PreciseStatus {
+  const s = Object.values(languages).map((l) => l!.status);
+  if (s.includes("failed")) return "failed";
+  if (s.includes("done")) return "done";
+  return "skipped";
+}
 
 export interface AnalyzeOptions {
   repo: string;
@@ -16,6 +33,8 @@ export interface AnalyzeOptions {
   headLabel: string;
   /** 주지 않으면 head 시점의 .callpath.yml을 읽는다 */
   config?: CallpathConfig;
+  /** 주면 진입점과 흐름을 계산하기 전에 정밀 분석으로 그래프를 고친다 */
+  refine?: Refiner;
 }
 
 const MAX_TESTS_PER_STEP = 20;
@@ -50,6 +69,9 @@ export async function analyze(base: FileSource, head: FileSource, opts: AnalyzeO
     if (leftover.length) outsideMethods.push({ ...toFileChange(change), hunks: leftover });
   }
 
+  const languages = opts.refine ? await opts.refine({ graph, changed: [...changed.keys()], files: indexes }) : {};
+  const precise: PreciseStatus = opts.refine ? overall(languages) : "pending";
+
   const entries = detectEntries(graph, isTestMethod, config.entries);
   const { flows, claimed } = buildFlows(graph, entries, changed, isTestId);
   const orphans = [...[...changed.entries()].filter(([id]) => !claimed.has(id)).map(([, s]) => s), ...removed]
@@ -74,7 +96,7 @@ export async function analyze(base: FileSource, head: FileSource, opts: AnalyzeO
     repo: opts.repo,
     base: opts.baseLabel,
     head: opts.headLabel,
-    analysis: { fast: "done", precise: "pending" },
+    analysis: { fast: "done", precise, languages },
     flows: flows.map((f) => ({ ...f, steps: f.steps.map(compactStep) })),
     orphans: orphans.map(compactStep),
     outsideMethods,

@@ -435,9 +435,12 @@ function toSymbol(path: string, language: Language, spec: LanguageSpec, node: No
   const body = firstChildOfType(node, [...spec.bodyNodes]) ?? node.childForFieldName("body");
   const calls: CallSite[] = [];
   if (body) collectCalls(spec, body, 0, null, calls, true);
+  const nameNode = node.childForFieldName("name") ?? firstChildOfType(node, ["identifier"]);
+  const namePos = nameNode ? { line: nameNode.startPosition.row, column: nameNode.startPosition.column } : { line: node.startPosition.row, column: node.startPosition.column };
   return {
     path,
     language,
+    namePos,
     qualifiedName: [pkg, container, name].filter(Boolean).join("."),
     name,
     container,

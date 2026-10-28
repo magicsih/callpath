@@ -47,6 +47,12 @@ export type ErrorKind = "ref" | "path" | "other";
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string; kind: ErrorKind };
 
+/** 빠른 분석 결과를 돌려준 뒤 워커가 이어서 보내는 정밀 분석 소식 */
+export type AnalysisEvent =
+  | { req: CompareRequest; kind: "status"; message: string }
+  | { req: CompareRequest; kind: "precise"; session: ReviewSession }
+  | { req: CompareRequest; kind: "precise-error"; error: string };
+
 /** preload가 window.callpath로 노출하는 API */
 export interface CallpathApi {
   pickFolder(): Promise<string | null>;
@@ -54,6 +60,8 @@ export interface CallpathApi {
   analyze(req: CompareRequest): Promise<Result<ReviewSession>>;
   /** 그 커밋에 파일이 없으면 null */
   readFile(req: FileRequest): Promise<Result<string | null>>;
+  /** 정밀 분석 소식을 받는다. 돌려준 함수를 부르면 그만 받는다 */
+  onAnalysisEvent(cb: (e: AnalysisEvent) => void): () => void;
   loadState(): Promise<UiState>;
   saveState(state: UiState): Promise<void>;
 }

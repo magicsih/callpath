@@ -16,6 +16,8 @@ export interface SymbolRef {
   container: string | null;
   arity: number;
   range: Range;
+  /** 메서드 이름이 시작하는 위치(0부터). LSP 질의에 쓴다 */
+  namePos?: { line: number; column: number };
 }
 
 export interface Hunk {
@@ -104,11 +106,30 @@ export interface Flow {
   truncated: boolean;
 }
 
+/** 정밀 분석(LSP) 상태. skipped는 도구가 없거나 꺼져 있어 하지 않은 것 */
+export type PreciseStatus = "pending" | "done" | "failed" | "skipped";
+
+export interface LanguageAnalysis {
+  status: PreciseStatus;
+  /** disabled: 설정으로 끔, no-tool: JDK나 kotlin-lsp가 없음, error: 실행 오류, timeout: 시간 초과 */
+  code?: "disabled" | "no-tool" | "error" | "timeout";
+  /** 실패하거나 건너뛴 이유 */
+  reason?: string;
+  /** 질의한 바뀐 메서드 수와 확인한 간선 수 */
+  queried?: number;
+  confirmedEdges?: number;
+}
+
 export interface ReviewSession {
   repo: string;
   base: string;
   head: string;
-  analysis: { fast: "done"; precise: "pending" | "done" | "failed"; failReason?: string };
+  analysis: {
+    fast: "done";
+    precise: PreciseStatus;
+    /** 언어별 정밀 분석 결과. 바뀐 메서드가 있는 언어만 들어간다 */
+    languages: Partial<Record<Language, LanguageAnalysis>>;
+  };
   flows: Flow[];
   orphans: Step[];
   /** 메서드 밖 변경(필드, import 등)과 지원 언어의 비메서드 hunk */

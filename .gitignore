@@ -3,3 +3,4 @@ dist/
 out/
 *.log
 apps/desktop/test-results/
+.lsp-cache/

@@ -133,7 +133,8 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs }: Props) {
     return () => {
       alive = false;
     };
-  }, [item.key, session]);
+    // 정밀 분석 결과로 세션 객체만 바뀌면 비교할 코드는 같으므로 다시 읽지 않는다(깜빡임과 스크롤 위치 유지)
+  }, [item.key, session.repo, session.base, session.head]);
 
   const sym = item.kind === "file" ? null : item.kind === "test" ? item.test.symbol : item.step.symbol;
   const title = item.kind === "file" ? item.file.path.split("/").pop()! : item.kind === "test" ? item.test.symbol.name.replace(/`/g, "") : shortName(item.step.symbol);

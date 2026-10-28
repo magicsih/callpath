@@ -12,8 +12,9 @@ AI가 한 번에 고쳐 올린 PR을 파일 순서가 아니라 호출 흐름 �
 |---|---|---|
 | `packages/core` | 분석 코어와 CLI. diff → 메서드 매핑 → 호출 순서 비교 → 호출 그래프 → 진입점 → 흐름 정렬 → 테스트 연결 | 2단계 완료 |
 | `fixtures/` | 쿠폰 예시 표본 저장소 (Java, Kotlin) | |
-| `apps/desktop` | Electron 앱. 시작, 비교 선택, 리뷰 화면(흐름 목록, 메서드 diff, 호출 스택) | 3단계 |
-| `packages/lsp`, `packages/providers`, `packages/llm` | 설계 4.1 참고 | 예정 |
+| `apps/desktop` | Electron 앱. 시작, 비교 선택, 리뷰 화면(흐름 목록, 메서드 diff, 호출 스택), 정밀 분석 상태 | 4단계 |
+| `packages/lsp` | 정밀 분석. JDT LS(Java), kotlin-lsp(Kotlin)로 바뀐 메서드 주변 호출을 확정 | 4단계 |
+| `packages/providers`, `packages/llm` | 설계 4.1 참고 | 예정 |
 
 ## 코어 CLI 사용
 
@@ -52,6 +53,18 @@ pnpm install
 pnpm build
 pnpm --filter @callpath/desktop dev
 ```
+
+## 정밀 분석
+
+JDK 21 이상이 있으면 처음 분석할 때 JDT LS 1.61.0(약 50MB)을 앱 데이터 폴더에 내려받아 Java 호출을 확정한다. Kotlin은 kotlin-lsp를 설치하면(`brew install JetBrains/utils/kotlin-lsp`) 함께 확정한다. 없으면 이름으로 이은 연결만 쓴다.
+
+| 환경 변수 | 뜻 |
+|---|---|
+| `CALLPATH_PRECISE=off` | 정밀 분석을 끈다 |
+| `CALLPATH_JAVA_HOME` | 쓸 JDK 경로 |
+| `CALLPATH_JDTLS_DIR` | 미리 풀어 둔 JDT LS 폴더 |
+| `CALLPATH_KOTLIN_LSP` | kotlin-lsp 실행 파일 경로 |
+| `CALLPATH_LSP_CACHE` | JDT LS와 head 코드 사본을 둘 폴더 |
 
 ## 개발
 

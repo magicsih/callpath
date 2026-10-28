@@ -20,6 +20,7 @@ const PATHS: Record<string, string> = {
   back: "M10 3 5 8l5 5",
   next: "M6 3l5 5-5 5",
   refresh: "M13 8a5 5 0 1 1-1.5-3.5M13 3v2.5h-2.5",
+  check: "M3 8.5l3 3 7-7",
 };
 
 export function Icon({ name, size = 14 }: { name: GroupKind | keyof typeof PATHS; size?: number }) {
