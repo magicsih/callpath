@@ -36,6 +36,8 @@ export interface CallSite {
   depth: number;
   /** 가장 가까운 제어문 종류. 없으면 null */
   control: string | null;
+  /** 다른 호출의 인자나 수신자 안에 있는 호출. 예: decrease(request.items())의 items */
+  nested: boolean;
   line: number;
 }
 

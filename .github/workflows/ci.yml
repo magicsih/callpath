@@ -20,6 +20,20 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
+      # 데스크톱 타입 검사가 코어 빌드 결과(d.ts)를 읽으므로 빌드를 먼저 한다
       - run: pnpm build
+      - run: pnpm typecheck
       - run: pnpm test
+      - name: 데스크톱 E2E (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a pnpm --filter @callpath/desktop exec playwright test
+      - name: 데스크톱 E2E (macOS)
+        if: runner.os == 'macOS'
+        run: pnpm --filter @callpath/desktop exec playwright test
+      - name: E2E 실패 화면
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-${{ matrix.os }}
+          path: apps/desktop/test-results/
+          retention-days: 3

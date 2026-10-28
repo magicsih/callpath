@@ -123,6 +123,15 @@ export class GitRefSource implements FileSource {
   }
 }
 
+/**
+ * PR 리뷰의 base는 두 ref의 merge-base다(설계 5.1의 git diff base...head).
+ * base 브랜치가 앞서 나가도 그쪽 변경이 되돌림으로 섞이지 않는다.
+ */
+export async function mergeBase(repo: string, base: string, head: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-C", repo, "merge-base", base, head]);
+  return stdout.trim();
+}
+
 export async function isDirectory(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isDirectory();

@@ -79,3 +79,12 @@ describe("1계층 호출 그래프", () => {
     expect(callees("p.OrderSpec.<spec>")).toEqual(["p.Svc.place:medium"]);
   });
 });
+
+describe("인자 안 호출 표시", () => {
+  it("decrease(request.items())의 items는 nested, 람다 본문 안의 문장 호출은 바깥 호출", async () => {
+    const lang = "java" as const;
+    const tree = await parse(lang, "class A {\n  void run(R r) {\n    decrease(r.items());\n    list.forEach(x -> { save(x); });\n  }\n}\n");
+    const m = indexFile("A.java", lang, tree).methods[0]!;
+    expect(m.calls.map((c) => `${c.name}:${c.nested}`)).toEqual(["decrease:false", "items:true", "forEach:false", "save:false"]);
+  });
+});

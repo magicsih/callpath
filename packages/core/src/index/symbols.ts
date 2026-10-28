@@ -493,13 +493,15 @@ function syntheticSpec(path: string, lambda: Node, pkg: string, chain: string[],
   };
 }
 
-function collectCalls(spec: LanguageSpec, node: Node, depth: number, control: string | null, out: CallSite[], isRoot: boolean): void {
+function collectCalls(spec: LanguageSpec, node: Node, depth: number, control: string | null, out: CallSite[], isRoot: boolean, inCall = false): void {
   const call = spec.callOf(node);
   // 바깥 호출을 먼저 기록하고 인자 안의 호출을 소스 순서대로 이어서 기록한다
-  if (call) out.push({ ...call, depth, control, line: node.startPosition.row });
+  if (call) out.push({ ...call, depth, control, line: node.startPosition.row, nested: inCall });
   let nextDepth = depth;
   let nextControl = control;
   if (!isRoot && spec.blockNodes.has(node.type)) nextDepth = depth + 1;
   if (spec.controlNodes.has(node.type)) nextControl = node.type;
-  for (const c of node.children) collectCalls(spec, c, nextDepth, nextControl, out, false);
+  // 블록(람다 본문 등)에 들어가면 그 안의 문장은 다시 바깥 호출로 본다
+  const childInCall = call !== null || (inCall && !(spec.blockNodes.has(node.type) && !isRoot));
+  for (const c of node.children) collectCalls(spec, c, nextDepth, nextControl, out, false, childInCall);
 }
