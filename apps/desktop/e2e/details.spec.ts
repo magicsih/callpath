@@ -151,3 +151,17 @@ test("Kotlin 기타 테스트는 단계에 붙지 않은 구간만 강조한다"
   await expect(page.locator(".line-highlight").first()).toBeVisible();
   await app.close();
 });
+
+test("테스트 표시를 꺼서 위치가 바뀌어도 초점을 목록으로 끌어오지 않는다", async () => {
+  const { app, page } = await launch(makeUserData());
+  await openAndAnalyze(page, java);
+  await page.keyboard.press("t");
+  await page.getByTestId("test-row").first().click();
+  // 초점을 아무 데도 두지 않은 채 t로 테스트 표시를 끄면 선택은 부모 단계로 돌아간다
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("t");
+  await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
+  await page.waitForTimeout(200);
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await app.close();
+});

@@ -52,8 +52,11 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
 
   // 끝에 닿아 누르던 이전, 다음 버튼이 꺼지면 초점이 사라지므로 현재 목록 줄로 옮긴다.
   // 브라우저가 꺼진 버튼의 초점을 언제 거두는지가 환경마다 달라, 화면 갱신 직후와 다음 프레임에 모두 확인한다
+  // 하단 버튼으로 옮겼을 때만 복구한다. 다른 이유(테스트 표시 끄기 등)로 위치가 바뀔 때 초점을 끌어오지 않는다
+  const fromBottomBar = useRef(false);
   useEffect(() => {
-    if (!current) return;
+    if (!current || !fromBottomBar.current) return;
+    fromBottomBar.current = false;
     const rescue = () => {
       const active = document.activeElement as HTMLButtonElement | null;
       if (!active || active === document.body || active.disabled) rows.current.get(current.key)?.focus();
@@ -248,14 +251,29 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
         <StackPane item={current} nav={nav} onSelect={(i) => select(i)} />
       </div>
       <footer className="bottombar">
-        <button onClick={() => select(neighbor(nav, current.key, -1))} disabled={idx <= 0} aria-label="이전 항목">
+        <button
+          onClick={() => {
+            fromBottomBar.current = true;
+            select(neighbor(nav, current.key, -1));
+          }}
+          disabled={idx <= 0}
+          aria-label="이전 항목"
+        >
           <Icon name="back" /> 이전
         </button>
         <span className="position" data-testid="position">
           <strong>{position}</strong>
           <span className="muted overall"> · 전체 {idx + 1} / {nav.order.length}</span>
         </span>
-        <button className="primary" onClick={() => select(neighbor(nav, current.key, 1))} disabled={idx >= nav.order.length - 1} aria-label="다음 항목">
+        <button
+          className="primary"
+          onClick={() => {
+            fromBottomBar.current = true;
+            select(neighbor(nav, current.key, 1));
+          }}
+          disabled={idx >= nav.order.length - 1}
+          aria-label="다음 항목"
+        >
           다음 <Icon name="next" />
         </button>
         <span className="spacer" />
