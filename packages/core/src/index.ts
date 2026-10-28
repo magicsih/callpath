@@ -1,8 +1,12 @@
 export * from "./types.js";
-export { analyze, mapMethods } from "./analyze.js";
+export { analyze, mapMethods, type AnalyzeOptions } from "./analyze.js";
 export { DirectorySource, GitRefSource, isDirectory, type FileSource } from "./source/fileSource.js";
 export { collectChanges, hunksBetween, languageOf } from "./diff/fileChanges.js";
-export { extractMethods, type MethodSymbol } from "./index/symbols.js";
+export { extractMethods, indexFile, simpleType, type Annotation, type ClassSymbol, type FileIndex, type MethodSymbol } from "./index/symbols.js";
 export { parse } from "./index/parser.js";
+export { buildCallGraph, methodId, CallGraph, type Edge, type Confidence } from "./graph/callGraph.js";
+export { detectEntries, type EntryPoint } from "./flow/entries.js";
+export { buildFlows, toRef, MAX_DEPTH, MAX_TRANSIT } from "./flow/flows.js";
 export { diffCallOrder } from "./flow/callOrder.js";
-export { isTestPath } from "./classify/test.js";
+export { isTestFile, isTestPath } from "./classify/test.js";
+export { CONFIG_FILE, loadConfig, parseConfig, type EntryRule, type FlowReviewConfig } from "./config.js";

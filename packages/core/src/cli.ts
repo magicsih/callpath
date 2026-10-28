@@ -2,6 +2,38 @@
 import { resolve } from "node:path";
 import { analyze } from "./analyze.js";
 import { DirectorySource, GitRefSource, isDirectory } from "./source/fileSource.js";
+import type { ReviewSession, Step } from "./types.js";
+
+const MARK: Record<Step["change"], string> = { body: "본문", signature: "시그니처", renamed: "이름", added: "추가", removed: "삭제", unchanged: "진입점" };
+
+function printStep(s: Step): void {
+  const flags = [
+    s.callOrderDiff?.moved.length ? "⚠ 순서 변경" : "",
+    s.confidence === "low" ? "연결 불확실" : "",
+    s.refOf ? `${s.refOf.flow} ${s.refOf.n}단계 참조` : "",
+    s.tests.length ? `테스트 ${s.tests.length}` : "",
+  ].filter(Boolean).join(", ");
+  console.log(`  ${String(s.n).padStart(2)}  ${MARK[s.change].padEnd(4)} ${s.symbol.qualifiedName}${flags ? "  (" + flags + ")" : ""}`);
+  if (s.callOrderDiff?.moved.length) {
+    const names = (l: { name: string }[]) => l.map((c) => c.name).join(" → ");
+    console.log(`        base: ${names(s.callOrderDiff.base)}`);
+    console.log(`        head: ${names(s.callOrderDiff.head)}`);
+  }
+}
+
+function printSummary(session: ReviewSession): void {
+  for (const f of session.flows) {
+    console.log(`▸ ${f.label}${f.truncated ? "  (일부 가지 생략)" : ""}`);
+    f.steps.forEach(printStep);
+  }
+  if (session.orphans.length) {
+    console.log(`▸ 진입점 미확정 (${session.orphans.length})`);
+    session.orphans.forEach(printStep);
+  }
+  const st = session.stats;
+  console.log(`\n메서드 밖 변경 ${session.outsideMethods.length}개, 기타 테스트 ${session.otherTests.length}개, 비코드 ${session.nonCode.length}개`);
+  console.log(`파일 ${st.files}, 메서드 ${st.methods}, 간선 ${st.edges}, 진입점 ${st.entries}, ${st.ms}ms`);
+}
 
 const USAGE = `사용법:
   flow-review analyze <repo> --base <ref> --head <ref>     git 저장소의 두 ref 비교
@@ -35,20 +67,8 @@ async function main(argv: string[]): Promise<number> {
     const h = new GitRefSource(resolve(repo), head);
     session = await analyze(b, h, { repo: resolve(repo), baseLabel: await b.resolve(), headLabel: await h.resolve() });
   }
-  if (rest.includes("--summary")) {
-    for (const s of session.orphans) {
-      const flag = s.callOrderDiff?.moved.length ? "  ⚠ 순서 변경" : "";
-      console.log(`${String(s.n).padStart(3)}  ${s.change.padEnd(9)} ${s.symbol.qualifiedName}${flag}`);
-      if (s.callOrderDiff) {
-        const names = (l: { name: string }[]) => l.map((c) => c.name).join(" → ");
-        console.log(`       base: ${names(s.callOrderDiff.base)}`);
-        console.log(`       head: ${names(s.callOrderDiff.head)}`);
-      }
-    }
-    console.log(`\n메서드 밖 변경 ${session.outsideMethods.length}개, 테스트 ${session.otherTests.length}개, 비코드 ${session.nonCode.length}개`);
-  } else {
-    console.log(JSON.stringify(session, null, 2));
-  }
+  if (rest.includes("--summary")) printSummary(session);
+  else console.log(JSON.stringify(session, null, 2));
   return 0;
 }
 

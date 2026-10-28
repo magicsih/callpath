@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -10,6 +10,9 @@ export interface FileSource {
   readonly label: string;
   listFiles(): Promise<string[]>;
   read(path: string): Promise<string>;
+  readMany(paths: string[]): Promise<Map<string, string>>;
+  /** 경로 → 내용 해시. 제공하면 내용을 읽지 않고 바뀐 파일을 고른다 */
+  blobIds?(): Promise<Map<string, string>>;
 }
 
 const IGNORED_DIRS = new Set([".git", "node_modules", "build", "target", "out", ".gradle", ".idea"]);
@@ -35,27 +38,83 @@ export class DirectorySource implements FileSource {
   async read(path: string): Promise<string> {
     return readFile(join(this.root, path), "utf8");
   }
+
+  async readMany(paths: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const BATCH = 64;
+    for (let i = 0; i < paths.length; i += BATCH) {
+      const slice = paths.slice(i, i + BATCH);
+      const texts = await Promise.all(slice.map((p) => this.read(p)));
+      slice.forEach((p, j) => out.set(p, texts[j]!));
+    }
+    return out;
+  }
 }
 
 export class GitRefSource implements FileSource {
+  private treeCache: Promise<Map<string, string>> | null = null;
+
   constructor(private readonly repo: string, private readonly ref: string) {}
 
   get label(): string {
     return this.ref;
   }
 
+  private tree(): Promise<Map<string, string>> {
+    this.treeCache ??= (async () => {
+      const { stdout } = await execFileAsync("git", ["-C", this.repo, "ls-tree", "-r", "-z", this.ref], { maxBuffer: 256 * 1024 * 1024 });
+      const map = new Map<string, string>();
+      for (const entry of stdout.split("\0")) {
+        if (!entry) continue;
+        const tab = entry.indexOf("\t");
+        const [, type, hash] = entry.slice(0, tab).split(" ");
+        if (type === "blob" && hash) map.set(entry.slice(tab + 1), hash);
+      }
+      return map;
+    })();
+    return this.treeCache;
+  }
+
   async listFiles(): Promise<string[]> {
-    const { stdout } = await execFileAsync("git", ["-C", this.repo, "ls-tree", "-r", "--name-only", "-z", this.ref], {
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    return stdout.split("\0").filter(Boolean).sort();
+    return [...(await this.tree()).keys()].sort();
+  }
+
+  blobIds(): Promise<Map<string, string>> {
+    return this.tree();
   }
 
   async read(path: string): Promise<string> {
-    const { stdout } = await execFileAsync("git", ["-C", this.repo, "show", `${this.ref}:${path}`], {
-      maxBuffer: 64 * 1024 * 1024,
+    const text = (await this.readMany([path])).get(path);
+    if (text === undefined) throw new Error(`${this.ref}:${path} 없음`);
+    return text;
+  }
+
+  /** git cat-file --batch 한 번으로 여러 파일을 읽는다 */
+  async readMany(paths: string[]): Promise<Map<string, string>> {
+    const tree = await this.tree();
+    const wanted = paths.filter((p) => tree.has(p));
+    const out = new Map<string, string>();
+    if (wanted.length === 0) return out;
+    const buf = await new Promise<Buffer>((resolve, reject) => {
+      const child = spawn("git", ["-C", this.repo, "cat-file", "--batch"], { stdio: ["pipe", "pipe", "pipe"] });
+      const chunks: Buffer[] = [];
+      let err = "";
+      child.stdout.on("data", (c: Buffer) => chunks.push(c));
+      child.stderr.on("data", (c: Buffer) => (err += c.toString()));
+      child.on("error", reject);
+      child.on("close", (code) => (code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`git cat-file 실패 (${code}): ${err}`))));
+      child.stdin.end(wanted.map((p) => tree.get(p)).join("\n") + "\n");
     });
-    return stdout;
+    let pos = 0;
+    for (const path of wanted) {
+      const nl = buf.indexOf(0x0a, pos);
+      const header = buf.subarray(pos, nl).toString();
+      const size = Number(header.split(" ")[2]);
+      if (!Number.isFinite(size)) throw new Error(`git cat-file 응답 해석 실패: ${header}`);
+      out.set(path, buf.subarray(nl + 1, nl + 1 + size).toString("utf8"));
+      pos = nl + 1 + size + 1;
+    }
+    return out;
   }
 
   async resolve(): Promise<string> {

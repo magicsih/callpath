@@ -1,6 +1,6 @@
 # 흐름 중심 코드 리뷰 앱 설계
 
-- 상태: 승인 (v0.1, 2026-10-28 승인)
+- 상태: 승인 (v0.1, 2026-10-28 승인). v0.1.1에서 2단계 구현 중 확정한 규칙을 반영 (5.2, 5.4, 5.6, 6.1)
 - 범위: 1차(PR 리뷰 흐름 3종), 2차(새 저장소 안내자)는 구조만 예약
 - 함께 읽기: [테스트 계획](test-plan.md), [결정 기록](decisions.md)
 
@@ -114,11 +114,11 @@ stateDiagram-v2
 ```
 ┌ 흐름 목록 ───────────┬ 코드(diff) ─────────────────────────┬ 호출 스택 ─────────┐
 │ ▸ POST /orders       │ OrderService.placeOrder (head)      │ OrderController   │
-│   1 OrderController  │  - approvePayment(...)              │  └ OrderService   │
-│   2 OrderService ●   │  - decreaseStock(...)               │     └ ● placeOrder│
-│   3 CouponCalculator │  + validateCoupon(...)              │        ├ validate │
-│   4 PaymentClient    │  + decreaseStock(...)   ⚠ 순서 변경 │        ├ decrease │
-│   5 StockRepository  │  + approvePayment(...)              │        └ approve  │
+│   1 place (진입점)   │  - approvePayment(...)              │  └ OrderService   │
+│   2 placeOrder ● ⚠   │  - decreaseStock(...)               │     └ ● placeOrder│
+│   3 validateCoupon   │  + validateCoupon(...)              │        ├ validate │
+│   4 discountFor      │  + decreaseStock(...)               │        ├ decrease │
+│   5 approve          │  + approvePayment(...)   ⚠ 순서 변경│        └ approve  │
 │ ▸ KafkaListener ...  │                                     │                   │
 │ ▸ 진입점 미확정 (2)  │ [호출 순서 비교]                    │ [설명 요청]       │
 │ ☐ 테스트 표시 (3)    │  base: approve → decrease           │                   │
@@ -129,7 +129,7 @@ stateDiagram-v2
 
 | 영역 | 내용 | 동작 |
 |---|---|---|
-| 흐름 목록 (왼쪽) | 진입점별 흐름. 각 흐름 아래 변경 메서드가 호출 순서대로 번호를 달고 나열. 맨 아래에 "진입점 미확정" 묶음과 테스트 토글 | 항목 클릭으로 이동. 흐름 접기 가능. 신뢰도가 낮은 간선으로 연결된 단계는 점선 표시 |
+| 흐름 목록 (왼쪽) | 진입점별 흐름. 1단계는 진입점이고, 그 아래 변경 메서드가 호출 순서대로 번호를 달고 나열. 바뀌지 않은 경유 메서드(예: StockRepository.decrease)는 단계가 아니라 호출 스택에만 보인다. 맨 아래에 "진입점 미확정" 묶음과 테스트 토글 | 항목 클릭으로 이동. 흐름 접기 가능. 신뢰도가 낮은 간선으로 연결된 단계는 점선 표시 |
 | 코드 (중앙) | Monaco DiffEditor. 현재 단계 메서드의 base와 head를 나란히 또는 inline으로 표시. 메서드 밖 변경은 접힌 상태로 아래에 덧붙임 | 호출 순서가 바뀐 메서드면 상단에 "호출 순서 비교" 띠. 호출문 클릭으로 그 메서드로 바로 이동(흐름 밖이면 참조 모드로 열림) |
 | 호출 스택 (오른쪽) | 진입점에서 현재 메서드까지의 경로와 현재 메서드의 outgoing 호출 | 바뀌지 않은 경유 메서드는 회색 접힘. 클릭하면 읽기 전용으로 펼침 |
 | 하단 바 | 이전/다음, 현재 단계 / 전체, 단축키 안내 | `j`/`k` 단계 이동, `t` 테스트 토글, `Enter` 호출 따라가기, `Backspace` 되돌아가기 |
@@ -235,11 +235,26 @@ core는 어느 패키지에도 의존하지 않는다. lsp는 core의 그래프 
 | 1 | tree-sitter | 호출문의 메서드 이름과 인자 수로 같은 저장소 안의 후보를 찾음. 수신자 타입은 같은 파일의 필드, 지역 변수 선언 타입이 보이면 쓰고 아니면 무시 | 후보 1개면 `medium`, 여러 개면 모두 간선으로 두고 `low` | 빠른 분석 |
 | 2 | LSP (JDT LS, kotlin-lsp) | 변경 메서드마다 `prepareCallHierarchy` → `incomingCalls`, `outgoingCalls` 질의 | `high` | 정밀 분석, 백그라운드 |
 
+1계층 해석 순서는 다음과 같다.
+
+1. 수신자가 없거나 `this`면 같은 클래스와 그 상위 클래스(저장소 안의 것만)에서 찾는다. 없으면 Kotlin 최상위 함수와 정적 메서드에서 찾는다.
+2. 수신자가 식별자면 지역 변수, 매개변수, 필드 순으로 타입을 찾는다. 대문자로 시작하면 정적 호출이나 `object`로 본다.
+3. 타입이 저장소 안 클래스면 그 클래스와 상위 클래스에서 찾는다. 인터페이스나 추상 메서드면 구현 클래스로 잇고 `low`로 둔다. 저장소 밖 타입(`List`, `String` 등)이면 잇지 않는다.
+4. 수신자가 복잡한 식이라 타입을 모르면 이름과 인자 수로 저장소 전체에서 찾는다. 후보가 8개를 넘으면 흔한 이름으로 보고 잇지 않는다.
+5. 인자 수가 맞는 후보가 없으면 Kotlin 기본 인자를 고려해 이름만 맞는 후보를 `low`로 남긴다.
+
 병합 규칙: LSP가 확인한 간선은 `high`로 올리고, LSP가 질의한 메서드에서 1계층이 만든 간선 중 LSP 결과에 없는 것은 제거한다. LSP가 질의하지 않은 메서드의 간선은 그대로 둔다. 전체 그래프를 LSP로 만들지 않고 변경 메서드 주변만 질의하는 것이 속도의 전제다.
 
 ### 5.3 진입점 감지
 
-규칙은 설정 파일(`.flow-review.yml` 또는 앱 설정)에 추가할 수 있고 기본값은 다음과 같다.
+규칙은 head 시점 저장소 루트의 `.flow-review.yml`에 추가할 수 있고 기본값은 다음과 같다.
+
+```yaml
+entries:
+  - annotation: BusConsumer   # 메서드 애노테이션의 단순 이름, @는 있어도 됨
+    kind: message             # http, message, schedule, event, grpc, main
+    prefix: Bus               # 라벨 앞말. 라벨은 "Bus <첫 인자>"
+```
 
 | 종류 | Java/Kotlin 신호 | 흐름 라벨 |
 |---|---|---|
@@ -269,8 +284,9 @@ flowchart TD
     H --> I[어느 흐름에도 안 들어간 변경 → 미확정 묶음]
 ```
 
-- 한 변경 메서드가 여러 흐름에 닿으면 처음 만난 흐름에서만 단계 번호를 받고, 다른 흐름에서는 "n번 흐름 3단계 참조"로 표시한다. 리뷰어가 같은 코드를 두 번 읽지 않게 하되 연결은 보이게 한다.
-- 탐색 깊이 상한은 12, 경유 메서드 상한은 흐름당 200으로 두고 넘으면 그 가지를 "더 보기"로 접는다.
+- 진입점은 바뀌지 않았어도 1단계로 둔다(`change: "unchanged"`). 흐름의 시작 맥락이기 때문이다. 바뀐 메서드가 하나도 닿지 않는 진입점은 흐름을 만들지 않는다.
+- 한 변경 메서드가 여러 흐름에 닿으면 처음 만난 흐름에서만 그 단계의 주인이 되고, 다른 흐름에서는 같은 자리에 `refOf`("f1 흐름 3단계 참조")를 단 단계로 나온다. 번호는 흐름 안 순서대로 매기고 화면은 참조 단계를 접어서 보여준다. 리뷰어가 같은 코드를 두 번 읽지 않게 하되 연결은 보이게 한다.
+- 깊이 상한 12는 마지막으로 지난 바뀐 메서드(또는 진입점) 뒤로 연속해서 따라가는 바뀌지 않은 메서드 수다. 바뀐 메서드를 만나면 다시 0부터 센다. 바뀐 메서드가 사슬로 길게 이어져도 잘리지 않고, 바뀌지 않은 코드만 끝없이 훑는 것은 막는다. 경유 메서드 상한은 흐름당 200이다. 어느 쪽이든 걸리면 `truncated`를 켜고 그 가지를 "더 보기"로 접는다.
 - 흐름 순서는 진입점 종류(HTTP → 메시지 → 스케줄 → 이벤트 → gRPC → main → 미확정)와 단계 수 내림차순이다.
 
 ### 5.5 호출 순서 비교
@@ -293,7 +309,9 @@ flowchart TD
 | 파일명 | `*Test.java`, `*Tests.kt`, `*Spec.kt`, `*IT.java` |
 | 애노테이션과 상속 | `@Test`(JUnit 4/5, TestNG), `@ParameterizedTest`, Kotest `StringSpec` 등 Spec 상속, Spock `Specification` |
 
-테스트 메서드에서 변경 메서드로 가는 간선(1계층이면 이름 기준)으로 "이 메서드를 덮는 테스트"를 만든다. 간선이 `low`이면 목록에 점선으로 표시한다.
+테스트 파일 안의 메서드(테스트 도우미 포함)에서 변경 메서드로 직접 가는 간선으로 "이 메서드를 호출하는 테스트"를 만든다. Kotest처럼 생성자 람다에 테스트를 쓰는 스펙은 그 람다를 `<spec>`이라는 가상 메서드로 다룬다. 간선이 `low`이면 목록에 점선으로 표시한다. 단계당 최대 20개이고 바뀐 테스트가 앞에 온다.
+
+테스트 파일의 hunk도 메서드에 매핑해 해당 테스트에 붙인다. base 쪽에만 있는 삭제 hunk도 같은 테스트 메서드로 짝지어 붙는다. 어느 테스트에도 붙지 않은 hunk(예: 생성자만 부르는 도우미, import)는 `otherTests`로 간다.
 
 ## 6. 데이터와 인터페이스
 
@@ -309,14 +327,17 @@ interface ReviewSession {
   outsideMethods: FileChange[]; // 메서드 밖 변경 (필드, import, 애노테이션)
   otherTests: FileChange[];     // 변경 메서드를 호출하지 않는 테스트 변경
   nonCode: FileChange[];        // 지원 언어 아님, 설정 파일 등
+  stats: { files: number; methods: number; edges: number; entries: number; ms: number };
 }
-interface Flow { id: string; kind: EntryKind; label: string; entry: SymbolRef; steps: Step[] }
+interface Flow { id: string; kind: EntryKind; label: string; entry: SymbolRef; steps: Step[]; truncated: boolean }
 interface Step {
-  n: number; symbol: SymbolRef; change: "body" | "signature" | "renamed" | "added" | "removed";
+  n: number; symbol: SymbolRef; baseSymbol: SymbolRef | null;
+  change: "body" | "signature" | "renamed" | "added" | "removed" | "unchanged"; // unchanged는 진입점
   hunks: Hunk[]; path: SymbolRef[];           // 진입점부터 이 메서드까지, 경유 포함
-  callOrderDiff?: CallOrderDiff; confidence: "high" | "medium" | "low";
-  tests: SymbolRef[]; refOf?: { flow: string; n: number };
+  callOrderDiff?: CallOrderDiff; confidence: "high" | "medium" | "low"; // 경로 간선 중 가장 낮은 값
+  tests: TestRef[]; refOf?: { flow: string; n: number };
 }
+interface TestRef { symbol: SymbolRef; changed: boolean; hunks: Hunk[]; confidence: "high" | "medium" | "low" }
 interface CallOrderDiff { base: CallSite[]; head: CallSite[]; moved: number[]; added: number[]; removed: number[]; movedAcrossBlock: number[]; arityChanged: number[] }
 ```
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { diffCallOrder } from "../src/flow/callOrder.js";
 import type { CallSite } from "../src/types.js";
 
-const seq = (...names: string[]): CallSite[] => names.map((name, i) => ({ name, arity: 1, depth: 0, control: null, line: i }));
+const seq = (...names: string[]): CallSite[] => names.map((name, i) => ({ name, arity: 1, receiver: null, depth: 0, control: null, line: i }));
 const names = (d: ReturnType<typeof diffCallOrder>, idx: number[], side: "base" | "head") => idx.map((i) => d[side][i]!.name);
 
 describe("diffCallOrder", () => {
@@ -24,7 +24,7 @@ describe("diffCallOrder", () => {
 
   it("인자 수가 바뀐 호출도 같은 호출로 보고 arityChanged에 기록한다", () => {
     const base = seq("approve", "decrease");
-    const head: CallSite[] = [{ name: "decrease", arity: 1, depth: 0, control: null, line: 0 }, { name: "approve", arity: 2, depth: 0, control: null, line: 1 }];
+    const head: CallSite[] = [{ name: "decrease", arity: 1, receiver: null, depth: 0, control: null, line: 0 }, { name: "approve", arity: 2, receiver: null, depth: 0, control: null, line: 1 }];
     const d = diffCallOrder(base, head);
     expect(d.moved.length + d.arityChanged.length).toBeGreaterThan(0);
     expect(names(d, d.arityChanged, "head")).toContain("approve");
@@ -39,7 +39,7 @@ describe("diffCallOrder", () => {
 
   it("조건문 안으로 들어간 이동은 movedAcrossBlock에 기록한다", () => {
     const base = seq("a", "b");
-    const head: CallSite[] = [{ name: "b", arity: 1, depth: 1, control: "if_statement", line: 0 }, { name: "a", arity: 1, depth: 0, control: null, line: 1 }];
+    const head: CallSite[] = [{ name: "b", arity: 1, receiver: null, depth: 1, control: "if_statement", line: 0 }, { name: "a", arity: 1, receiver: null, depth: 0, control: null, line: 1 }];
     const d = diffCallOrder(base, head);
     const movedNames = names(d, d.moved, "head");
     expect(movedNames.length).toBe(1);

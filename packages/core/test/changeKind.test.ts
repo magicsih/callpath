@@ -28,3 +28,25 @@ describe("변경 종류 분류", () => {
     expect(await kinds("A.java", "java", base, head)).toEqual({ pay: "body" });
   });
 });
+
+describe("오버로드 짝짓기 (#2)", () => {
+  it("인자 수가 바뀐 오버로드는 인자 수가 가장 가까운 base 메서드와 짝짓는다", async () => {
+    const base = "class A {\n    void pay(long a) {\n        one(a);\n    }\n\n    void pay(long a, String c) {\n        two(a, c);\n    }\n}\n";
+    const head = "class A {\n    void pay(long a) {\n        one(a);\n    }\n\n    void pay(long a, String c, int n) {\n        two(a, c);\n    }\n}\n";
+    const hunks = hunksBetween("A.java", base, head);
+    const { steps } = await mapMethods({ path: "A.java", status: "modified", language: "java", isTest: false, hunks, baseText: base, headText: head });
+    expect(steps).toHaveLength(1);
+    expect(steps[0]!.change).toBe("signature");
+    expect(steps[0]!.baseSymbol!.arity).toBe(2);
+  });
+});
+
+describe("언어 판정", () => {
+  it("Gradle Kotlin 빌드 스크립트는 코드로 분석하지 않는다", async () => {
+    const { languageOf } = await import("../src/diff/fileChanges.js");
+    expect(languageOf("build.gradle.kts")).toBeNull();
+    expect(languageOf("app/settings.gradle.kts")).toBeNull();
+    expect(languageOf("scripts/gen.main.kts")).toBe("kotlin");
+    expect(languageOf("src/main/kotlin/A.kt")).toBe("kotlin");
+  });
+});

@@ -10,7 +10,7 @@ AI가 한 번에 고쳐 올린 PR을 파일 순서가 아니라 호출 흐름 �
 
 | 경로 | 내용 | 상태 |
 |---|---|---|
-| `packages/core` | 분석 코어와 CLI. diff → 메서드 매핑 → 호출 순서 비교 | 1단계 완료 |
+| `packages/core` | 분석 코어와 CLI. diff → 메서드 매핑 → 호출 순서 비교 → 호출 그래프 → 진입점 → 흐름 정렬 → 테스트 연결 | 2단계 완료 |
 | `fixtures/` | 쿠폰 예시 표본 저장소 (Java, Kotlin) | |
 | `packages/lsp`, `packages/providers`, `packages/llm`, `apps/desktop` | 설계 4.1 참고 | 예정 |
 
@@ -27,7 +27,22 @@ node packages/core/dist/cli.js analyze <repo> --base origin/main --head HEAD --s
 node packages/core/dist/cli.js analyze --base-dir fixtures/java/base --head-dir fixtures/java/head --summary
 ```
 
-`--summary`를 빼면 설계 6.1의 `ReviewSession` JSON을 출력한다.
+`--summary` 출력 예 (Java 표본):
+
+```
+▸ POST /orders
+   1  진입점  shop.order.OrderController.place
+   2  본문   shop.order.OrderService.placeOrder  (⚠ 순서 변경, 테스트 2)
+        base: totalAmount → approve → decrease → items → confirm
+        head: totalAmount → validateCoupon → decrease → items → approve → couponCode → confirm
+   3  추가   shop.order.CouponCalculator.validateCoupon
+   4  추가   shop.order.CouponCalculator.discountFor
+   5  본문   shop.order.PaymentClient.approve
+▸ 진입점 미확정 (1)
+   1  본문   shop.order.OrderService.OrderService  (테스트 1)
+```
+
+`--summary`를 빼면 설계 6.1의 `ReviewSession` JSON을 출력한다. 진입점 규칙은 저장소 루트의 `.flow-review.yml`로 더할 수 있다(설계 5.3).
 
 ## 개발
 
