@@ -5,6 +5,8 @@ import { isTestPath } from "../classify/test.js";
 
 export function languageOf(path: string): Language | null {
   if (path.endsWith(".java")) return "java";
+  // build.gradle.kts, settings.gradle.kts 같은 빌드 스크립트는 리뷰에서 설정 변경이므로 코드로 분석하지 않는다
+  if (path.endsWith(".gradle.kts")) return null;
   if (path.endsWith(".kt") || path.endsWith(".kts")) return "kotlin";
   return null;
 }

@@ -40,3 +40,13 @@ describe("오버로드 짝짓기 (#2)", () => {
     expect(steps[0]!.baseSymbol!.arity).toBe(2);
   });
 });
+
+describe("언어 판정", () => {
+  it("Gradle Kotlin 빌드 스크립트는 코드로 분석하지 않는다", async () => {
+    const { languageOf } = await import("../src/diff/fileChanges.js");
+    expect(languageOf("build.gradle.kts")).toBeNull();
+    expect(languageOf("app/settings.gradle.kts")).toBeNull();
+    expect(languageOf("scripts/gen.main.kts")).toBe("kotlin");
+    expect(languageOf("src/main/kotlin/A.kt")).toBe("kotlin");
+  });
+});
