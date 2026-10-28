@@ -1,6 +1,6 @@
 import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -21,6 +21,21 @@ export function makeFixtureRepo(lang: "java" | "kotlin" = "java"): string {
   cpSync(join(FIXTURES, lang, "head"), dir, { recursive: true });
   git("add", "-A");
   git("commit", "-qm", "쿠폰 할인");
+  return dir;
+}
+
+/** base 표본 위에 head 쪽 파일 하나만 고친 저장소. 진입점 바로 뒤가 바뀌지 않은 흐름을 만든다 */
+export function makeTransitRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), "callpath-e2e-transit-"));
+  const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  cpSync(join(FIXTURES, "java", "base"), dir, { recursive: true });
+  git("add", "-A");
+  git("commit", "-qm", "base");
+  git("checkout", "-q", "-b", "feature/confirm");
+  const file = join(dir, "src/main/java/shop/order/OrderRepository.java");
+  writeFileSync(file, readFileSync(file, "utf8").replace("return new OrderResult(request.orderId(), paidAmount);", "OrderResult result = new OrderResult(request.orderId(), paidAmount);\n        audit(result);\n        return result;\n    }\n\n    void audit(OrderResult result) {"));
+  git("commit", "-qam", "확정 감사 기록");
   return dir;
 }
 

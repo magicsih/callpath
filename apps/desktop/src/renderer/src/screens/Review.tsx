@@ -69,7 +69,10 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
       requestAnimationFrame(() => {
         const row = rows.current.get(item.key) ?? el;
         row?.scrollIntoView({ block: "nearest" });
-        if (listHasFocus) row?.focus();
+        // 끝에 닿아 누르던 버튼이 꺼지면 초점이 사라지므로 현재 목록 줄로 옮긴다
+        const active = document.activeElement as HTMLButtonElement | null;
+        const lost = !active || active === document.body || active.disabled;
+        if (listHasFocus || lost) row?.focus();
       });
     },
     [current],
@@ -204,6 +207,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
   const crumbs = stepForCrumbs
     ? { path: stepForCrumbs.step.path.map((p) => shortName(p)), next: childSteps(stepForCrumbs, nav)[0] ? shortName(childSteps(stepForCrumbs, nav)[0]!.step.symbol) : null }
     : null;
+  const atEdge = idx === nav.order.length - 1 ? ", 마지막 항목입니다" : idx === 0 ? ", 첫 항목입니다" : "";
   const announce =
     current.kind === "step"
       ? `${position}, ${shortName(current.step.symbol)}, ${CHANGE_LABEL[current.step.change]}${current.step.callOrderDiff?.moved.length ? ", 순서 변경" : ""}`
@@ -239,7 +243,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
         </button>
         <span className="position" data-testid="position">
           <strong>{position}</strong>
-          <span className="muted"> · 전체 {idx + 1} / {nav.order.length}</span>
+          <span className="muted overall"> · 전체 {idx + 1} / {nav.order.length}</span>
         </span>
         <button className="primary" onClick={() => select(neighbor(nav, current.key, 1))} disabled={idx >= nav.order.length - 1} aria-label="다음 항목">
           다음 <Icon name="next" />
@@ -249,7 +253,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
           <kbd>j</kbd>/<kbd>k</kbd> 이동 · <kbd>t</kbd> 테스트<span className="keys-long"> · <kbd>Enter</kbd> 다음 단계 · <kbd>⌫</kbd> 되돌아가기</span>
         </span>
       </footer>
-      <div className="sr-only" aria-live="polite" data-testid="announce">{announce}</div>
+      <div className="sr-only" aria-live="polite" data-testid="announce">{announce}{atEdge}</div>
     </div>
   );
 }

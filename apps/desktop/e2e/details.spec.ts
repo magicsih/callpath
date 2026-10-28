@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { launch, makeFixtureRepo, makeUserData, openAndAnalyze, shot } from "./harness";
+import { launch, makeFixtureRepo, makeTransitRepo, makeUserData, openAndAnalyze, shot } from "./harness";
 
 const java = makeFixtureRepo("java");
 const kotlin = makeFixtureRepo("kotlin");
@@ -109,5 +109,45 @@ test("입력 안내: 같은 비교, 목록에 없는 이름, 고친 입력의 �
   await expect(page.getByTestId("compare-warnings")).toContainText('브랜치 목록에 없는 리뷰할 변경: "feature/nope"');
   await page.getByLabel("리뷰할 변경 (head)").fill("feature/coupon");
   await expect(page.getByTestId("compare-warnings")).toHaveCount(0);
+  await app.close();
+});
+
+test("바뀌지 않은 메서드를 건너뛰어 다음 단계로 간다", async () => {
+  const { app, page } = await launch(makeUserData());
+  await openAndAnalyze(page, makeTransitRepo());
+  await expect(page.getByTestId("detail-title")).toHaveText("OrderController.place");
+  const next = page.locator(".next-steps");
+  await expect(next).toContainText("OrderRepository.confirm");
+  await expect(next).toContainText("OrderService.placeOrder 경유");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("detail-title")).toHaveText("OrderRepository.confirm");
+  await page.waitForTimeout(300);
+  await shot(app, "11-transit-next");
+  await app.close();
+});
+
+test("끝에 닿아도 초점이 남고 마지막 항목임을 알린다", async () => {
+  const { app, page } = await launch(makeUserData());
+  await openAndAnalyze(page, java);
+  const nextButton = page.getByRole("button", { name: "다음 항목" });
+  await nextButton.focus();
+  for (let i = 0; i < 10; i++) {
+    if (await nextButton.isDisabled()) break;
+    await page.keyboard.press("Enter");
+  }
+  await expect(nextButton).toBeDisabled();
+  await expect(page.getByTestId("announce")).toContainText("마지막 항목입니다");
+  const focused = await page.evaluate(() => document.activeElement?.className ?? "");
+  expect(focused).toContain("row");
+  await app.close();
+});
+
+test("Kotlin 기타 테스트는 단계에 붙지 않은 구간만 강조한다", async () => {
+  const { app, page } = await launch(makeUserData());
+  await openAndAnalyze(page, kotlin);
+  await page.keyboard.press("t");
+  await page.getByTestId("file-row").filter({ hasText: "OrderServiceTest.kt" }).click();
+  await expect(page.getByTestId("view-note")).toContainText("단계에 붙지 않은 테스트 변경 1곳");
+  await expect(page.locator(".line-highlight").first()).toBeVisible();
   await app.close();
 });

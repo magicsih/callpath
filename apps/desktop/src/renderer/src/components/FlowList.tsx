@@ -39,7 +39,7 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
     return (
       <button {...rowProps(item)} data-testid="step-row" title={s.symbol.qualifiedName}>
         <span className="line1">
-          <span className="num" aria-label={`${item.pos}단계`}>{item.pos}</span>
+          <span className="num" aria-label={item.flow ? `${item.pos}단계` : `${item.pos}번째`}>{item.pos}</span>
           <span className="name" title={s.symbol.qualifiedName}>
             <span className="method">{methodLabel(s.symbol)}</span>
             {s.symbol.container && <span className="cls"> {s.symbol.container.split(".").pop()}</span>}
@@ -94,7 +94,7 @@ export function FlowList({ nav, session, selectedKey, showTests, onSelect, onTog
               <span className="glabel" title={g.label}>{g.label}</span>
               {movedCount(g) > 0 && (
                 <span className="flag warn" data-testid="group-moved">
-                  <Icon name="warn" size={11} />순서 변경 {movedCount(g)}<span className="sr-only">곳,</span>
+                  <Icon name="warn" size={11} /><span className="flag-text">순서 변경 </span>{movedCount(g)}<span className="sr-only">곳,</span>
                 </span>
               )}
               <span className="count"><span className="sr-only">항목 </span>{g.items.length}<span className="sr-only">개</span></span>

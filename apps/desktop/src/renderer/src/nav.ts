@@ -117,17 +117,38 @@ export function neighbor(nav: Nav, key: string, delta: 1 | -1): NavItem | null {
   return nav.order[i + delta] ?? null;
 }
 
-/** 현재 단계에서 바로 이어지는 같은 흐름의 단계(호출 스택에서 부모가 현재 메서드인 단계) */
-export function childSteps(item: StepItem, nav: Nav): StepItem[] {
+export interface NextStep {
+  item: StepItem;
+  /** 현재 단계와 다음 단계 사이에 지나는 바뀌지 않은 메서드 */
+  via: SymbolRef[];
+}
+
+/**
+ * 현재 단계에서 이어지는 같은 흐름의 가장 가까운 다음 단계들. 사이에 바뀌지 않은 메서드만 있으면
+ * 그것을 건너뛰고(경유), 다른 단계를 거쳐야 닿는 것은 그 단계의 다음 단계라 넣지 않는다.
+ */
+export function nextSteps(item: StepItem, nav: Nav): NextStep[] {
   if (!item.flow) return [];
   const group = nav.groups.find((g) => g.id === item.groupId);
   if (!group) return [];
   const me = sym(item.step.symbol);
-  return group.items.filter((i): i is StepItem => {
-    if (i.kind !== "step") return false;
+  const stepKeys = new Set(group.items.filter((i) => i.kind === "step").map((i) => sym((i as StepItem).step.symbol)));
+  const out: NextStep[] = [];
+  for (const i of group.items) {
+    if (i.kind !== "step" || i === item) continue;
     const p = i.step.path;
-    return p.length >= 2 && sym(p[p.length - 2]!) === me;
-  });
+    const at = p.findIndex((x) => sym(x) === me);
+    if (at < 0 || at >= p.length - 1) continue;
+    const via = p.slice(at + 1, p.length - 1);
+    if (via.some((x) => stepKeys.has(sym(x)))) continue;
+    out.push({ item: i, via });
+  }
+  return out;
+}
+
+/** 이어지는 단계 중 첫 번째(Enter로 가는 곳) */
+export function childSteps(item: StepItem, nav: Nav): StepItem[] {
+  return nextSteps(item, nav).map((n) => n.item);
 }
 
 /** 호출 스택의 한 칸이 이 흐름의 단계면 그 항목, 바뀌지 않은 경유 메서드면 null */

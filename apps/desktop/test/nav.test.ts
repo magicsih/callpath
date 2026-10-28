@@ -47,3 +47,25 @@ describe("목록과 이동 순서", () => {
     expect(describeMoves(place.step)).toEqual(["approve 호출이 decrease 다음으로 옮겨졌습니다"]);
   });
 });
+
+describe("경유 메서드를 건너뛴 다음 단계", async () => {
+  const { mkdtempSync, cpSync, readFileSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "callpath-nav-"));
+  cpSync(resolve(FIX, "base"), join(dir, "base"), { recursive: true });
+  cpSync(resolve(FIX, "base"), join(dir, "head"), { recursive: true });
+  const file = join(dir, "head/src/main/java/shop/order/OrderRepository.java");
+  writeFileSync(file, readFileSync(file, "utf8").replace("return new OrderResult(", "return OrderResult.of("));
+  const s = await analyze(new DirectorySource(join(dir, "base")), new DirectorySource(join(dir, "head")), { repo: dir, baseLabel: "base", headLabel: "head" });
+
+  it("진입점 다음 placeOrder가 바뀌지 않았으면 confirm이 다음 단계이고 placeOrder를 경유로 보인다", async () => {
+    const { nextSteps } = await import("../src/renderer/src/nav");
+    const nav = buildNav(s, false);
+    const entry = nav.order[0] as StepItem;
+    expect(entry.step.symbol.name).toBe("place");
+    const next = nextSteps(entry, nav);
+    expect(next.map((n) => n.item.step.symbol.name)).toEqual(["confirm"]);
+    expect(next[0]!.via.map((v) => v.name)).toEqual(["placeOrder"]);
+  });
+});

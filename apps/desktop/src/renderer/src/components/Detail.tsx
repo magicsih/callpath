@@ -62,7 +62,7 @@ async function buildInput(item: NavItem, session: ReviewSession): Promise<{ inpu
     }
     // 메서드 밖 변경 묶음은 파일 전체를 보이되 그 구간만 강조한다(메서드 안 변경은 각 단계에서 본다)
     const highlight =
-      item.groupId === "outside"
+      item.groupId === "outside" || item.groupId === "otherTests"
         ? { original: item.file.hunks.flatMap((x) => (x.head ? [] : x.base ? linesOf(x.base) : [])), modified: item.file.hunks.flatMap((x) => (x.head ? linesOf(x.head) : [])) }
         : null;
     const first = item.file.hunks.find((x) => x.head)?.head;
@@ -74,7 +74,7 @@ async function buildInput(item: NavItem, session: ReviewSession): Promise<{ inpu
         language: languageFor(path),
         originalStart: 1,
         modifiedStart: 1,
-        collapseUnchanged: item.groupId !== "outside",
+        collapseUnchanged: item.groupId === "nonCode",
         revealLine: first ? first.startLine + 1 : null,
       },
       highlight,
@@ -153,7 +153,9 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs }: Props) {
             ? "바뀌지 않은 코드입니다."
             : item.kind === "file" && item.groupId === "outside"
               ? `메서드 밖에서 바뀐 ${item.file.hunks.length}곳을 강조했습니다. 메서드 안 변경은 각 단계에서 봅니다.`
-              : null;
+              : item.kind === "file" && item.groupId === "otherTests"
+                ? `단계에 붙지 않은 테스트 변경 ${item.file.hunks.length}곳을 강조했습니다. 나머지 테스트는 각 단계 아래에서 봅니다.`
+                : null;
 
   return (
     <section className="pane center" aria-label="변경 내용">

@@ -4,7 +4,7 @@ import { Icon } from "../components/Icon";
 
 export function Compare(props: { repo: RepoInfo; initialBase?: string; initialHead?: string; onBack: () => void; onReload: () => void; onAnalyze: (base: string, head: string) => void }) {
   const { repo } = props;
-  if (repo.branches.length === 0) {
+  if (repo.branches.length === 0 && !repo.hasCommits) {
     return (
       <main className="compare" aria-labelledby="compare-title">
         <div className="start-card">
@@ -67,6 +67,15 @@ export function Compare(props: { repo: RepoInfo; initialBase?: string; initialHe
               <option key={b} value={b} />
             ))}
           </datalist>
+          {repo.branches.length === 0 && (
+            <div className="notice" role="alert" data-testid="branch-read-failed">
+              <Icon name="warn" />
+              <div>
+                <p><strong>브랜치 목록을 읽지 못했습니다</strong></p>
+                <p className="muted">{repo.branchError ?? "저장소 권한이나 상태를 확인하세요."} 커밋 SHA를 직접 넣어 비교할 수 있습니다.</p>
+              </div>
+            </div>
+          )}
           <p className="muted">두 시점의 공통 조상부터 head까지 바뀐 것을 봅니다.</p>
           {warnings.length > 0 && (
             <ul className="warnings" data-testid="compare-warnings" aria-live="polite">

@@ -9,6 +9,10 @@ export interface RepoInfo {
   defaultBase: string | null;
   /** 현재 체크아웃한 브랜치. 분리된 HEAD면 짧은 SHA */
   current: string | null;
+  /** HEAD가 커밋을 가리키는지. 브랜치 목록이 비었을 때 커밋이 없는 것과 목록을 못 읽은 것을 나눈다 */
+  hasCommits: boolean;
+  /** 브랜치 목록을 읽다 난 git 오류 요약 */
+  branchError: string | null;
 }
 
 export interface CompareRequest {

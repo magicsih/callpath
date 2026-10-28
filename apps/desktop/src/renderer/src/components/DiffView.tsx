@@ -36,6 +36,8 @@ interface Props {
 const deco = (lines: number[], start: number) =>
   lines.map((l) => ({ range: new monaco.Range(l - start + 1, 1, l - start + 1, 1), options: { isWholeLine: true, className: "line-highlight" } }));
 
+const INLINE_BREAKPOINT = 700;
+
 export function DiffView(props: Props) {
   return props.input.kind === "diff" ? <SideBySide {...props} /> : <SingleView {...props} />;
 }
@@ -53,7 +55,7 @@ function SideBySide({ input, highlight, label }: Props) {
       originalEditable: false,
       renderSideBySide: true,
       useInlineViewWhenSpaceIsLimited: true,
-      renderSideBySideInlineBreakpoint: 700,
+      renderSideBySideInlineBreakpoint: INLINE_BREAKPOINT,
       diffWordWrap: "on",
     });
     // 모델을 매번 만들고 버리면 계산 중인 diff가 버려진 모델을 찾다 오류가 난다. 한 쌍을 두고 내용만 바꾼다
@@ -64,7 +66,13 @@ function SideBySide({ input, highlight, label }: Props) {
     models.current = { original, modified };
     decorations.current = e.getModifiedEditor().createDecorationsCollection();
     baseDecorations.current = e.getOriginalEditor().createDecorationsCollection();
+    // 한 열 diff에서는 삭제된 줄이 줄바꿈되면 들여쓰기 없이 이어져 읽기 어렵다. 좁을 때는 이전 쪽만 줄바꿈을 끈다
+    const fit = () => e.updateOptions({ diffWordWrap: host.current!.clientWidth < INLINE_BREAKPOINT ? "off" : "on" });
+    const ro = new ResizeObserver(fit);
+    ro.observe(host.current!);
+    fit();
     return () => {
+      ro.disconnect();
       e.dispose();
       original.dispose();
       modified.dispose();
