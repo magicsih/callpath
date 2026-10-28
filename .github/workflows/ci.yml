@@ -10,6 +10,8 @@ on:
 jobs:
   test:
     strategy:
+      # 한 OS가 실패해도 다른 OS 결과를 끝까지 본다
+      fail-fast: false
       matrix:
         # 비공개 저장소의 macOS 러너는 분당 10배 과금이라 PR에서는 ubuntu만, main 반영 때 macOS를 함께 돌린다
         os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest","macos-latest"]') }}

@@ -129,6 +129,8 @@ test("바뀌지 않은 메서드를 건너뛰어 다음 단계로 간다", async
 test("끝에 닿아도 초점이 남고 마지막 항목임을 알린다", async () => {
   const { app, page } = await launch(makeUserData());
   await openAndAnalyze(page, java);
+  // 분석이 끝나 선택된 줄로 초점이 옮겨진 뒤에 버튼으로 초점을 옮긴다
+  await expect(page.locator(".pane.left button.row.selected")).toBeFocused();
   const nextButton = page.getByRole("button", { name: "다음 항목" });
   await nextButton.focus();
   for (let i = 0; i < 10; i++) {

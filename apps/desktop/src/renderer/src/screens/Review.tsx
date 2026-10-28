@@ -74,7 +74,10 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
   useEffect(() => {
     if (analysis.status !== "ready" || !current || focusedRun.current === run) return;
     focusedRun.current = run;
-    requestAnimationFrame(() => rows.current.get(current.key)?.focus());
+    // 그사이 사용자가 다른 곳에 초점을 두었으면 빼앗지 않는다
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body) rows.current.get(current.key)?.focus();
+    });
   }, [analysis.status, current?.key, run]);
 
   const select = useCallback(
