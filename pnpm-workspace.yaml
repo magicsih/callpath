@@ -1,0 +1,9 @@
+packages:
+  - packages/*
+  - apps/*
+
+# tree-sitter 문법 패키지는 wasm만 사용하므로 네이티브 빌드 스크립트를 실행하지 않는다
+allowBuilds:
+  esbuild: true
+  tree-sitter-java: false
+  '@tree-sitter-grammars/tree-sitter-kotlin': false

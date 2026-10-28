@@ -199,7 +199,7 @@ core는 어느 패키지에도 의존하지 않는다. lsp는 core의 그래프 
 | 프로세스 | 역할 |
 |---|---|
 | Electron main | 저장소 clone/fetch(`git` CLI), 분석 워커 기동, LSP 자식 프로세스 관리, SQLite 캐시, 토큰 저장(safeStorage), IPC |
-| 분석 워커 (Node worker_threads) | core 실행. tree-sitter는 네이티브 바인딩(node-tree-sitter) 사용. UI를 막지 않음 |
+| 분석 워커 (Node worker_threads) | core 실행. tree-sitter는 web-tree-sitter(wasm) 사용으로 Electron 네이티브 재빌드가 없음. UI를 막지 않음 |
 | JDT LS (java) | Java 21 이상으로 기동. 첫 실행 때 Eclipse 스냅샷을 앱 데이터 폴더에 내려받음 |
 | kotlin-lsp | 사용자가 설치한 실행 파일(PATH 또는 설정 경로)이 있을 때만 기동. 앱이 번들하지 않음 |
 | renderer | React + Monaco. 분석 결과 JSON과 파일 내용만 받음. git, 네트워크 접근 없음 |
@@ -276,12 +276,12 @@ flowchart TD
 ### 5.5 호출 순서 비교
 
 1. 변경 메서드의 base, head 본문에서 호출문을 소스 순서대로 뽑는다. 각 항목은 (호출 대상 이름, 인자 수, 블록 깊이, 둘러싼 제어문 종류)다.
-2. (이름, 인자 수)를 키로 두 시퀀스를 LCS 정렬한다.
+2. 호출 이름을 키로 두 시퀀스를 LCS 정렬한다. 인자 수는 키에 넣지 않는다. 시그니처가 바뀐 호출(쿠폰 예시의 `approve(amount)` → `approve(discounted, code)`)도 같은 호출로 보고 순서를 비교해야 이동을 놓치지 않기 때문이다. 인자 수 변경은 `arityChanged`로 따로 기록한다.
 3. 양쪽에 있지만 LCS에 들어가지 않은 항목은 "이동"이다. 한쪽에만 있으면 "추가" 또는 "삭제"다.
 4. 이동한 항목의 블록 깊이나 제어문 종류가 다르면(예: 조건문 안에서 밖으로) 그것도 함께 표시한다.
 5. 이동이 하나라도 있으면 단계에 `⚠ 순서 변경` 표시를 붙이고 흐름 목록에도 반영한다.
 
-쿠폰 예시에서는 base `[approve, decrease]`, head `[validateCoupon, decrease, approve]`에서 LCS가 `[decrease]` 또는 `[approve]` 하나이므로 나머지 하나가 "이동"으로 잡힌다. 두 해가 있을 때는 소스 위치 이동 거리가 큰 쪽을 이동으로 고른다.
+쿠폰 예시에서는 base `[approve, decrease]`, head `[validateCoupon, decrease, approve]`에서 LCS가 `[decrease]` 또는 `[approve]` 하나이므로 나머지 하나가 "이동"으로 잡힌다. 두 해가 있을 때는 이동으로 잡히는 호출의 위치 이동 거리가 큰 해를 고른다. 위 예시에서는 `approve`(1번째 → 3번째)가 이동으로 잡힌다.
 
 ### 5.6 테스트 분류
 
@@ -306,6 +306,7 @@ interface ReviewSession {
   analysis: { fast: "done"; precise: "pending" | "done" | "failed"; failReason?: string };
   flows: Flow[];
   orphans: Step[];              // 진입점 미확정
+  outsideMethods: FileChange[]; // 메서드 밖 변경 (필드, import, 애노테이션)
   otherTests: FileChange[];     // 변경 메서드를 호출하지 않는 테스트 변경
   nonCode: FileChange[];        // 지원 언어 아님, 설정 파일 등
 }
@@ -316,7 +317,7 @@ interface Step {
   callOrderDiff?: CallOrderDiff; confidence: "high" | "medium" | "low";
   tests: SymbolRef[]; refOf?: { flow: string; n: number };
 }
-interface CallOrderDiff { base: CallSite[]; head: CallSite[]; moved: number[]; added: number[]; removed: number[] }
+interface CallOrderDiff { base: CallSite[]; head: CallSite[]; moved: number[]; added: number[]; removed: number[]; movedAcrossBlock: number[]; arityChanged: number[] }
 ```
 
 ### 6.2 PR 제공자
@@ -365,7 +366,7 @@ type ExplainRequest =
 | 항목 | 기준 |
 |---|---|
 | 정확성 | `fixtures/java`, `fixtures/kotlin`의 쿠폰 예시에서 `placeOrder` 단계에 `moved`가 잡힌다 |
-| 누락 없음 | 모든 변경 hunk는 flows, orphans, otherTests, nonCode 중 정확히 한 곳 이상에 나타난다 (속성 테스트) |
+| 누락 없음 | 모든 변경 hunk는 flows, orphans, outsideMethods, otherTests, nonCode 중 한 곳 이상에 나타난다 (속성 테스트) |
 | 속도 | 변경 파일 50개, 메서드 300개에서 빠른 분석 3초 이내 (Apple M 시리즈 기준). LSP 보강은 UI를 막지 않음 |
 | 복원 | 앱을 다시 열면 마지막 저장소, 흐름, 단계, 테스트 토글 상태가 그대로 |
 | 개인정보 | 코드가 네트워크로 나가는 경로는 제공자 API(코멘트 본문)와 LLM(확인 뒤)뿐. 그 외 원격 호출 없음 |
@@ -381,6 +382,7 @@ type ExplainRequest =
 | D3 | kotlin-lsp는 번들하지 않고 탐지. 부분 비공개 소스로 재배포 조건 불명 |
 | D4 | OpenAI 호환 끝점. 사내 게이트웨이와 로컬 모델을 같은 인터페이스로 |
 | D5 | 다이어그램은 Mermaid. GitHub 렌더링, 도구 의존 없음 |
+| D7 | tree-sitter는 wasm(web-tree-sitter). Kotlin 문법은 `@tree-sitter-grammars/tree-sitter-kotlin`(MIT, wasm 포함) |
 
 ## 9. 인수조건과 테스트
 

@@ -47,3 +47,10 @@
 - 배경: 분석 로직을 Electron 없이 테스트하고, 2차에 다른 껍데기를 붙이고, CI에서 fixture를 돌려야 한다.
 - 선택: pnpm 워크스페이스. `packages/core`에 `flow-review analyze` CLI를 두어 JSON을 출력한다. 앱은 같은 함수를 worker에서 호출한다.
 - 결과: 인수조건 A1~A4, A11은 CLI와 vitest만으로 검증한다.
+
+## D7. tree-sitter는 wasm으로, Kotlin 문법은 tree-sitter-grammars 패키지
+
+- 배경: 1단계 구현에서 확인한 사실. npm `tree-sitter-kotlin`(fwcd) 0.3.8은 prebuild와 wasm이 없어 node-gyp 빌드가 필요하고, Electron에서는 ABI별 재빌드가 따라온다.
+- 선택: `web-tree-sitter` 0.27과 각 문법 패키지에 포함된 wasm(`tree-sitter-java` 0.23.5, `@tree-sitter-grammars/tree-sitter-kotlin` 1.1.0, MIT)을 쓴다. pnpm `allowBuilds`로 두 문법 패키지의 네이티브 빌드 스크립트를 명시적으로 끈다.
+- 대안: node-tree-sitter 네이티브 바인딩. 더 빠르지만 Electron 버전마다 재빌드가 필요하고 Kotlin은 prebuild가 없다.
+- 결과: 설계 4.3의 분석 워커 설명을 wasm으로 고쳤다. 성능 기준(7절, 빠른 분석 3초)은 wasm 기준으로 2단계에서 측정한다.

@@ -13,7 +13,7 @@
 
 ## 표본 저장소 (fixtures)
 
-쿠폰 예시를 Java와 Kotlin으로 각각 재현한다. 두 저장소는 `base`와 `head` 브랜치를 가지며 다음을 포함한다.
+쿠폰 예시를 Java와 Kotlin으로 각각 재현한다. 중첩 git 저장소를 피하기 위해 `fixtures/<lang>/base`, `fixtures/<lang>/head` 디렉터리로 두 시점을 둔다. git ref 경로는 테스트가 임시 저장소를 만들어 확인한다. 각 표본은 다음을 포함한다.
 
 | 파일 | base | head |
 |---|---|---|
