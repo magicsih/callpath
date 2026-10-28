@@ -67,11 +67,17 @@ function SideBySide({ input, highlight, label }: Props) {
     decorations.current = e.getModifiedEditor().createDecorationsCollection();
     baseDecorations.current = e.getOriginalEditor().createDecorationsCollection();
     // 한 열 diff에서는 삭제된 줄이 줄바꿈되면 들여쓰기 없이 이어져 읽기 어렵다. 좁을 때는 이전 쪽만 줄바꿈을 끈다
-    const fit = () => e.updateOptions({ diffWordWrap: host.current!.clientWidth < INLINE_BREAKPOINT ? "off" : "on" });
+    // 보기가 바뀌며 요소가 사라진 뒤에도 콜백이 한 번 더 올 수 있어 ref 대신 요소를 직접 잡는다
+    const el = host.current!;
+    let disposed = false;
+    const fit = () => {
+      if (!disposed) e.updateOptions({ diffWordWrap: el.clientWidth < INLINE_BREAKPOINT ? "off" : "on" });
+    };
     const ro = new ResizeObserver(fit);
-    ro.observe(host.current!);
+    ro.observe(el);
     fit();
     return () => {
+      disposed = true;
       ro.disconnect();
       e.dispose();
       original.dispose();

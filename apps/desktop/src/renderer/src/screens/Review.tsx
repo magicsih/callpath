@@ -69,13 +69,26 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     return () => cancelAnimationFrame(id);
   }, [current?.key]);
 
-  // 분석이 끝나면 선택된 줄로 초점을 옮겨 화면 읽기가 현재 위치부터 읽게 한다
-  const focusedRun = useRef(-1);
+  // 분석 결과를 새로 받으면 선택된 줄로 초점을 옮겨 화면 읽기가 현재 위치부터 읽게 한다.
+  // 실행 번호가 아니라 결과를 기준으로 삼아, 다시 분석을 누른 직후 이전 결과 위에서 먼저 돌지 않게 한다
+  const focusedSession = useRef<ReviewSession | null>(null);
+  // 다시 분석을 누를 때 초점이 있던 요소. 끝났을 때 초점이 아직 거기 있으면 목록 줄로 옮긴다
+  const rerunFrom = useRef<Element | null>(null);
+  const rerun = () => {
+    rerunFrom.current = document.activeElement;
+    setRun((n) => n + 1);
+  };
   useEffect(() => {
-    if (analysis.status !== "ready" || !current || focusedRun.current === run) return;
-    focusedRun.current = run;
-    requestAnimationFrame(() => rows.current.get(current.key)?.focus());
-  }, [analysis.status, current?.key, run]);
+    if (analysis.status !== "ready" || !current || focusedSession.current === analysis.session) return;
+    focusedSession.current = analysis.session;
+    // 그사이 사용자가 다른 곳에 초점을 두었으면 빼앗지 않는다. 다시 분석을 누른 자리에 초점이 남아 있으면 옮긴다
+    const from = rerunFrom.current;
+    rerunFrom.current = null;
+    requestAnimationFrame(() => {
+      const active = document.activeElement as HTMLButtonElement | null;
+      if (!active || active === document.body || active.disabled || (from !== null && active === from)) rows.current.get(current.key)?.focus();
+    });
+  }, [analysis, current?.key]);
 
   const select = useCallback(
     (item: NavItem | null, remember = true) => {
@@ -157,7 +170,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
       )}
       <span className="spacer" />
       <button onClick={onChangeCompare}>비교 바꾸기</button>
-      <button onClick={() => setRun((n) => n + 1)} disabled={analysis.status === "loading"} aria-label="다시 분석">
+      <button onClick={rerun} disabled={analysis.status === "loading"} aria-label="다시 분석">
         <Icon name="refresh" /> 다시 분석
       </button>
     </header>
@@ -186,11 +199,11 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
           {analysis.kind === "ref" ? (
             <div className="row">
               <button className="primary" onClick={onChangeCompare} autoFocus>비교 바꾸기</button>
-              <button onClick={() => setRun((n) => n + 1)}>다시 분석</button>
+              <button onClick={rerun}>다시 분석</button>
             </div>
           ) : (
             <div className="row">
-              <button className="primary" onClick={() => setRun((n) => n + 1)} autoFocus>다시 분석</button>
+              <button className="primary" onClick={rerun} autoFocus>다시 분석</button>
               <button onClick={onChangeCompare}>비교 바꾸기</button>
             </div>
           )}

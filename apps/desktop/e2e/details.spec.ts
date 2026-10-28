@@ -129,6 +129,8 @@ test("바뀌지 않은 메서드를 건너뛰어 다음 단계로 간다", async
 test("끝에 닿아도 초점이 남고 마지막 항목임을 알린다", async () => {
   const { app, page } = await launch(makeUserData());
   await openAndAnalyze(page, java);
+  // 분석이 끝나 선택된 줄로 초점이 옮겨진 뒤에 버튼으로 초점을 옮긴다
+  await expect(page.locator(".pane.left button.row.selected")).toBeFocused();
   const nextButton = page.getByRole("button", { name: "다음 항목" });
   await nextButton.focus();
   for (let i = 0; i < 10; i++) {
@@ -163,5 +165,29 @@ test("테스트 표시를 꺼서 위치가 바뀌어도 초점을 목록으로 �
   await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
   await page.waitForTimeout(200);
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await app.close();
+});
+
+test("다시 분석이 끝나면 선택된 줄로 초점이 돌아오고, 분석 중 옮긴 초점은 그대로 둔다", async () => {
+  const { app, page } = await launch(makeUserData(), { CALLPATH_ANALYZE_DELAY_MS: "1500" });
+  await openAndAnalyze(page, java);
+  await page.keyboard.press("j");
+  const loading = page.getByTestId("state-loading");
+
+  // 다시 분석 버튼에 초점이 남은 채 끝나면 목록 줄로 옮긴다. 분석 중에는 목록이 없으니 끝난 뒤에 확인한다
+  await page.getByRole("button", { name: "다시 분석" }).click();
+  await expect(loading).toBeVisible();
+  await expect(page.locator(".pane.left")).toHaveCount(0);
+  await expect(loading).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
+  await expect(page.locator(".pane.left button.row.selected")).toBeFocused();
+
+  // 분석 중에 사용자가 비교 바꾸기로 초점을 옮기면 끝난 뒤에도 그대로 둔다
+  await page.getByRole("button", { name: "다시 분석" }).click();
+  await expect(loading).toBeVisible();
+  await page.getByRole("button", { name: "비교 바꾸기" }).focus();
+  await expect(loading).toBeHidden({ timeout: 15_000 });
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("button", { name: "비교 바꾸기" })).toBeFocused();
   await app.close();
 });
