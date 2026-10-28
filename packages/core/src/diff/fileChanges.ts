@@ -33,14 +33,20 @@ export interface ChangedFile extends FileChange {
 }
 
 export async function collectChanges(base: FileSource, head: FileSource): Promise<ChangedFile[]> {
-  const [baseFiles, headFiles] = await Promise.all([base.listFiles(), head.listFiles()]);
+  const [baseFiles, headFiles, baseIds, headIds] = await Promise.all([base.listFiles(), head.listFiles(), base.blobIds?.(), head.blobIds?.()]);
+  const all = [...new Set([...baseFiles, ...headFiles])].sort();
+  // 두 쪽 모두 내용 해시를 주면 해시로 바뀐 파일을 고르고, 아니면 내용을 읽어 비교한다
+  const candidates = baseIds && headIds ? all.filter((p) => baseIds.get(p) !== headIds.get(p)) : all;
   const baseSet = new Set(baseFiles);
   const headSet = new Set(headFiles);
-  const all = [...new Set([...baseFiles, ...headFiles])].sort();
+  const [baseTexts, headTexts] = await Promise.all([
+    base.readMany(candidates.filter((p) => baseSet.has(p))),
+    head.readMany(candidates.filter((p) => headSet.has(p))),
+  ]);
   const out: ChangedFile[] = [];
-  for (const path of all) {
-    const baseText = baseSet.has(path) ? await base.read(path) : null;
-    const headText = headSet.has(path) ? await head.read(path) : null;
+  for (const path of candidates) {
+    const baseText = baseTexts.get(path) ?? null;
+    const headText = headTexts.get(path) ?? null;
     if (baseText === headText) continue;
     const hunks = hunksBetween(path, baseText, headText);
     if (hunks.length === 0) continue;

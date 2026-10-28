@@ -4,8 +4,12 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": { "flow-review": "./dist/cli.js" },
-  "files": ["dist"],
+  "bin": {
+    "flow-review": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -16,7 +20,8 @@
     "diff": "^9.0.0",
     "@tree-sitter-grammars/tree-sitter-kotlin": "^1.1.0",
     "tree-sitter-java": "^0.23.5",
-    "web-tree-sitter": "^0.27.1"
+    "web-tree-sitter": "^0.27.1",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/diff": "^8.0.0",

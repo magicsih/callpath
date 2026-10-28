@@ -25,7 +25,7 @@ describe("GitRefSource", () => {
       const head = new GitRefSource(dir, "HEAD");
       const session = await analyze(base, head, { repo: dir, baseLabel: await base.resolve(), headLabel: await head.resolve() });
       expect(session.base).toMatch(/^[0-9a-f]{40}$/);
-      const step = session.orphans.find((s) => s.symbol.name === "placeOrder");
+      const step = session.flows.flatMap((f) => f.steps).find((s) => s.symbol.name === "placeOrder");
       expect(step?.callOrderDiff?.moved.length).toBeGreaterThan(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
