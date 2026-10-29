@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
 import { nextSteps, shortName, stepForStackEntry, type Nav, type NavItem, type StepItem } from "../nav";
 
-export function StackPane({ item, nav, onSelect }: { item: NavItem; nav: Nav; onSelect: (i: NavItem) => void }) {
+/** footer는 오른쪽 영역 맨 아래에 붙는 내용(LLM 버튼) */
+export function StackPane({ item, nav, onSelect, footer }: { item: NavItem; nav: Nav; onSelect: (i: NavItem) => void; footer?: ReactNode }) {
   if (item.kind === "file") {
     return (
       <aside className="pane right" aria-label="호출 스택">
@@ -15,11 +17,12 @@ export function StackPane({ item, nav, onSelect }: { item: NavItem; nav: Nav; on
             ? "바뀐 메서드를 직접 부르지 않는 테스트 코드입니다. 다른 테스트는 각 단계 아래에서 봅니다."
             : "메서드에 속하지 않는 변경이라 호출 스택이 없습니다."}
         </p>
+        {footer}
       </aside>
     );
   }
   const step: StepItem | null = item.kind === "step" ? item : (nav.order.find((x) => x.key === item.parentKey) as StepItem | undefined) ?? null;
-  if (!step) return <aside className="pane right" aria-label="호출 스택" />;
+  if (!step) return <aside className="pane right" aria-label="호출 스택">{footer}</aside>;
   const path = step.step.path;
   const children = nextSteps(step, nav);
   return (
@@ -68,6 +71,7 @@ export function StackPane({ item, nav, onSelect }: { item: NavItem; nav: Nav; on
           ))}
         </ul>
       )}
+      {footer}
     </aside>
   );
 }

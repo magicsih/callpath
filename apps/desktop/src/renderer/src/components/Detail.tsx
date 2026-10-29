@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CallOrderDiff, ReviewSession, Range, Step, SymbolRef } from "@callpath/core";
 import type { Note } from "../../../shared/api";
 import { CHANGE_LABEL, describeMoves, shortName, type NavItem } from "../nav";
@@ -125,6 +125,8 @@ interface Props {
   onComposeStart: () => void;
   /** 이 코드의 메모 목록을 연다 */
   onShowNotes: () => void;
+  /** 좁은 창에서 오른쪽 영역 대신 머리에 두는 내용(LLM 버튼) */
+  headExtra?: ReactNode;
 }
 
 /** 메모를 남길 수 있는 head 쪽 파일과 처음 고른 줄. 삭제된 코드에는 남기지 않는다 */
@@ -138,7 +140,7 @@ export function noteTarget(item: NavItem): { path: string; line: number } | null
   return s ? { path: s.path, line: s.range.startLine + 1 } : null;
 }
 
-export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddNote, noteRequest, reveal, onComposeStart, onShowNotes }: Props) {
+export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddNote, noteRequest, reveal, onComposeStart, onShowNotes, headExtra }: Props) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [chip, setChip] = useState<Highlight | null>(null);
   const target = noteTarget(item);
@@ -281,6 +283,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
             {crumbs.next && <span className="muted"> · 다음 단계 {crumbs.next} <kbd aria-hidden="true">Enter</kbd></span>}
           </p>
         )}
+        {headExtra && <div className="head-extra">{headExtra}</div>}
       </header>
 
       {step?.refOf && onGoRef && (

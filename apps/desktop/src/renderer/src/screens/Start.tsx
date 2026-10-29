@@ -10,6 +10,7 @@ export function Start(props: {
   onPick: () => void;
   onOpenPr: (url: string) => void;
   onConnections: () => void;
+  onLlmSettings: () => void;
   /** 형식이 틀려 열지 못한 PR 주소와 원인 */
   prError?: { url: string; message: string } | undefined;
 }) {
@@ -122,6 +123,10 @@ export function Start(props: {
             </ul>
           )}
         </section>
+        <nav className="settings-links" aria-label="설정">
+          {/* 연결 설정은 PR 주소 입력 아래에 있다 */}
+          <button className="link" onClick={props.onLlmSettings}>LLM 설정</button>
+        </nav>
       </div>
     </main>
   );

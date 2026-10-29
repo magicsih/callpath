@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReviewSession } from "@callpath/core";
-import type { CompareRequest, ErrorKind, Note, PrMeta } from "../../../shared/api";
+import type { CompareRequest, ErrorKind, ExplainTarget, LlmSettingsView, Note, PrMeta } from "../../../shared/api";
 import { NotesDrawer, PostDialog } from "../components/Notes";
+import { ExplainDialog, LlmActions, type SavedAnswer } from "../components/Explain";
 import { noteTarget } from "../components/Detail";
 import { childSteps, neighbor, refTarget, resolveSelection, shortName, buildNav, CHANGE_LABEL, type NavItem, type StepItem } from "../nav";
 import { FlowList } from "../components/FlowList";
@@ -44,9 +45,11 @@ interface Props {
   initialShowTests: boolean;
   onChangeCompare: () => void;
   onPersist: (selection: string | null, showTests: boolean) => void;
+  /** LLM 설정으로 간다. 돌아올 때 보던 위치를 지키려고 지금 위치를 넘긴다 */
+  onLlmSettings: (selection: string | null, showTests: boolean) => void;
 }
 
-export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initialShowTests, onChangeCompare, onPersist }: Props) {
+export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initialShowTests, onChangeCompare, onPersist, onLlmSettings }: Props) {
   const [analysis, setAnalysis] = useState<Analysis>({ status: "loading" });
   const [run, setRun] = useState(0);
   const [showTests, setShowTests] = useState(initialShowTests);
@@ -56,6 +59,13 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
 
   const [precise, setPrecise] = useState<PreciseView>({ running: false, message: null, error: null });
   const [notes, setNotes] = useState<Note[]>([]);
+  // LLM 설명: 설정(켜짐 여부), 열린 설명 대화상자, 받은 답(같은 커밋 안에서만 다시 보인다)
+  const [llm, setLlm] = useState<LlmSettingsView | null>(null);
+  useEffect(() => {
+    void window.callpath.getLlmSettings().then(setLlm);
+  }, []);
+  const [explain, setExplain] = useState<{ key: string; target: ExplainTarget } | null>(null);
+  const [answers, setAnswers] = useState<Record<string, SavedAnswer>>({});
   const [notesError, setNotesError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
   const [posting, setPosting] = useState<number[] | null>(null);
@@ -379,6 +389,28 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
   const refFlow = current.kind === "step" && current.step.refOf ? session!.flows.find((f) => f.id === current.step.refOf!.flow) : undefined;
   const stepForCrumbs: StepItem | null =
     current.kind === "step" ? current : current.kind === "test" ? ((nav.order.find((x) => x.key === current.parentKey) as StepItem | undefined) ?? null) : null;
+  // LLM 설명 대상: 지금 단계(테스트면 그 테스트가 붙은 단계)와 그 단계가 속한 흐름
+  const llmStep = stepForCrumbs;
+  const headSha = session!.head;
+  const flowTarget: ExplainTarget | null = llmStep?.flow ? { kind: "flow", flow: llmStep.flow } : null;
+  const callees = llmStep
+    ? [...new Set(llmStep.step.callOrderDiff ? llmStep.step.callOrderDiff.head.filter((c) => !c.nested).map((c) => c.name) : childSteps(llmStep, nav).map((c) => c.step.symbol.name))]
+    : [];
+  const methodTarget: ExplainTarget | null = llmStep ? { kind: "method", step: llmStep.step, callees } : null;
+  const flowKey = llmStep?.flow ? `${headSha}|flow:${llmStep.flow.id}` : null;
+  const methodKey = llmStep ? `${headSha}|method:${llmStep.key}` : null;
+  const openLlmSettings = () => onLlmSettings(current.key, showTests);
+  const llmActions = (compact: boolean) => (
+    <LlmActions
+      enabled={llm ? llm.enabled : null}
+      onFlow={flowTarget && flowKey ? () => setExplain({ key: flowKey, target: flowTarget }) : null}
+      onMethod={methodTarget && methodKey ? () => setExplain({ key: methodKey, target: methodTarget }) : null}
+      flowAnswered={!!(flowKey && answers[flowKey])}
+      methodAnswered={!!(methodKey && answers[methodKey])}
+      onSettings={openLlmSettings}
+      compact={compact}
+    />
+  );
   const crumbs = stepForCrumbs
     ? { path: stepForCrumbs.step.path.map((p) => shortName(p)), next: childSteps(stepForCrumbs, nav)[0] ? shortName(childSteps(stepForCrumbs, nav)[0]!.step.symbol) : null }
     : null;
@@ -413,6 +445,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           notes={currentNotes}
           noteRequest={noteRequest}
           reveal={reveal}
+          headExtra={narrow ? llmActions(true) : null}
           onComposeStart={() => setDrawer(false)}
           onShowNotes={() => setDrawer(true)}
           onAddNote={async (path, line, body) => {
@@ -421,7 +454,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
             return r.ok ? null : r.error;
           }}
         />
-        {!drawer && <StackPane item={current} nav={nav} onSelect={(i) => select(i)} />}
+        {!drawer && <StackPane item={current} nav={nav} onSelect={(i) => select(i)} footer={llmActions(false)} />}
         {drawer && narrow && <div className="drawer-backdrop" onClick={() => setDrawer(false)} aria-hidden="true" />}
         {drawer && (
           <div id="notes-drawer" className="drawer-slot">
@@ -451,6 +484,19 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           </div>
         )}
       </div>
+      {explain && (
+        <ExplainDialog
+          key={explain.key}
+          req={{ repo: req.repo, base: session!.base, head: session!.head, target: explain.target }}
+          saved={answers[explain.key] ?? null}
+          onAnswer={(a) => setAnswers((m) => ({ ...m, [explain.key]: a }))}
+          onClose={() => setExplain(null)}
+          onSettings={() => {
+            setExplain(null);
+            openLlmSettings();
+          }}
+        />
+      )}
       {posting && pr && <PostDialog pr={pr} ids={posting} onClose={() => setPosting(null)} onPosted={reloadNotes} />}
       <footer className="bottombar">
         <button

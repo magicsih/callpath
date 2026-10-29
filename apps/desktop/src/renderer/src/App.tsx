@@ -6,6 +6,7 @@ import { Compare } from "./screens/Compare";
 import { Review } from "./screens/Review";
 import { Connections } from "./screens/Connections";
 import { PrOpening } from "./screens/PrOpening";
+import { LlmSettings } from "./screens/LlmSettings";
 
 type Screen =
   | { name: "boot" }
@@ -13,6 +14,7 @@ type Screen =
   | { name: "compare"; repo: RepoInfo; base?: string; head?: string }
   | { name: "review"; repo: RepoInfo; req: CompareRequest; selection: string | null; showTests: boolean; pr: PrMeta | null }
   | { name: "connections"; back: Screen; hint?: ConnectionHint }
+  | { name: "llm"; back: Screen }
   | { name: "pr"; url: string; back: Screen };
 
 /** PR 리뷰는 앱 캐시의 bare 저장소를 쓰므로 그 경로로 화면용 저장소 정보를 만든다 */
@@ -106,6 +108,7 @@ export function App() {
   }, [open]);
 
   if (screen.name === "boot") return <div className="state" role="status">불러오는 중</div>;
+  if (screen.name === "llm") return <LlmSettings onBack={() => setScreen(screen.back)} backLabel={screen.back.name === "review" ? "리뷰로 돌아가기" : "돌아가기"} />;
   if (screen.name === "connections") {
     // PR 열기에서 왔으면 돌아갈 때 그 PR을 이어서 연다는 것을 버튼에 적는다
     return <Connections onBack={() => setScreen(screen.back)} backLabel={screen.back.name === "pr" ? "돌아가서 PR 다시 열기" : "돌아가기"} {...(screen.hint ? { hint: screen.hint } : {})} />;
@@ -133,6 +136,7 @@ export function App() {
         onPick={pick}
         onOpenPr={(url) => setScreen({ name: "pr", url, back: screen })}
         onConnections={() => setScreen({ name: "connections", back: screen })}
+        onLlmSettings={() => setScreen({ name: "llm", back: screen })}
       />
     );
   }
@@ -178,6 +182,7 @@ export function App() {
           setScreen({ name: "start", error: null });
         } else setScreen({ name: "compare", repo, base: req.base, head: req.head });
       }}
+      onLlmSettings={(selection, showTests) => setScreen({ name: "llm", back: { ...screen, selection, showTests } })}
       onPersist={(selection, showTests) =>
         persist({ ...state.current, lastRepo: req.repo, repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } })
       }

@@ -1,14 +1,16 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
 import { ProviderError } from "@callpath/providers";
+import { LlmError } from "@callpath/llm";
 import { cancelConnectionCheck, deleteConnection, listConnections, saveConnection } from "./connections";
 import { InvalidPrUrl, listPullRequests, NeedsConnection, openPullRequest } from "./pullRequests";
 import { addNote, deleteNote, listNotes, planPost, postNotes } from "./notes";
+import { cancelExplain, cancelLlmCheck, getLlmSettings, previewExplain, saveLlmSettings, sendExplain, showLlmLog } from "./llm";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import workerPath from "./analyzeWorker?modulePath";
 import { inspectRepo, PathError, readAt } from "./repo";
 import { loadState, saveState } from "./state";
-import type { AnalysisEvent, CompareRequest, ConnectionInput, ErrorKind, FileRequest, NoteScope, PostPlan, PrMeta, Result, UiState } from "../shared/api";
+import type { AnalysisEvent, CompareRequest, ConnectionInput, ErrorKind, ExplainTarget, FileRequest, LlmSettingsInput, NoteScope, PostPlan, PrMeta, Result, UiState } from "../shared/api";
 import type { WorkerEvent } from "./analyzeWorker";
 import type { ReviewSession } from "@callpath/core";
 
@@ -21,6 +23,7 @@ function friendly(e: unknown): { error: string; kind: ErrorKind } {
   if (e instanceof PathError) return { error: msg, kind: "path" };
   if (e instanceof NeedsConnection) return { error: msg, kind: "connection" };
   if (e instanceof InvalidPrUrl) return { error: msg, kind: "input" };
+  if (e instanceof LlmError) return { error: msg, kind: e.code === "auth" ? "auth" : e.code === "network" || e.code === "timeout" ? "network" : e.code === "cancelled" ? "cancelled" : "other" };
   if (e instanceof ProviderError) return { error: msg, kind: e.code === "auth" ? "auth" : e.code === "network" ? "network" : e.code === "cancelled" ? "cancelled" : "other" };
   if (/merge-base|unknown revision|bad revision|Not a valid object name|no merge base/i.test(msg)) {
     const ref = /Not a valid object name ([^\s]+)/.exec(msg)?.[1] ?? /bad revision '([^']+)'/.exec(msg)?.[1] ?? /unknown revision[^']*'([^']+)'/.exec(msg)?.[1];
@@ -125,6 +128,13 @@ ipcMain.handle("addNote", (_e, s: NoteScope, n: { path: string; line: number; bo
 ipcMain.handle("deleteNote", (_e, id: number) => wrap(async () => deleteNote(id)));
 ipcMain.handle("planPost", (_e, pr: PrMeta, ids: number[]) => wrap(() => planPost(pr, ids)));
 ipcMain.handle("postNotes", (_e, pr: PrMeta, plans: PostPlan[]) => wrap(() => postNotes(pr, plans)));
+ipcMain.handle("getLlmSettings", () => getLlmSettings());
+ipcMain.handle("saveLlmSettings", (_e, input: LlmSettingsInput, requestId?: string) => wrap(() => saveLlmSettings(input, requestId)));
+ipcMain.handle("cancelLlmCheck", (_e, requestId: string) => cancelLlmCheck(requestId));
+ipcMain.handle("previewExplain", (_e, req: { repo: string; base: string; head: string; target: ExplainTarget }) => wrap(() => previewExplain(req)));
+ipcMain.handle("sendExplain", (e, id: string) => wrap(() => sendExplain(id, e.sender)));
+ipcMain.handle("cancelExplain", (_e, id: string) => cancelExplain(id));
+ipcMain.handle("showLlmLog", () => showLlmLog());
 ipcMain.handle("loadState", () => loadState());
 ipcMain.handle("saveState", (_e, s: UiState) => saveState(s));
 

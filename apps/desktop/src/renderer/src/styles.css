@@ -316,3 +316,17 @@ code { font: 12px var(--mono); }
   .position .overall { display: none; }
   .name.test-name { -webkit-line-clamp: 1; word-break: normal; }
 }
+
+/* LLM 설명 */
+.llm-actions { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.llm-actions .row { flex-wrap: wrap; gap: 6px; }
+.llm-actions button { white-space: nowrap; }
+.llm-actions.compact { margin-top: 6px; padding-top: 0; border-top: none; flex-direction: row; align-items: center; }
+.head-extra { margin-top: 4px; }
+.settings-links { display: flex; gap: 16px; margin-top: 18px; }
+ul.plain { margin: 4px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+dialog.modal.explain { width: min(760px, calc(100% - 32px)); }
+.explain-body { flex: 1 1 auto; min-height: 80px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.explain-answer { flex: 1 1 auto; min-height: 80px; max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; background: var(--bg-pane); }
+.answer-text { white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
+details > summary { cursor: pointer; color: var(--accent-ink); }
