@@ -71,6 +71,21 @@ describe("미리보기", () => {
     expect(q.graphSummary.match(/append/g)!.length).toBeLessThanOrEqual(2);
   });
 
+  it("메서드 설명은 변경 후가 혼자 넘어도 변경 전 자리를 남기고, 생성자와 바뀌지 않은 메서드를 화면처럼 적는다", () => {
+    const step = session.flows[0]!.steps.find((s) => s.symbol.name === "approve")!;
+    const huge: Snippet = { path: step.symbol.path, side: "head", startLine: 1, endLine: 3000, text: Array.from({ length: 3000 }, (_, i) => `int v${i} = ${i};`).join("\n") };
+    const base: Snippet = { path: step.symbol.path, side: "base", startLine: 1, endLine: 3, text: "void approve(long amount) {\n  gateway.charge(amount);\n}" };
+    const p = preview({ kind: "method", step, snippet: huge, baseSnippet: base, callers: [], callees: [] });
+    expect(p.scope.map((s) => s.side)).toEqual(["head", "base"]);
+    expect(p.scope[0]!.truncatedFrom).toBe(3000);
+    expect(p.omitted).toBe(0);
+    expect(p.messages[1]!.content).toContain("gateway.charge(amount)");
+    const ctor = session.orphans[0]!;
+    const q = preview({ kind: "method", step: ctor, snippet: { path: ctor.symbol.path, side: "head", startLine: 1, endLine: 1, text: "x", unchanged: true }, baseSnippet: null, callers: [], callees: [], orphan: true });
+    expect(q.graphSummary).toContain("메서드: OrderService 생성자 (shop.order.OrderService,");
+    expect(q.messages[1]!.content).toContain("(바뀌지 않음)");
+  });
+
   it("자른 조각은 원래 끝 줄을 남긴다", () => {
     const flow = session.flows[0]!;
     const many: Snippet = { path: "Many.java", side: "head", startLine: 1, endLine: 2000, text: Array.from({ length: 2000 }, (_, i) => `int v${i} = ${i};`).join("\n") };

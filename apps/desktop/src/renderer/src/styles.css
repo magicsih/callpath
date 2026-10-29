@@ -346,3 +346,8 @@ details > summary { cursor: pointer; color: var(--accent-ink); }
 .answer-text blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 3px solid var(--border); color: var(--text-muted); }
 .answer-text .answer-table { white-space: pre; overflow-x: auto; }
 .warn-text.inline { display: inline; }
+.screen-slot { height: 100%; }
+.screen-slot[hidden] { display: none; }
+.nowrap { white-space: nowrap; }
+/* 작은 글씨 링크는 대비가 더 높은 색으로(작은 글자 4.5:1) */
+button.link.small { color: var(--accent-ink); }

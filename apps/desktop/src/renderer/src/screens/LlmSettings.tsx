@@ -57,6 +57,11 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
     view !== null &&
     (enabled !== view.enabled || endpoint.trim() !== view.endpoint || model.trim() !== view.model || key.trim() !== "" || headers.trim() !== "" || clearKey || clearHeaders);
   const [leaving, setLeaving] = useState(false);
+  const backBtn = useRef<HTMLButtonElement>(null);
+  const stay = () => {
+    setLeaving(false);
+    requestAnimationFrame(() => backBtn.current?.focus());
+  };
   // 저장하면 입력을 저장된 값으로 되돌리므로, 저장 뒤 다시 고친 것도 변경으로 본다
   const back = () => (dirty ? setLeaving(true) : onBack());
   const save = async () => {
@@ -81,14 +86,26 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
   return (
     <main className="compare" aria-labelledby="llm-title">
       <div className="start-card">
-        <button className="link" onClick={back}>
+        <button className="link" onClick={back} ref={backBtn}>
           <Icon name="back" /> {backLabel}
         </button>
         {leaving && (
-          <div className="banner" role="alertdialog" aria-labelledby="leave-title" data-testid="llm-leave">
+          <div
+            className="banner"
+            role="alertdialog"
+            aria-labelledby="leave-title"
+            data-testid="llm-leave"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                stay();
+              }
+            }}
+          >
             <span id="leave-title">저장하지 않은 변경이 있습니다. 버리고 돌아갈까요?</span>
-            <button onClick={onBack} autoFocus>버리고 돌아가기</button>
-            <button onClick={() => setLeaving(false)}>계속 고치기</button>
+            {/* 잃는 쪽이 아닌 "계속 고치기"에 먼저 초점을 둔다 */}
+            <button onClick={stay} autoFocus>계속 고치기</button>
+            <button onClick={onBack}>버리고 돌아가기</button>
           </div>
         )}
         <h1 id="llm-title" tabIndex={-1} ref={title}>

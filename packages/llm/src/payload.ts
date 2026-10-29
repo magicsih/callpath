@@ -6,6 +6,8 @@ export interface Snippet {
   name?: string;
   /** 글자 상한으로 앞부분만 남겼으면 원래 끝 줄 */
   truncatedFrom?: number;
+  /** 바뀌지 않은 메서드(진입점 등). 변경 후라고 적지 않는다 */
+  unchanged?: boolean;
   path: string;
   side: "base" | "head";
   startLine: number;
@@ -103,12 +105,12 @@ function stepLine(s: Step): string {
 
 function fence(s: Snippet): string {
   const lang = s.path.endsWith(".kt") || s.path.endsWith(".kts") ? "kotlin" : "java";
-  const side = s.side === "head" ? "변경 후" : "변경 전";
+  const side = s.unchanged ? "바뀌지 않음" : s.side === "head" ? "변경 후" : "변경 전";
   return `### ${s.path}:${s.startLine}-${s.endLine} (${side})\n\`\`\`${lang}\n${s.text}\n\`\`\``;
 }
 
 /** 혼자 상한을 넘는 조각을 앞부분만 남긴다. 덧붙이는 생략 안내까지 넣은 최종 길이로 재고, 한 줄이 너무 길면 글자로 자른다 */
-function truncate(s: Snippet): Snippet {
+function truncate(s: Snippet, budget = MAX_CODE_CHARS): Snippet {
   const lines = s.text.split("\n");
   const build = (n: number, cut?: number): Snippet => {
     const body = cut === undefined ? lines.slice(0, n).join("\n") : lines[0]!.slice(0, cut);
@@ -117,11 +119,25 @@ function truncate(s: Snippet): Snippet {
     return { ...s, endLine: s.startLine + n - 1, truncatedFrom: s.endLine, text: `${body}\n${note}` };
   };
   let n = lines.length;
-  while (n > 1 && fence(build(n)).length > MAX_CODE_CHARS) n = Math.max(1, Math.floor(n * 0.9));
-  if (fence(build(n)).length <= MAX_CODE_CHARS) return build(n);
+  while (n > 1 && fence(build(n)).length > budget) n = Math.max(1, Math.floor(n * 0.9));
+  if (fence(build(n)).length <= budget) return build(n);
   // 한 줄만으로도 넘는다(최소화한 코드 등). 첫 줄을 글자로 자른다
   const overhead = fence(build(1, 0)).length;
-  return build(1, Math.max(0, MAX_CODE_CHARS - overhead));
+  return build(1, Math.max(0, budget - overhead));
+}
+
+/**
+ * 메서드 설명은 변경 전후를 비교해야 하므로 둘 다 넣는다. 합쳐 상한을 넘으면 변경 전 자리(최대 절반)를 먼저 남기고 변경 후를 자른다
+ */
+function fitPair(head: Snippet, base: Snippet | null): { kept: Snippet[]; omitted: number; dropped: Snippet[] } {
+  const headSize = fence(head).length;
+  const baseSize = base ? fence(base).length : 0;
+  if (headSize + baseSize <= MAX_CODE_CHARS) return { kept: base ? [head, base] : [head], omitted: 0, dropped: [] };
+  const baseBudget = base ? Math.min(baseSize, Math.floor(MAX_CODE_CHARS / 2)) : 0;
+  const keptHead = headSize <= MAX_CODE_CHARS - baseBudget ? head : truncate(head, MAX_CODE_CHARS - baseBudget);
+  if (!base) return { kept: [keptHead], omitted: 0, dropped: [] };
+  const left = MAX_CODE_CHARS - fence(keptHead).length;
+  return { kept: [keptHead, baseSize <= left ? base : truncate(base, left)], omitted: 0, dropped: [] };
 }
 
 /**
@@ -191,7 +207,8 @@ export function preview(req: ExplainRequest): ExplainPayload {
   const last = s.path[s.path.length - 1];
   const chain = last && last.qualifiedName === s.symbol.qualifiedName && last.path === s.symbol.path ? s.path : [...s.path, s.symbol];
   const graphSummary = capSummary([
-    `메서드: ${s.symbol.qualifiedName} (${s.symbol.path}) [${tagsOf(s)}]`,
+    // 이름은 화면 표기로, 패키지와 클래스는 전체 이름에서 메서드 이름을 뺀 것으로 적는다(생성자가 OrderService.OrderService로 보이지 않게)
+    `메서드: ${short(s.symbol)} (${s.symbol.qualifiedName.includes(".") ? `${s.symbol.qualifiedName.slice(0, s.symbol.qualifiedName.lastIndexOf("."))}, ` : ""}${s.symbol.path}) [${tagsOf(s)}]`,
     req.orphan
       ? "호출 경로: 진입점에서 이 메서드까지 닿는 호출을 찾지 못했습니다(진입점 미확정)"
       : chain.length > 1
@@ -203,8 +220,7 @@ export function preview(req: ExplainRequest): ExplainPayload {
   ]
     .filter(Boolean)
     .join("\n"));
-  const snippets = [req.snippet, ...(req.baseSnippet ? [req.baseSnippet] : [])];
-  const { kept, omitted, dropped } = fit(snippets);
+  const { kept, omitted, dropped } = fitPair(req.snippet, req.baseSnippet);
   const user = [
     "아래 메서드의 변경을 설명하세요. 부르는 쪽과 부르는 메서드 관점에서 영향과 리뷰어가 확인할 점을 짚으세요.",
     "",

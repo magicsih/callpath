@@ -124,7 +124,9 @@ async function snippetOf(repo: string, ref: string, sym: SymbolRef, side: "base"
 
 /** 단계의 코드. 지워진 메서드는 변경 전, 나머지는 변경 후 */
 async function stepSnippet(repo: string, base: string, head: string, s: Step): Promise<Snippet | null> {
-  return s.change === "removed" ? (s.baseSymbol ? snippetOf(repo, base, s.baseSymbol, "base") : null) : snippetOf(repo, head, s.symbol, "head");
+  if (s.change === "removed") return s.baseSymbol ? snippetOf(repo, base, s.baseSymbol, "base") : null;
+  const snip = await snippetOf(repo, head, s.symbol, "head");
+  return snip && s.change === "unchanged" ? { ...snip, unchanged: true } : snip;
 }
 
 export async function previewExplain(req: { repo: string; base: string; head: string; target: ExplainTarget }): Promise<ExplainPreview> {

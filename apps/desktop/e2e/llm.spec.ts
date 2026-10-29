@@ -155,8 +155,11 @@ test("LLM 설정: 저장 못 하는 이유, 헤더를 바꾼다는 안내, 저�
     // 저장하지 않고 돌아가려 하면 묻는다
     await page.getByRole("button", { name: "돌아가기" }).click();
     await expect(page.getByTestId("llm-leave")).toBeVisible();
-    await page.getByRole("button", { name: "계속 고치기" }).click();
+    // 잃지 않는 쪽에 먼저 초점, Esc는 계속 고치기, 닫히면 돌아가기 버튼으로 초점
+    await expect(page.getByRole("button", { name: "계속 고치기" })).toBeFocused();
+    await page.keyboard.press("Escape");
     await expect(page.getByTestId("llm-leave")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "돌아가기" })).toBeFocused();
     await expect(page.getByLabel("추가 헤더 (선택)")).toHaveValue("X-C: 3");
     await page.getByRole("button", { name: "돌아가기" }).click();
     await page.getByRole("button", { name: "버리고 돌아가기" }).click();

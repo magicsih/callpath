@@ -111,7 +111,8 @@ export function App() {
   }, [open]);
 
   if (screen.name === "boot") return <div className="state" role="status">불러오는 중</div>;
-  if (screen.name === "llm") return <LlmSettings onBack={() => setScreen(screen.back)} backLabel={screen.back.name === "review" ? "리뷰로 돌아가기" : "돌아가기"} />;
+  // 리뷰에서 온 LLM 설정은 아래에서 리뷰를 숨긴 채 그대로 두고 보인다(분석, 코드 위치, 받은 답을 지킨다)
+  if (screen.name === "llm" && screen.back.name !== "review") return <LlmSettings onBack={() => setScreen(screen.back)} />;
   if (screen.name === "connections") {
     // PR 열기에서 왔으면 돌아갈 때 그 PR을 이어서 연다는 것을 버튼에 적는다
     return <Connections onBack={() => setScreen(screen.back)} backLabel={screen.back.name === "pr" ? "돌아가서 PR 다시 열기" : "돌아가기"} {...(screen.hint ? { hint: screen.hint } : {})} />;
@@ -169,27 +170,35 @@ export function App() {
       />
     );
   }
-  const { repo, req, pr } = screen;
+  const onLlm = screen.name === "llm";
+  const rs = (screen.name === "llm" ? screen.back : screen) as Extract<Screen, { name: "review" }>;
+  const { repo, req, pr } = rs;
   return (
+    <>
+      <div className="screen-slot" hidden={onLlm}>
     <Review
       key={`${req.repo}|${req.base}|${req.head}`}
+      active={!onLlm}
       req={req}
       repoName={repo.name}
       pr={pr}
-      onRefreshPr={() => pr && setScreen({ name: "pr", url: pr.url, back: screen })}
-      initialSelection={screen.selection}
-      initialShowTests={screen.showTests}
+      onRefreshPr={() => pr && setScreen({ name: "pr", url: pr.url, back: rs })}
+      initialSelection={rs.selection}
+      initialShowTests={rs.showTests}
       onChangeCompare={() => {
         if (pr) {
           persist({ ...state.current, lastRepo: null });
           setScreen({ name: "start", error: null });
         } else setScreen({ name: "compare", repo, base: req.base, head: req.head });
       }}
-      onLlmSettings={(selection, showTests) => setScreen({ name: "llm", back: { ...screen, selection, showTests } })}
+      onLlmSettings={(selection, showTests) => setScreen({ name: "llm", back: { ...rs, selection, showTests } })}
       answerStore={answers.current}
       onPersist={(selection, showTests) =>
         persist({ ...state.current, lastRepo: req.repo, repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } })
       }
     />
+      </div>
+      {onLlm && <LlmSettings onBack={() => setScreen(rs)} backLabel="리뷰로 돌아가기" />}
+    </>
   );
 }

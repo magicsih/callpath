@@ -47,11 +47,15 @@ interface Props {
   onPersist: (selection: string | null, showTests: boolean) => void;
   /** LLM 설정으로 간다. 돌아올 때 보던 위치를 지키려고 지금 위치를 넘긴다 */
   onLlmSettings: (selection: string | null, showTests: boolean) => void;
-  /** 받은 LLM 답. 리뷰 화면 밖에 두어 설정을 다녀와도 남는다 */
+  /** 받은 LLM 답. 리뷰 화면 밖에 두어 리뷰가 새로 그려져도 남는다 */
   answerStore: Record<string, SavedAnswer>;
+  /** 다른 화면(LLM 설정)이 위에 있으면 false. 숨은 동안 단축키를 받지 않는다 */
+  active: boolean;
 }
 
-export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initialShowTests, onChangeCompare, onPersist, onLlmSettings, answerStore }: Props) {
+export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initialShowTests, onChangeCompare, onPersist, onLlmSettings, answerStore, active }: Props) {
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const [analysis, setAnalysis] = useState<Analysis>({ status: "loading" });
   const [run, setRun] = useState(0);
   const [showTests, setShowTests] = useState(initialShowTests);
@@ -63,9 +67,10 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
   const [notes, setNotes] = useState<Note[]>([]);
   // LLM 설명: 설정(켜짐 여부), 열린 설명 대화상자, 받은 답(같은 커밋 안에서만 다시 보인다)
   const [llm, setLlm] = useState<LlmSettingsView | null>(null);
+  // 설정에서 돌아오면 바뀐 설정(켜기, 모델)을 다시 읽는다
   useEffect(() => {
-    void window.callpath.getLlmSettings().then(setLlm);
-  }, []);
+    if (active) void window.callpath.getLlmSettings().then(setLlm);
+  }, [active]);
   const [explain, setExplain] = useState<{ key: string; target: ExplainTarget; title: string } | null>(null);
   const [answers, setAnswers] = useState<Record<string, SavedAnswer>>(() => ({ ...answerStore }));
   const saveAnswer = (key: string, a: SavedAnswer) => {
@@ -223,6 +228,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
     if (!nav || !current) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!activeRef.current) return;
       // 게시 미리보기가 열려 있으면 뒤 화면을 움직이지 않는다
       if (document.querySelector("dialog[open]")) return;
       const target = e.target as HTMLElement;

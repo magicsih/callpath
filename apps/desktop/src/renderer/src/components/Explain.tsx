@@ -184,15 +184,18 @@ export function ExplainDialog(props: {
     return () => clearInterval(t);
   }, [phase.s]);
 
+  // 답이 길어지면 끝을 따라 내려간다. 사용자가 위로 올려 읽는 중이면 끌어내리지 않는다
+  const follow = useRef(true);
   useEffect(() => {
-    // 답이 길어지면 끝을 따라 내려간다
-    if (phase.s === "streaming" && answerRef.current) answerRef.current.scrollTop = answerRef.current.scrollHeight;
+    const el = answerRef.current;
+    if (phase.s === "streaming" && el && follow.current) el.scrollTop = el.scrollHeight;
   }, [phase]);
 
   const send = async (p: ExplainPreview) => {
     // 보내면 main이 그 미리보기를 쓰고 지운다
     previewId.current = null;
     runId.current = p.id;
+    follow.current = true;
     setPhase({ s: "streaming", p, text: "", started: Date.now() });
     setDest(`${p.endpointHost}의 ${p.model} 모델`);
     const r = await window.callpath.sendExplain(p.id);
@@ -276,7 +279,17 @@ export function ExplainDialog(props: {
       )}
 
       {(phase.s === "streaming" || phase.s === "done" || (phase.s === "error" && phase.text)) && (
-        <div className="explain-answer" ref={answerRef} aria-live="polite" aria-busy={phase.s === "streaming"} data-testid="explain-answer">
+        <div
+          className="explain-answer"
+          ref={answerRef}
+          aria-live="polite"
+          aria-busy={phase.s === "streaming"}
+          data-testid="explain-answer"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            follow.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+          }}
+        >
           {phase.s === "streaming" && !phase.text ? (
             <p className="muted">
               답을 기다리는 중 {Math.round((now - phase.started) / 1000)}초. 60초 동안 아무것도 오지 않으면 멈춥니다
@@ -361,13 +374,13 @@ export function LlmActions(props: {
         {props.onFlow && (
           <button onClick={props.onFlow} title={props.flowName ? `${props.flowName} 흐름을 요약받습니다` : undefined}>
             {props.flowName ? `${props.flowName} 흐름 요약` : "이 흐름 요약"}
-            {props.flowAnswered && <span className="muted small"> (받음)</span>}
+            {props.flowAnswered && <span className="muted small nowrap"> (받음)</span>}
           </button>
         )}
         {props.onMethod && (
           <button onClick={props.onMethod}>
             {props.methodName ? `${props.methodName} 설명` : "이 메서드 설명"}
-            {props.methodAnswered && <span className="muted small"> (받음)</span>}
+            {props.methodAnswered && <span className="muted small nowrap"> (받음)</span>}
           </button>
         )}
       </div>
