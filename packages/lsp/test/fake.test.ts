@@ -8,10 +8,10 @@ import { createRefiner, LspClient } from "../src/index.js";
 const FAKE = resolve(__dirname, "fake-lsp.mjs");
 const FIX = resolve(__dirname, "../../../fixtures/kotlin");
 
-function fakeServer(dir: string): { bin: string; log: string } {
+function fakeServer(dir: string, readyMs?: number): { bin: string; log: string } {
   const bin = join(dir, "fake-kotlin-lsp");
   const log = join(dir, "fake.log");
-  writeFileSync(bin, `#!/bin/sh\nFAKE_LSP_LOG="${log}" exec "${process.execPath}" "${FAKE}" "$@"\n`);
+  writeFileSync(bin, `#!/bin/sh\n${readyMs !== undefined ? `FAKE_LSP_READY_MS=${readyMs} ` : ""}FAKE_LSP_LOG="${log}" exec "${process.execPath}" "${FAKE}" "$@"\n`);
   chmodSync(bin, 0o755);
   return { bin, log };
 }
@@ -62,6 +62,26 @@ describe("가짜 LSP 서버", () => {
       const pid = lines(log).find((l) => l.started)!.started as number;
       await new Promise((r) => setTimeout(r, 1500));
       expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("준비 신호", () => {
+  it("ServiceReady가 올 때까지 기다리고, 오지 않으면 시간 안에 false", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "callpath-fake-"));
+    try {
+      const late = fakeServer(dir, 800);
+      const a = await LspClient.start({ name: "fake", command: late.bin, args: [], cwd: dir, rootDir: dir, settings: {} });
+      const t0 = Date.now();
+      expect(await a.waitForServiceReady(5000)).toBe(true);
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(500);
+      await a.stop();
+      const never = fakeServer(join(dir), undefined);
+      const b = await LspClient.start({ name: "fake", command: never.bin, args: [], cwd: dir, rootDir: dir, settings: {} });
+      expect(await b.waitForServiceReady(500)).toBe(false);
+      await b.stop();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

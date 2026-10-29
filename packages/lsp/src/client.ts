@@ -37,6 +37,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
 export class LspClient {
   private exited: string | null = null;
   private stderrTail = "";
+  private serviceReady = false;
+  private readyWaiters: Array<() => void> = [];
 
   private constructor(
     private readonly proc: ChildProcess,
@@ -66,6 +68,13 @@ export class LspClient {
     conn.onRequest("window/workDoneProgress/create", () => null);
     conn.onRequest("workspace/applyEdit", () => ({ applied: false }));
     conn.onRequest("window/showMessageRequest", () => null);
+    // JDT LS는 프로젝트를 다 읽으면 language/status로 ServiceReady를 알린다
+    conn.onNotification("language/status", (s: { type?: string }) => {
+      if (s?.type === "ServiceReady") {
+        client.serviceReady = true;
+        for (const w of client.readyWaiters.splice(0)) w();
+      }
+    });
     conn.listen();
     const root = pathToFileURL(opts.rootDir).href;
     await Promise.race([
@@ -92,6 +101,18 @@ export class LspClient {
   private request<T>(method: string, params: unknown): Promise<T> {
     if (this.exited) return Promise.reject(new Error(this.exited));
     return withTimeout(this.conn.sendRequest(method, params) as Promise<T>, this.opts.requestTimeoutMs ?? 60000, `${this.opts.name} ${method}`);
+  }
+
+  /** JDT LS의 ServiceReady를 기다린다. 시간 안에 오지 않으면 false */
+  waitForServiceReady(timeoutMs: number): Promise<boolean> {
+    if (this.serviceReady) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const t = setTimeout(() => resolve(false), timeoutMs);
+      this.readyWaiters.push(() => {
+        clearTimeout(t);
+        resolve(true);
+      });
+    });
   }
 
   open(path: string, languageId: string, text: string): void {

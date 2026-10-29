@@ -21,7 +21,10 @@ process.stdin.on("data", (chunk) => {
     const msg = JSON.parse(buf.subarray(sep + 4, sep + 4 + len).toString());
     buf = buf.subarray(sep + 4 + len);
     if (msg.method === "initialize") send({ id: msg.id, result: { capabilities: { callHierarchyProvider: true } } });
-    else if (msg.method === "initialized") send({ id: nextId++, method: "workspace/configuration", params: { items: [{ section: "java.project" }, {}] } });
+    else if (msg.method === "initialized") {
+      send({ id: nextId++, method: "workspace/configuration", params: { items: [{ section: "java.project" }, {}] } });
+      if (process.env.FAKE_LSP_READY_MS) setTimeout(() => send({ method: "language/status", params: { type: "ServiceReady", message: "ServiceReady" } }), Number(process.env.FAKE_LSP_READY_MS));
+    }
     else if (msg.method === "shutdown") send({ id: msg.id, result: null });
     else if (msg.method === "exit") process.exit(0);
     else if (msg.id !== undefined && msg.method === undefined) log({ configurationResponse: msg.result });

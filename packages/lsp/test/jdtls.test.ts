@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { analyze, GitRefSource, mergeBase, type ReviewSession } from "@callpath/core";
@@ -31,11 +31,11 @@ function repoFrom(lang: "java" | "kotlin", editHead?: (dir: string) => void): st
   return dir;
 }
 
-async function run(repo: string, precise: boolean): Promise<ReviewSession> {
+async function run(repo: string, precise: boolean, cacheDir = cache): Promise<ReviewSession> {
   const baseSha = await mergeBase(repo, "main", "feature");
   const head = new GitRefSource(repo, "feature");
   const headSha = await head.resolve();
-  const refine = precise ? createRefiner({ repo, headSha, cacheDir: cache }) : undefined;
+  const refine = precise ? createRefiner({ repo, headSha, cacheDir }) : undefined;
   return analyze(new GitRefSource(repo, baseSha), head, { repo, baseLabel: baseSha, headLabel: headSha, ...(refine ? { refine } : {}) });
 }
 
@@ -57,6 +57,27 @@ describe.skipIf(!hasJava)("JDT LS 정밀 분석 (A8)", () => {
       expect(place.tests.every((t) => t.confidence === "high")).toBe(true);
     } finally {
       rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("캐시 폴더가 심볼릭 링크여도(macOS의 /var) LSP 경로를 맞춰 흐름을 지킨다", async () => {
+    const repo = repoFrom("java");
+    const root = mkdtempSync(join(tmpdir(), "callpath-lsp-link-"));
+    try {
+      const real = join(root, "real");
+      mkdirSync(real);
+      // JDT LS는 한 번 받은 것을 쓰도록 도구 폴더만 공유 캐시를 가리킨다
+      mkdirSync(join(cache, "tools"), { recursive: true });
+      symlinkSync(join(cache, "tools"), join(real, "tools"));
+      const link = join(root, "link");
+      symlinkSync(real, link);
+      const fast = await run(repo, false);
+      const precise = await run(repo, true, link);
+      expect(precise.analysis.languages.java?.confirmedEdges).toBeGreaterThan(0);
+      expect(precise.flows[0]!.steps.map((x) => x.symbol.name)).toEqual(fast.flows[0]!.steps.map((x) => x.symbol.name));
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

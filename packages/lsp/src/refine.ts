@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,7 +50,8 @@ export function createRefiner(opts: RefinerOptions): Refiner {
     }
     let tree: string;
     try {
-      tree = await exportTree(opts.repo, opts.headSha, join(opts.cacheDir, "trees", opts.headSha));
+      // LSP는 심볼릭 링크를 푼 실제 경로로 답한다(macOS의 /var는 /private/var). 같은 기준으로 맞추려고 실제 경로를 쓴다
+      tree = realpathSync(await exportTree(opts.repo, opts.headSha, join(opts.cacheDir, "trees", opts.headSha)));
     } catch (e) {
       for (const lang of byLang.keys()) out[lang] = { status: "failed", code: "error", reason: (e as Error).message };
       return out;
@@ -89,7 +91,13 @@ async function startServer(lang: Language, files: FileIndex[], tree: string, opt
     const settings = { java: { project: { sourcePaths: roots }, import: { gradle: { enabled: false }, maven: { enabled: false } } } };
     const { command, args } = jdtlsCommand(dir, java.bin, join(opts.cacheDir, "work", "jdtls", opts.headSha));
     opts.onStatus?.("Java 정밀 분석 중");
-    return LspClient.start({ name: "JDT LS", command, args, cwd: tree, rootDir: tree, settings });
+    const client = await LspClient.start({ name: "JDT LS", command, args, cwd: tree, rootDir: tree, settings });
+    // 프로젝트를 다 읽기 전의 호출 계층은 일부만 돌아와, 그것으로 간선을 고치면 흐름이 끊긴다
+    if (!(await client.waitForServiceReady(120000))) {
+      await client.stop();
+      return { status: "failed", code: "timeout", reason: "JDT LS가 120초 안에 프로젝트를 다 읽지 못했습니다" };
+    }
+    return client;
   }
   const kotlin = await findKotlinLsp(env);
   if ("error" in kotlin) return { status: "skipped", code: "no-tool", reason: kotlin.error };
@@ -110,7 +118,13 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
     check();
     const toPath = (uri: string): string | null => {
       if (!uri.startsWith("file:")) return null;
-      const rel = relative(tree, fileURLToPath(uri));
+      let file = fileURLToPath(uri);
+      try {
+        file = realpathSync(file);
+      } catch {
+        // 지워진 파일 등은 받은 경로 그대로 비교한다
+      }
+      const rel = relative(tree, file);
       return rel.startsWith("..") ? null : rel.split(sep).join("/");
     };
     let confirmed = 0;
@@ -124,6 +138,10 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
       check();
       const outgoing = (await client.outgoing(item)) ?? [];
       check();
+      const incomingCalls = (await client.incoming(item)) ?? [];
+      check();
+      // 나가는, 들어오는 호출이 모두 비었는데 1계층에는 간선이 있으면 아직 다 읽지 못한 결과로 보고 고치지 않는다
+      if (outgoing.length === 0 && incomingCalls.length === 0 && (graph.outgoing(id).length > 0 || graph.incoming(id).length > 0)) continue;
       const outEdges: Edge[] = [];
       for (const call of outgoing) {
         const path = toPath(call.to.uri);
@@ -138,19 +156,21 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
           }
         }
       }
-      graph.replaceOutgoing(id, dedupe(outEdges));
+      const mappedOut = outEdges.some((e) => e.source === "lsp" && e.confidence === "high");
+      // 응답은 있는데 저장소 안 메서드로 하나도 맞추지 못했으면 경로가 어긋난 것으로 보고 1계층 간선을 남긴다
+      const outTrusted = outgoing.length === 0 || mappedOut || graph.outgoing(id).length === 0;
+      if (outTrusted) graph.replaceOutgoing(id, dedupe(outEdges));
 
-      const incoming = (await client.incoming(item)) ?? [];
-      check();
       const inEdges: Edge[] = [];
-      for (const call of incoming) {
+      for (const call of incomingCalls) {
         const path = toPath(call.from.uri);
         const caller = path ? graph.methodAt(path, call.from.selectionRange.start.line) : null;
         if (!caller) continue;
         for (const r of call.fromRanges) inEdges.push({ caller: methodId(caller), callee: id, callIndex: callIndexOf(caller, r, m.name), confidence: "high", source: "lsp" });
       }
-      graph.replaceIncoming(id, dedupe(inEdges));
-      confirmed += outEdges.length + inEdges.length;
+      const inTrusted = incomingCalls.length === 0 || inEdges.length > 0 || graph.incoming(id).length === 0;
+      if (inTrusted) graph.replaceIncoming(id, dedupe(inEdges));
+      confirmed += (outTrusted ? outEdges.length : 0) + (inTrusted ? inEdges.length : 0);
     }
     return { status: "done", queried: methods.length, confirmedEdges: confirmed };
   } catch (e) {
