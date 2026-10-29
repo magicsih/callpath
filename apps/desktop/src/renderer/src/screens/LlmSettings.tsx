@@ -43,6 +43,12 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
     void window.callpath.getLlmSettings().then(apply);
     title.current?.focus();
   }, []);
+  // 키 파일은 앱 밖에서 바뀐다. 창으로 돌아오거나 다시 읽기를 누르면 상태만 새로 읽는다(입력 중인 값은 건드리지 않는다)
+  const refreshStatus = () => void window.callpath.getLlmSettings().then((v) => setView(v));
+  useEffect(() => {
+    window.addEventListener("focus", refreshStatus);
+    return () => window.removeEventListener("focus", refreshStatus);
+  }, []);
   useEffect(() => {
     if (status.s !== "saving") return;
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -222,9 +228,13 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
               {view?.keySource === "file" && view.keyFileStatus && keyPath.trim() === view.keyFile?.path && keyName.trim() === view.keyFile?.name && (
                 <span className={view.keyFileStatus === "found" ? "ok-text small" : "warn-text small"} data-testid="llm-keyfile-status">
                   <Icon name={view.keyFileStatus === "found" ? "check" : "warn"} size={12} />{" "}
-                  {view.keyFileStatus === "found" ? "파일에서 키를 찾았습니다" : view.keyFileStatus === "missing-file" ? "파일을 읽지 못했습니다" : `파일에 ${view.keyFile?.name} 값이 없습니다`}
+                  {view.keyFileStatus === "found" ? "파일에서 키를 찾았습니다" : view.keyFileStatus === "missing-file" ? "파일을 읽지 못했습니다" : `파일에 ${view.keyFile?.name} 값이 없습니다`}{" "}
+                  <button type="button" className="link small" onClick={refreshStatus}>
+                    다시 읽기
+                  </button>
                 </span>
               )}
+              {view?.hasKey && <span className="muted small">앱에 넣어 둔 키는 그대로 남아 있습니다. "앱에 넣어 두기"로 돌아가면 그 키를 다시 씁니다.</span>}
             </div>
           )}
           {keySource === "stored" && (

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { launch, makeFixtureRepo, makeUserData, openAndAnalyze, shot } from "./harness";
 import { startMockLlm, type MockLlm } from "./mockLlm";
@@ -175,7 +175,8 @@ test("LLM 설정: 저장 못 하는 이유, 헤더를 바꾼다는 안내, 저�
 test("LLM 키 파일: 키를 앱에 두지 않고 이 컴퓨터의 파일에서 쓸 때마다 읽고, MiniMax로 채우기와 생각 중 표시", async () => {
   const mock = await startMockLlm();
   const data = makeUserData();
-  const keyFile = join(data, "..", `llm-key-${Date.now()}.env`);
+  // 시험용 키 파일은 이 시험의 데이터 폴더 안에 두고 끝나면 지운다
+  const keyFile = join(data, "test-llm-key.env");
   writeFileSync(keyFile, "# 시험용\nexport TEST_LLM_KEY=\"sk-file-first-111\"\n");
   const { app, page } = await launch(data);
   try {
@@ -193,12 +194,19 @@ test("LLM 키 파일: 키를 앱에 두지 않고 이 컴퓨터의 파일에서 
     await page.getByLabel("키 파일 경로").fill(keyFile);
     await page.getByLabel("변수 이름").fill("NO_SUCH_KEY");
     await page.getByRole("button", { name: "확인하고 저장" }).click();
-    await expect(page.getByTestId("llm-error")).toContainText("NO_SUCH_KEY 값이 없습니다");
-    await expect(page.getByLabel("키 파일 경로")).toBeFocused();
+    // 키를 못 찾아도 다른 설정은 저장하고, 확인하지 않았다고 알린다
+    await expect(page.getByTestId("llm-note")).toContainText("NO_SUCH_KEY 값이 없어");
+    await expect(page.getByTestId("llm-keyfile-status")).toContainText("NO_SUCH_KEY 값이 없습니다");
+    expect(mock.requests).toHaveLength(0);
+    // 파일을 고치고 창으로 돌아오면 상태가 바뀐다
+    writeFileSync(keyFile, "# 시험용\nexport TEST_LLM_KEY=\"sk-file-first-111\"\nexport NO_SUCH_KEY=sk-temp-999\n");
+    await page.getByTestId("llm-keyfile-status").getByRole("button", { name: "다시 읽기" }).click();
+    await expect(page.getByTestId("llm-keyfile-status")).toContainText("파일에서 키를 찾았습니다");
+    writeFileSync(keyFile, "# 시험용\nexport TEST_LLM_KEY=\"sk-file-first-111\"\n");
     await page.getByLabel("변수 이름").fill("TEST_LLM_KEY");
     await page.getByRole("button", { name: "확인하고 저장" }).click();
     await expect(page.getByTestId("llm-saved")).toBeVisible();
-    await expect(page.getByTestId("llm-keyfile-status")).toHaveText("파일에서 키를 찾았습니다");
+    await expect(page.getByTestId("llm-keyfile-status")).toContainText("파일에서 키를 찾았습니다");
     expect(mock.requests.at(-1)!.auth).toBe("Bearer sk-file-first-111");
     const saved = readFileSync(join(data, "llm.json"), "utf8");
     expect(saved).toContain("TEST_LLM_KEY");
@@ -223,5 +231,6 @@ test("LLM 키 파일: 키를 앱에 두지 않고 이 컴퓨터의 파일에서 
   } finally {
     await app.close();
     await mock.close();
+    rmSync(keyFile, { force: true });
   }
 });

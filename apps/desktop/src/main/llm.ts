@@ -115,8 +115,11 @@ export async function saveLlmSettings(input: LlmSettingsInput, requestId?: strin
   }
   const next: Stored = { enabled: input.enabled, endpoint, model };
   const source = input.keySource ?? (prev.keyFile ? "file" : "stored");
+  // 앱에 넣어 둔 키는 키 파일로 바꿔도 남긴다. "앱에 넣어 두기"로 돌아가면 다시 쓴다
+  if (input.apiKey === undefined) {
+    if (prev.apiKey) next.apiKey = prev.apiKey;
+  } else if (input.apiKey && input.apiKey.trim()) next.apiKey = encryptSecret(input.apiKey.trim());
   if (source === "file") {
-    // 키 파일을 쓰면 앱에 넣어 둔 키는 지운다(쓰지 않는 값을 남기지 않는다)
     const k = input.keyFile ?? prev.keyFile;
     const path = k?.path.trim() ?? "";
     const name = k?.name.trim() ?? "";
@@ -124,9 +127,7 @@ export async function saveLlmSettings(input: LlmSettingsInput, requestId?: strin
     if (!isAbsolute(expandHome(path))) throw new Error("키 파일 경로는 /나 ~/로 시작하는 전체 경로여야 합니다");
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error("변수 이름은 영문, 숫자, 밑줄만 쓸 수 있습니다(예: MINIMAX_API_KEY)");
     next.keyFile = { path, name };
-  } else if (input.apiKey === undefined) {
-    if (prev.apiKey) next.apiKey = prev.apiKey;
-  } else if (input.apiKey && input.apiKey.trim()) next.apiKey = encryptSecret(input.apiKey.trim());
+  }
   if (input.headers === undefined) {
     if (prev.headers) {
       next.headers = prev.headers;
@@ -140,7 +141,14 @@ export async function saveLlmSettings(input: LlmSettingsInput, requestId?: strin
     }
   }
   let note: string | null = null;
-  if (next.enabled) {
+  // 키 파일을 지금 읽지 못해도 끝점과 모델 같은 다른 설정은 저장한다. 확인만 건너뛰고 알린다(보낼 때 다시 읽는다)
+  const fileStatus = next.keyFile ? await keyFileStatus(next.keyFile) : "found";
+  if (next.enabled && fileStatus !== "found" && next.keyFile) {
+    note =
+      fileStatus === "missing-file"
+        ? `키 파일 ${next.keyFile.path}을 읽지 못해 끝점과 키를 확인하지 않고 저장했습니다. 파일을 확인하세요`
+        : `키 파일에 ${next.keyFile.name} 값이 없어 끝점과 키를 확인하지 않고 저장했습니다. 변수 이름을 확인하세요`;
+  } else if (next.enabled) {
     const ctl = new AbortController();
     if (requestId) checks.set(requestId, ctl);
     try {
