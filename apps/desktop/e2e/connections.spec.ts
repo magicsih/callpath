@@ -30,6 +30,7 @@ test("A15 연결 저장: 잘못된 토큰은 원인과 함께 실패, 맞는 토
       await expect(page.getByTestId("conn-checking")).toContainText("최대 30초");
       await page.getByRole("button", { name: "확인 멈추기" }).click();
       await expect(page.getByText("확인을 멈췄습니다. 저장하지 않았습니다")).toBeVisible();
+      await expect(page.getByRole("button", { name: "연결 저장" })).toBeFocused();
       await expect(page.getByText("연결된 계정이 없습니다.")).toBeVisible();
     } finally {
       silent.closeAllConnections();
@@ -148,12 +149,20 @@ test("비교 선택 화면에 이 저장소의 열린 PR이 보이고 눌러서 
   try {
     const repo = makeFixtureRepo("java");
     execFileSync("git", ["-C", repo, "remote", "add", "origin", `${mock.url}/shop/order.git`]);
-    await page.getByRole("button", { name: "연결 설정" }).click();
-    await addGhe(page, mock.url, GOOD_TOKEN);
-    await expect(page.getByTestId("conn-saved")).toBeVisible();
-    await page.getByRole("button", { name: "돌아가기" }).click();
     await page.getByLabel("저장소 경로").fill(repo);
     await page.getByLabel("저장소 경로").press("Enter");
+    // 연결이 없으면 포트까지 적은 호스트로 안내하고, 연결 설정에 그 호스트를 채운다.
+    // 원격 주소만으로는 제공자를 알 수 없어 GitHub.com 기본값으로 두지 않고 고르라고 알린다
+    const hostPort = mock.url.replace(/^http:\/\//, "");
+    await expect(page.getByTestId("open-prs")).toContainText(`${hostPort} PR을 보려면 연결이 필요합니다`);
+    await page.getByTestId("open-prs").getByRole("button", { name: "연결 설정" }).click();
+    await expect(page.getByRole("radio", { name: "GitHub Enterprise" })).toBeChecked();
+    await expect(page.getByLabel("호스트")).toHaveValue(mock.url);
+    await expect(page.getByTestId("provider-unsure")).toBeVisible();
+    await page.getByLabel("토큰").fill(GOOD_TOKEN);
+    await page.getByRole("button", { name: "연결 저장" }).click();
+    await expect(page.getByTestId("conn-saved")).toBeVisible();
+    await page.getByRole("button", { name: "돌아가기" }).click();
     await expect(page.getByTestId("open-prs")).toContainText("#1 쿠폰 할인");
     await page.getByTestId("open-prs").getByRole("button", { name: /#1 쿠폰 할인/ }).click();
     await expect(page.getByTestId("pr-chip")).toHaveText("#1 쿠폰 할인", { timeout: 60_000 });

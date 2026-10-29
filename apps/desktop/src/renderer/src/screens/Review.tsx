@@ -438,11 +438,14 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
                 const hit = findItemFor(nav, n.path, n.line);
                 if (!hit) return;
                 if (hit.kind === "test" && !showTests) toggleTests();
-                // 서랍이 코드를 덮지 않게 닫고, 그 줄을 강조한다. 초점은 목록의 그 항목으로 옮겨 j, k로 이어 읽게 한다
-                setDrawer(false);
                 select(hit);
                 setReveal({ line: n.line, nonce: Date.now() });
-                requestAnimationFrame(() => requestAnimationFrame(() => (rows.current.get(hit.key) ?? notesToggle.current)?.focus()));
+                // 넓은 창에서는 서랍이 코드를 덮지 않으므로 열어 두어 메모를 차례로 본다.
+                // 좁은 창에서는 코드를 덮으므로 닫고, 초점을 목록의 그 항목으로 옮겨 j, k로 이어 읽게 한다
+                if (narrow) {
+                  setDrawer(false);
+                  requestAnimationFrame(() => requestAnimationFrame(() => (rows.current.get(hit.key) ?? notesToggle.current)?.focus()));
+                }
               }}
             />
           </div>

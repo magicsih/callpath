@@ -228,6 +228,9 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 .steps li.current { color: var(--text); font-weight: 600; }
 .pr-chip { font-family: var(--font); }
 .composer { padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--bg-pane); display: flex; flex-direction: column; gap: 6px; }
+.composer .row { flex-wrap: wrap; row-gap: 4px; }
+.composer .row button { flex: none; white-space: nowrap; }
+.composer .row > .muted { flex: 1 1 100%; }
 .composer textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 8px; resize: vertical; }
 .memo-glyph { display: flex !important; align-items: center; justify-content: center; }
 .memo-glyph::before { content: "✎"; color: var(--accent-ink); font-size: 15px; font-weight: 700; line-height: 1; }

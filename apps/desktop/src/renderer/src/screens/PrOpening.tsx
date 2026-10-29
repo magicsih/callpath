@@ -51,6 +51,8 @@ export function PrOpening({ url, onOpened, onBack, onConnections, onInvalid }: {
         <Icon name="warn" size={28} />
         <h2 className="state-title">PR을 열지 못했습니다</h2>
         <p className="muted">{error.message}</p>
+        {error.kind === "network" && <p className="muted small">연결이나 사내망(VPN)을 확인한 뒤 다시 시도하세요.</p>}
+        {error.kind === "other" && /서버에 오류/.test(error.message) && <p className="muted small">서버 쪽 문제일 수 있습니다. 잠시 뒤 다시 시도하세요.</p>}
         <div className="row">
           {needsSetup ? (
             <button className="primary" onClick={() => onConnections(hintFromPrUrl(url))} autoFocus>연결 설정</button>

@@ -165,6 +165,9 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
   };
   const closeComposer = () => {
     setComposer(null);
+    // 취소한 초안이 다음 작성 칸에 섞여 올라가지 않게 비운다
+    setDraft("");
+    setSaveError(null);
     setFocusNonce((n) => n + 1);
   };
   useEffect(() => {
@@ -413,6 +416,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
             }}
             onNoteRequest={(l) => openComposer(l)}
             focusNonce={focusNonce}
+            onNoteGlyph={onShowNotes}
           />
         )}
       </div>

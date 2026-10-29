@@ -46,6 +46,18 @@ export class NeedsConnection extends Error {
   }
 }
 
+/** 연결 설정의 호스트 칸에 넣을 값. http(s) 원격이면 포트까지, https가 아니면 scheme까지 둔다. ssh 원격은 호스트 이름만 안다 */
+function webHostOf(remote: string, hostname: string): string {
+  try {
+    const u = new URL(remote.trim());
+    if (u.protocol === "https:") return u.host;
+    if (u.protocol === "http:") return `http://${u.host}`;
+  } catch {
+    // scp 형식(git@host:org/repo)
+  }
+  return hostname;
+}
+
 export async function listPullRequests(repoPath: string): Promise<PrList> {
   let remote: string;
   try {
@@ -56,7 +68,9 @@ export async function listPullRequests(repoPath: string): Promise<PrList> {
   const parsed = parseRemote(remote);
   if (!parsed) return { status: "no-remote" };
   const conn = connectionForHostname(parsed.host);
-  if (!conn) return { status: "needs-connection", host: parsed.host, kind: parsed.host === "github.com" ? "github" : parsed.host === "gitlab.com" ? "gitlab" : null };
+  if (!conn) {
+    return { status: "needs-connection", host: parsed.host, webHost: webHostOf(remote, parsed.host), kind: parsed.host === "github.com" ? "github" : parsed.host === "gitlab.com" ? "gitlab" : null };
+  }
   const prs = await conn.provider.listPullRequests(parsed.repo);
   return { status: "ok", host: conn.host, prs };
 }

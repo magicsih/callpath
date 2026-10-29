@@ -65,7 +65,11 @@ export function NotesDrawer(props: {
         )}
         <ConfirmDelete
           label={`${where(n)} 메모 "${snippet(n.body)}" 지우기`}
-          onConfirm={() => props.onDelete(n)}
+          onConfirm={() => {
+            props.onDelete(n);
+            // 지운 줄이 사라져도 초점이 서랍 안에 남게 서랍으로 옮긴다
+            requestAnimationFrame(() => ref.current?.focus());
+          }}
           {...(n.posted ? { note: "앱의 메모만 지웁니다. PR 코멘트는 남습니다" } : {})}
         />
       </span>

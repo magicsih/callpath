@@ -8,6 +8,8 @@ import "monaco-editor/editor/browser/widget/diffEditor/diffEditor.contribution";
 import "monaco-editor/editor/contrib/diffEditorBreadcrumbs/browser/contribution";
 import "monaco-editor/editor/contrib/clipboard/browser/clipboard";
 import "monaco-editor/editor/contrib/contextmenu/browser/contextmenu";
+// 줄 옆 메모 표시에 마우스를 올리면 본문을 보이는 데 쓴다
+import "monaco-editor/editor/contrib/hover/browser/hoverContribution";
 import "monaco-editor/editor/contrib/folding/browser/folding";
 import "monaco-editor/editor/contrib/bracketMatching/browser/bracketMatching";
 import "monaco-editor/editor/contrib/wordHighlighter/browser/wordHighlighter";
@@ -27,6 +29,8 @@ export { monaco };
 
 export const EDITOR_OPTIONS = {
   readOnly: true,
+  // 읽기 전용 비교라 코드 작업 전구는 쓰지 않는다(메모 표시와 같은 열에 겹친다)
+  lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.Off },
   automaticLayout: true,
   minimap: { enabled: false },
   scrollBeyondLastLine: false,

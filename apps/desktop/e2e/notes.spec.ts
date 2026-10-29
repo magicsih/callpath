@@ -21,16 +21,36 @@ test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서
   await openAndAnalyze(page, repo);
   await page.keyboard.press("j");
   await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
-  // 왼쪽(바뀌기 전) 줄을 고르고 m을 누르면 남길 수 없다고 알리고 작성 칸을 열지 않는다
+  // 왼쪽(바뀌기 전) 줄을 고르고 m을 누르면 남길 수 없다고 알리고 작성 칸을 열지 않는다.
+  // 두 열 보기가 필요해 잠시 축소한다(CI의 macOS 화면은 1024px라 기본 크기에서는 한 열 보기)
+  await first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.setZoomFactor(0.7));
+  await expect(page.locator("[data-testid=diff] .editor.original")).toBeVisible();
+  await page.waitForTimeout(500);
   await page.locator("[data-testid=diff] .editor.original .view-line").nth(2).click();
   await page.keyboard.press("m");
   await expect(page.getByTestId("base-notice")).toBeVisible();
   await expect(page.getByTestId("composer")).toHaveCount(0);
   await page.locator("[data-testid=diff] .editor.modified .view-line").first().click();
   await expect(page.getByTestId("base-notice")).toHaveCount(0);
+  await first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.setZoomFactor(1));
+  await page.waitForTimeout(300);
   await addNote(page, "결제 실패 시 재고 복구가 없습니다");
   await expect(page.getByTestId("notes-toggle")).toHaveText("메모 1");
   await expect(page.getByTestId("memo-chip")).toHaveText("✎ 메모 1");
+  // 취소한 초안은 다음 작성 칸에 남지 않는다
+  await page.keyboard.press("m");
+  await page.getByTestId("composer").getByRole("textbox").fill("취소할 초안");
+  await page.getByTestId("composer").getByRole("textbox").press("Escape");
+  await page.keyboard.press("m");
+  await expect(page.getByTestId("composer").getByRole("textbox")).toHaveValue("");
+  await page.getByTestId("composer").getByRole("textbox").press("Escape");
+  // 줄 옆 메모 표시에 마우스를 올리면 본문이 보이고, 누르면 서랍이 열린다
+  await page.locator(".memo-glyph").first().hover();
+  await expect(page.locator(".monaco-hover").filter({ hasText: "결제 실패 시 재고 복구가 없습니다" }).first()).toBeVisible();
+  await page.locator(".memo-glyph").first().click();
+  await expect(page.getByTestId("notes-drawer")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("notes-drawer")).toHaveCount(0);
   // 다시 분석해 상세 영역이 새로 그려져도 이미 처리한 m으로 작성 칸이 다시 열리지 않는다
   await page.getByRole("button", { name: "다시 분석" }).click();
   await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
@@ -70,9 +90,10 @@ test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서
       }),
     )
     .toBe(true);
-  // 서랍은 닫히고 초점은 목록의 그 항목으로 간다
-  await expect(page.getByTestId("notes-drawer")).toHaveCount(0);
-  await expect(page.locator(".pane.left button.row.selected")).toBeFocused();
+  // 넓은 창에서는 서랍이 코드를 덮지 않으므로 열어 두고, 초점은 누른 메모에 남는다
+  await expect(page.getByTestId("notes-drawer")).toBeVisible();
+  await expect(page.getByTestId("note-row").getByRole("button").first()).toBeFocused();
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
   await shot(first.app, "16-notes");
   await first.app.close();
@@ -147,5 +168,39 @@ test("A17 게시: diff 안 줄은 줄 코멘트, 밖 줄은 일반 코멘트로 
   } finally {
     await app.close();
     await mock.close();
+  }
+});
+
+test("좁은 창의 메모 서랍은 코드 위에 뜨고 뒤로 초점이 가지 않으며, 메모를 누르면 닫히고 목록 항목으로 초점이 간다", async () => {
+  const { app, page } = await launch(makeUserData());
+  try {
+    await openAndAnalyze(page, makeFixtureRepo("java"));
+    await page.keyboard.press("j");
+    await addNote(page, "좁은 창 메모");
+    await page.keyboard.press("k");
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0]!;
+      w.setContentSize(900, 600);
+      w.webContents.setZoomFactor(1.5);
+    });
+    await page.waitForTimeout(500);
+    await page.getByTestId("notes-toggle").click();
+    await expect(page.getByTestId("notes-drawer")).toBeVisible();
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => !!document.activeElement?.closest(".drawer, .toolbar, .bottombar"))).toBe(true);
+    }
+    await page.getByTestId("note-row").getByRole("button").first().click();
+    await expect(page.getByTestId("notes-drawer")).toHaveCount(0);
+    await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
+    await expect(page.locator(".pane.left button.row.selected")).toBeFocused();
+    // 좁은 창에서도 작성 칸 버튼은 한 줄로 보인다
+    await page.keyboard.press("m");
+    for (const name of ["메모 저장", "취소"]) {
+      const box = (await page.getByTestId("composer").getByRole("button", { name, exact: true }).boundingBox())!;
+      expect(box.height).toBeLessThan(40);
+    }
+  } finally {
+    await app.close();
   }
 });

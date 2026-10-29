@@ -53,7 +53,14 @@ export async function request<T>(
       detail = text.slice(0, 200);
     }
     const code = res.status === 401 || res.status === 403 ? "auth" : res.status === 404 ? "not-found" : res.status === 422 || res.status === 400 ? "rejected" : "other";
-    const what = code === "auth" ? "토큰이 거부되었습니다" : code === "not-found" ? "찾을 수 없습니다(권한이 없을 수도 있습니다)" : "요청이 거부되었습니다";
+    const what =
+      code === "auth"
+        ? "토큰이 거부되었습니다"
+        : code === "not-found"
+          ? "찾을 수 없습니다(권한이 없을 수도 있습니다)"
+          : res.status >= 500
+            ? "서버에 오류가 났습니다. 잠시 뒤 다시 시도하세요"
+            : "요청이 거부되었습니다";
     // 서버가 준 문구(영문일 수 있음)는 원인 뒤에 따로 붙인다
     throw new ProviderError(`${what} (HTTP ${res.status})${detail ? `. 서버 응답: ${redact(detail, token)}` : ""}`, res.status, code);
   }

@@ -170,3 +170,24 @@ describe("연결 실패 이유", () => {
     }
   });
 });
+
+describe("서버 오류", () => {
+  it("5xx는 토큰 문제처럼 보이지 않게 서버 오류로 알린다", async () => {
+    const { createServer } = await import("node:http");
+    const server = createServer((_req, res) => {
+      res.statusCode = 502;
+      res.end("<html>Bad Gateway</html>");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const p = new GitHubProvider(`127.0.0.1:${port}`, `http://127.0.0.1:${port}/api/v3`, async () => "t");
+      const err = (await p.whoami().catch((e: unknown) => e)) as ProviderError;
+      expect(err.code).toBe("other");
+      expect(err.message).toContain("서버에 오류가 났습니다");
+      expect(err.message).not.toContain("거부");
+    } finally {
+      server.close();
+    }
+  });
+});

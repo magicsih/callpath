@@ -39,6 +39,8 @@ interface Props {
   onNoteRequest?: (line: number) => void;
   /** 값이 바뀌면 편집기로 초점을 돌린다(메모를 저장하거나 취소한 뒤) */
   focusNonce?: number;
+  /** 줄 옆 메모 표시를 눌렀을 때 */
+  onNoteGlyph?: () => void;
 }
 
 /** 메모가 있는 줄에 표시를 달고, 마우스를 올리면 본문을 보인다 */
@@ -52,8 +54,20 @@ const noteDeco = (notes: Array<{ line: number; body: string }>, start: number) =
 };
 
 /** head 쪽 편집기에 현재 줄 알림과 메모 메뉴를 붙인다 */
-function attachNoteHooks(ed: monaco.editor.IStandaloneCodeEditor, start: () => number, onCursor: () => ((l: number) => void) | undefined, onNote: () => ((l: number) => void) | undefined) {
+function attachNoteHooks(
+  ed: monaco.editor.IStandaloneCodeEditor,
+  start: () => number,
+  onCursor: () => ((l: number) => void) | undefined,
+  onNote: () => ((l: number) => void) | undefined,
+  onGlyph: () => (() => void) | undefined,
+) {
   const subs = [
+    ed.onMouseDown((e) => {
+      if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+      const line = e.target.position?.lineNumber;
+      const hasNote = line !== undefined && ed.getLineDecorations(line)?.some((d) => d.options.glyphMarginClassName === "memo-glyph");
+      if (hasNote) onGlyph()?.();
+    }),
     ed.onDidChangeCursorPosition((e) => onCursor()?.(e.position.lineNumber + start() - 1)),
     ed.addAction({
       id: "callpath.note",
@@ -78,13 +92,13 @@ export function DiffView(props: Props) {
   return props.input.kind === "diff" ? <SideBySide {...props} /> : <SingleView {...props} />;
 }
 
-function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce }: Props) {
+function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph }: Props) {
   const startRef = useRef(input.modifiedStart);
   startRef.current = input.modifiedStart;
   const baseStartRef = useRef(input.originalStart);
   baseStartRef.current = input.originalStart;
-  const cbs = useRef({ onCursorLine, onNoteRequest });
-  cbs.current = { onCursorLine, onNoteRequest };
+  const cbs = useRef({ onCursorLine, onNoteRequest, onNoteGlyph });
+  cbs.current = { onCursorLine, onNoteRequest, onNoteGlyph };
   const noteDecos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -111,7 +125,7 @@ function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteReques
     decorations.current = e.getModifiedEditor().createDecorationsCollection();
     baseDecorations.current = e.getOriginalEditor().createDecorationsCollection();
     noteDecos.current = e.getModifiedEditor().createDecorationsCollection();
-    const detach = attachNoteHooks(e.getModifiedEditor(), () => startRef.current, () => (l) => cbs.current.onCursorLine?.(l, "head"), () => cbs.current.onNoteRequest);
+    const detach = attachNoteHooks(e.getModifiedEditor(), () => startRef.current, () => (l) => cbs.current.onCursorLine?.(l, "head"), () => cbs.current.onNoteRequest, () => cbs.current.onNoteGlyph);
     // 기준 쪽 줄을 골랐다는 것도 알려, 그 줄에는 메모를 남길 수 없다고 안내하게 한다
     const baseCursor = e.getOriginalEditor().onDidChangeCursorPosition((ev) => cbs.current.onCursorLine?.(ev.position.lineNumber + baseStartRef.current - 1, "base"));
     // 한 열 diff에서는 삭제된 줄이 줄바꿈되면 들여쓰기 없이 이어져 읽기 어렵다. 좁을 때는 이전 쪽만 줄바꿈을 끈다
@@ -164,16 +178,20 @@ function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteReques
   useEffect(() => {
     noteDecos.current?.set(noteDeco(notes ?? [], input.modifiedStart));
   }, [notes, input]);
+  // 새로 그려질 때(다른 항목으로 옮겨 이 보기가 처음 생길 때)는 초점을 가져가지 않는다. 작성 칸에서 초점을 빼앗지 않게 처음 값을 기억한다
+  const handledFocus = useRef(focusNonce);
   useEffect(() => {
-    if (focusNonce) editor.current?.getModifiedEditor().focus();
+    if (focusNonce === handledFocus.current) return;
+    handledFocus.current = focusNonce;
+    editor.current?.getModifiedEditor().focus();
   }, [focusNonce]);
 
   return <div className="diff" ref={host} data-testid="diff" data-view="diff" />;
 }
 
-function SingleView({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce }: Props) {
-  const cbs = useRef({ onCursorLine, onNoteRequest });
-  cbs.current = { onCursorLine, onNoteRequest };
+function SingleView({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph }: Props) {
+  const cbs = useRef({ onCursorLine, onNoteRequest, onNoteGlyph });
+  cbs.current = { onCursorLine, onNoteRequest, onNoteGlyph };
   const noteDecos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -192,7 +210,7 @@ function SingleView({ input, highlight, label, notes, onCursorLine, onNoteReques
     mark.current = e.createDecorationsCollection();
     noteDecos.current = e.createDecorationsCollection();
     // 삭제된 코드에는 메모를 남기지 않는다(메모는 head 쪽 줄에 묶인다)
-    const detach = attachNoteHooks(e, () => startRef.current, () => (input.kind === "removed" ? undefined : (l) => cbs.current.onCursorLine?.(l, "head")), () => (input.kind === "removed" ? undefined : cbs.current.onNoteRequest));
+    const detach = attachNoteHooks(e, () => startRef.current, () => (input.kind === "removed" ? undefined : (l) => cbs.current.onCursorLine?.(l, "head")), () => (input.kind === "removed" ? undefined : cbs.current.onNoteRequest), () => cbs.current.onNoteGlyph);
     return () => {
       detach();
       const model = e.getModel();
@@ -222,8 +240,11 @@ function SingleView({ input, highlight, label, notes, onCursorLine, onNoteReques
   useEffect(() => {
     noteDecos.current?.set(removed ? [] : noteDeco(notes ?? [], start));
   }, [notes, input, removed, start]);
+  const handledFocus = useRef(focusNonce);
   useEffect(() => {
-    if (focusNonce) editor.current?.focus();
+    if (focusNonce === handledFocus.current) return;
+    handledFocus.current = focusNonce;
+    editor.current?.focus();
   }, [focusNonce]);
 
   return <div className="diff" ref={host} data-testid="diff" data-view={input.kind} />;

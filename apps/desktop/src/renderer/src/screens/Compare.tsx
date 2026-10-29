@@ -3,11 +3,11 @@ import type { ConnectionHint, PrList, ProviderKindName, RepoInfo } from "../../.
 import { Icon } from "../components/Icon";
 
 /** 원격 주소에서 알아낸 호스트와 제공자로 연결 설정에 채울 값을 정한다. 제공자를 모르면 채우지 않는다 */
-function hintFromRemote(host: string, kind: ProviderKindName | null): ConnectionHint | undefined {
+function hintFromRemote(host: string, webHost: string, kind: ProviderKindName | null): ConnectionHint {
   if (host === "github.com") return { choice: "github.com", host: "" };
-  if (kind === "gitlab") return { choice: "gitlab", host };
-  if (kind === "github") return { choice: "ghe", host };
-  return undefined;
+  if (kind === "gitlab") return { choice: "gitlab", host: webHost };
+  // 제공자를 모르면 GitHub.com 기본값으로 두지 않는다. 호스트를 채우고 GHE와 GitLab 중 고르게 한다
+  return { choice: "ghe", host: webHost, ...(kind === "github" ? {} : { unsure: true }) };
 }
 
 export function Compare(props: {
@@ -120,7 +120,7 @@ export function Compare(props: {
             {prs.status === "error" && <p className="error-text"><Icon name="warn" /> {prs.message}</p>}
             {prs.status === "needs-connection" && (
               <p className="muted">
-                {prs.host} PR을 보려면 연결이 필요합니다. <button className="link" onClick={() => props.onConnections(hintFromRemote(prs.host, prs.kind))}>연결 설정</button>
+                {prs.webHost.replace(/^https?:\/\//, "")} PR을 보려면 연결이 필요합니다. <button className="link" onClick={() => props.onConnections(hintFromRemote(prs.host, prs.webHost, prs.kind))}>연결 설정</button>
               </p>
             )}
             {prs.status === "ok" && prs.prs.length === 0 && <p className="muted">열린 PR이 없습니다.</p>}

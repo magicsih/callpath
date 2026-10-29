@@ -28,6 +28,12 @@ export function Connections({ onBack, hint, backLabel = "돌아가기" }: { onBa
   const hostInput = useRef<HTMLInputElement>(null);
   const tokenInput = useRef<HTMLInputElement>(null);
   const savedMsg = useRef<HTMLParagraphElement>(null);
+  const saveBtn = useRef<HTMLButtonElement>(null);
+  // 확인을 멈추면 "확인 멈추기" 버튼이 사라지므로, 다시 그린 뒤 연결 저장으로 초점을 옮긴다
+  const [refocusSave, setRefocusSave] = useState(0);
+  useEffect(() => {
+    if (refocusSave) saveBtn.current?.focus();
+  }, [refocusSave]);
   const title = useRef<HTMLHeadingElement>(null);
   const listTitle = useRef<HTMLHeadingElement>(null);
   // 화면에 들어오면 제목으로 초점을 옮겨 화면 읽기가 새 화면을 알린다
@@ -63,6 +69,7 @@ export function Connections({ onBack, hint, backLabel = "돌아가기" }: { onBa
     const r = await window.callpath.saveConnection(input, id);
     if (!r.ok && r.kind === "cancelled") {
       setStatus({ s: "idle", note: "확인을 멈췄습니다. 저장하지 않았습니다" });
+      setRefocusSave((n) => n + 1);
       return;
     }
     // 토큰은 저장했거나 거부되면 입력칸에서 지운다. 호스트에 닿지 않은 경우는 주소만 고치면 되므로 남긴다
@@ -127,6 +134,11 @@ export function Connections({ onBack, hint, backLabel = "돌아가기" }: { onBa
           aria-labelledby="conn-add-title"
         >
           <h2 id="conn-add-title" className="section-title">연결 추가</h2>
+          {hint?.unsure && (
+            <p className="hint" data-testid="provider-unsure">
+              원격 주소만으로는 제공자를 알 수 없습니다. {hint.host.replace(/^https?:\/\//, "")}가 GitHub Enterprise인지 GitLab인지 고르세요.
+            </p>
+          )}
           <fieldset className="choices">
             <legend>제공자</legend>
             {(Object.keys(LABEL) as Choice[]).map((c) => (
@@ -209,7 +221,7 @@ export function Connections({ onBack, hint, backLabel = "돌아가기" }: { onBa
               <button type="button" onClick={() => void window.callpath.cancelConnectionCheck(status.id)}>확인 멈추기</button>
             </div>
           ) : (
-            <button type="submit" className="primary big" disabled={!ready}>
+            <button type="submit" className="primary big" disabled={!ready} ref={saveBtn}>
               연결 저장
             </button>
           )}

@@ -94,7 +94,7 @@ export interface PrProgress {
 export type PrList =
   | { status: "ok"; host: string; prs: Array<{ number: number; title: string; author: string; url: string; updatedAt: string }> }
   | { status: "no-remote" }
-  | { status: "needs-connection"; host: string; kind: ProviderKindName | null };
+  | { status: "needs-connection"; host: string; /** 연결 설정에 넣을 호스트(포트 포함) */ webHost: string; kind: ProviderKindName | null };
 
 /** 읽으면서 남긴 메모. head 쪽 파일의 줄(1부터)에 묶인다 */
 export interface Note {
@@ -149,6 +149,8 @@ export interface ConnectionHint {
   choice: "github.com" | "ghe" | "gitlab";
   /** 입력칸에 넣을 호스트. https가 아니면 scheme까지 */
   host: string;
+  /** 제공자를 원격 주소만으로 알 수 없어 사용자가 골라야 함 */
+  unsure?: boolean;
 }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string; kind: ErrorKind };
