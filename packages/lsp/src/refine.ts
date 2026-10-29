@@ -77,7 +77,7 @@ export function createRefiner(opts: RefinerOptions): Refiner {
   };
 }
 
-/** 시작(60초)과 준비 대기(100초)를 합쳐도 언어별 기본 제한(180초) 안에 들게 한다 */
+/** 시작(60초)과 준비 대기(100초)를 합쳐도 언어별 기본 제한(180초) 안에 들게 한다. 질의 하나의 제한은 클라이언트 기본(60초) */
 const START_TIMEOUT = 60000;
 const READY_TIMEOUT = 100000;
 
@@ -95,7 +95,7 @@ async function startServer(lang: Language, files: FileIndex[], tree: string, opt
     const settings = { java: { project: { sourcePaths: roots }, import: { gradle: { enabled: false }, maven: { enabled: false } } } };
     const { command, args } = jdtlsCommand(dir, java.bin, join(opts.cacheDir, "work", "jdtls", opts.headSha));
     opts.onStatus?.("Java 정밀 분석 중");
-    const client = await LspClient.start({ name: "JDT LS", command, args, cwd: tree, rootDir: tree, settings, requestTimeoutMs: START_TIMEOUT });
+    const client = await LspClient.start({ name: "JDT LS", command, args, cwd: tree, rootDir: tree, settings, initTimeoutMs: START_TIMEOUT });
     // 뜨자마자 취소에 연결해, 준비를 기다리는 동안 시간이 다 되면 바로 끈다
     cancel.stop = () => client.stop();
     if (cancel.cancelled) {
@@ -112,7 +112,7 @@ async function startServer(lang: Language, files: FileIndex[], tree: string, opt
   const kotlin = await findKotlinLsp(env);
   if ("error" in kotlin) return { status: "skipped", code: "no-tool", reason: kotlin.error };
   opts.onStatus?.("Kotlin 정밀 분석 중");
-  const client = await LspClient.start({ name: "kotlin-lsp", command: kotlin.command, args: kotlin.args, cwd: tree, rootDir: tree, settings: {}, requestTimeoutMs: START_TIMEOUT });
+  const client = await LspClient.start({ name: "kotlin-lsp", command: kotlin.command, args: kotlin.args, cwd: tree, rootDir: tree, settings: {}, initTimeoutMs: START_TIMEOUT });
   cancel.stop = () => client.stop();
   return client;
 }
@@ -122,6 +122,8 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
   const check = () => {
     if (cancel.cancelled) throw new Cancelled();
   };
+  // 준비 신호를 아는 서버는 JDT LS뿐이다. kotlin-lsp는 덜 읽은 빈 결과와 "호출 없음"을 구분할 수 없다
+  const readySignal = lang === "java";
   try {
     const started = await startServer(lang, files, tree, opts, env, cancel);
     if (!(started instanceof LspClient)) return started;
@@ -157,6 +159,8 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
       check();
       const incomingCalls = (await client.incoming(item)) ?? [];
       check();
+      // 준비 신호가 없는 서버가 양쪽 모두 빈 결과를 주면 덜 읽은 것으로 보고 1계층 간선을 남긴다
+      if (!readySignal && outgoing.length === 0 && incomingCalls.length === 0 && (graph.outgoing(id).length > 0 || graph.incoming(id).length > 0)) continue;
       const outEdges: Edge[] = [];
       for (const call of outgoing) {
         const path = toPath(call.to.uri);

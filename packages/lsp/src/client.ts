@@ -11,7 +11,10 @@ export interface ClientOptions {
   rootDir: string;
   /** workspace/configuration과 initializationOptions.settings에 줄 설정 */
   settings: Record<string, unknown>;
+  /** 호출 계층 질의 하나의 제한. 기본 60초 */
   requestTimeoutMs?: number;
+  /** initialize 응답까지의 제한. 기본 120초 */
+  initTimeoutMs?: number;
 }
 
 function lookup(settings: Record<string, unknown>, section: string): unknown {
@@ -77,7 +80,8 @@ export class LspClient {
     });
     conn.listen();
     const root = pathToFileURL(opts.rootDir).href;
-    await Promise.race([
+    try {
+      await Promise.race([
       withTimeout(
         conn.sendRequest("initialize", {
           processId: process.pid,
@@ -89,11 +93,17 @@ export class LspClient {
           },
           initializationOptions: { settings: opts.settings, extendedClientCapabilities: { classFileContentsSupport: false } },
         }),
-        opts.requestTimeoutMs ?? 120000,
+        opts.initTimeoutMs ?? 120000,
         `${opts.name} 시작`,
       ),
       exited,
     ]);
+    } catch (e) {
+      // 시작하지 못한 서버가 파이프를 붙든 채 남지 않게 바로 끈다
+      conn.dispose();
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+      throw e;
+    }
     conn.sendNotification("initialized", {});
     return client;
   }
