@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,7 +50,8 @@ export function createRefiner(opts: RefinerOptions): Refiner {
     }
     let tree: string;
     try {
-      tree = await exportTree(opts.repo, opts.headSha, join(opts.cacheDir, "trees", opts.headSha));
+      // LSP는 심볼릭 링크를 푼 실제 경로로 답한다(macOS의 /var는 /private/var). 같은 기준으로 맞추려고 실제 경로를 쓴다
+      tree = realpathSync(await exportTree(opts.repo, opts.headSha, join(opts.cacheDir, "trees", opts.headSha)));
     } catch (e) {
       for (const lang of byLang.keys()) out[lang] = { status: "failed", code: "error", reason: (e as Error).message };
       return out;
@@ -75,7 +77,11 @@ export function createRefiner(opts: RefinerOptions): Refiner {
   };
 }
 
-async function startServer(lang: Language, files: FileIndex[], tree: string, opts: RefinerOptions, env: NodeJS.ProcessEnv): Promise<LspClient | LanguageAnalysis> {
+/** 시작(60초)과 준비 대기(100초)를 합쳐도 언어별 기본 제한(180초) 안에 들게 한다. 질의 하나의 제한은 클라이언트 기본(60초) */
+const START_TIMEOUT = 60000;
+const READY_TIMEOUT = 100000;
+
+async function startServer(lang: Language, files: FileIndex[], tree: string, opts: RefinerOptions, env: NodeJS.ProcessEnv, cancel: Cancel): Promise<LspClient | LanguageAnalysis> {
   if (lang === "java") {
     const java = await findJava(env);
     if ("error" in java) return { status: "skipped", code: "no-tool", reason: java.error };
@@ -89,12 +95,26 @@ async function startServer(lang: Language, files: FileIndex[], tree: string, opt
     const settings = { java: { project: { sourcePaths: roots }, import: { gradle: { enabled: false }, maven: { enabled: false } } } };
     const { command, args } = jdtlsCommand(dir, java.bin, join(opts.cacheDir, "work", "jdtls", opts.headSha));
     opts.onStatus?.("Java 정밀 분석 중");
-    return LspClient.start({ name: "JDT LS", command, args, cwd: tree, rootDir: tree, settings });
+    const client = await LspClient.start({ name: "JDT LS", command, args, cwd: tree, rootDir: tree, settings, initTimeoutMs: START_TIMEOUT });
+    // 뜨자마자 취소에 연결해, 준비를 기다리는 동안 시간이 다 되면 바로 끈다
+    cancel.stop = () => client.stop();
+    if (cancel.cancelled) {
+      await client.stop();
+      throw new Cancelled();
+    }
+    // 프로젝트를 다 읽기 전의 호출 계층은 일부만 돌아와, 그것으로 간선을 고치면 흐름이 끊긴다
+    if (!(await client.waitForServiceReady(READY_TIMEOUT))) {
+      await client.stop();
+      return { status: "failed", code: "timeout", reason: `JDT LS가 ${READY_TIMEOUT / 1000}초 안에 프로젝트를 다 읽지 못했습니다` };
+    }
+    return client;
   }
   const kotlin = await findKotlinLsp(env);
   if ("error" in kotlin) return { status: "skipped", code: "no-tool", reason: kotlin.error };
   opts.onStatus?.("Kotlin 정밀 분석 중");
-  return LspClient.start({ name: "kotlin-lsp", command: kotlin.command, args: kotlin.args, cwd: tree, rootDir: tree, settings: {} });
+  const client = await LspClient.start({ name: "kotlin-lsp", command: kotlin.command, args: kotlin.args, cwd: tree, rootDir: tree, settings: {}, initTimeoutMs: START_TIMEOUT });
+  cancel.stop = () => client.stop();
+  return client;
 }
 
 async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: CallGraph, files: FileIndex[], tree: string, opts: RefinerOptions, env: NodeJS.ProcessEnv, cancel: Cancel): Promise<LanguageAnalysis> {
@@ -102,16 +122,29 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
   const check = () => {
     if (cancel.cancelled) throw new Cancelled();
   };
+  // 준비 신호를 아는 서버는 JDT LS뿐이다. kotlin-lsp는 덜 읽은 빈 결과와 "호출 없음"을 구분할 수 없다
+  const readySignal = lang === "java";
   try {
-    const started = await startServer(lang, files, tree, opts, env);
+    const started = await startServer(lang, files, tree, opts, env, cancel);
     if (!(started instanceof LspClient)) return started;
     client = started;
     cancel.stop = () => started.stop();
     check();
     const toPath = (uri: string): string | null => {
       if (!uri.startsWith("file:")) return null;
-      const rel = relative(tree, fileURLToPath(uri));
-      return rel.startsWith("..") ? null : rel.split(sep).join("/");
+      const raw = fileURLToPath(uri);
+      // 서버가 링크를 푼 경로로 답할 수도, 받은 경로 그대로 답할 수도 있어 둘 다 시도한다
+      const candidates = [raw];
+      try {
+        candidates.push(realpathSync(raw));
+      } catch {
+        // 지워진 파일 등
+      }
+      for (const file of candidates) {
+        const rel = relative(tree, file);
+        if (!rel.startsWith("..")) return rel.split(sep).join("/");
+      }
+      return null;
     };
     let confirmed = 0;
     let first = true;
@@ -124,6 +157,10 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
       check();
       const outgoing = (await client.outgoing(item)) ?? [];
       check();
+      const incomingCalls = (await client.incoming(item)) ?? [];
+      check();
+      // 준비 신호가 없는 서버가 양쪽 모두 빈 결과를 주면 덜 읽은 것으로 보고 1계층 간선을 남긴다
+      if (!readySignal && outgoing.length === 0 && incomingCalls.length === 0 && (graph.outgoing(id).length > 0 || graph.incoming(id).length > 0)) continue;
       const outEdges: Edge[] = [];
       for (const call of outgoing) {
         const path = toPath(call.to.uri);
@@ -138,19 +175,21 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
           }
         }
       }
-      graph.replaceOutgoing(id, dedupe(outEdges));
+      const mappedOut = outEdges.some((e) => e.source === "lsp" && e.confidence === "high");
+      // 응답은 있는데 저장소 안 메서드로 하나도 맞추지 못했으면 경로가 어긋난 것으로 보고 1계층 간선을 남긴다
+      const outTrusted = outgoing.length === 0 || mappedOut || graph.outgoing(id).length === 0;
+      if (outTrusted) graph.replaceOutgoing(id, dedupe(outEdges));
 
-      const incoming = (await client.incoming(item)) ?? [];
-      check();
       const inEdges: Edge[] = [];
-      for (const call of incoming) {
+      for (const call of incomingCalls) {
         const path = toPath(call.from.uri);
         const caller = path ? graph.methodAt(path, call.from.selectionRange.start.line) : null;
         if (!caller) continue;
         for (const r of call.fromRanges) inEdges.push({ caller: methodId(caller), callee: id, callIndex: callIndexOf(caller, r, m.name), confidence: "high", source: "lsp" });
       }
-      graph.replaceIncoming(id, dedupe(inEdges));
-      confirmed += outEdges.length + inEdges.length;
+      const inTrusted = incomingCalls.length === 0 || inEdges.length > 0 || graph.incoming(id).length === 0;
+      if (inTrusted) graph.replaceIncoming(id, dedupe(inEdges));
+      confirmed += (outTrusted ? outEdges.length : 0) + (inTrusted ? inEdges.length : 0);
     }
     return { status: "done", queried: methods.length, confirmedEdges: confirmed };
   } catch (e) {
