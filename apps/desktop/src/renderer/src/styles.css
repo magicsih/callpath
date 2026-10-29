@@ -351,3 +351,4 @@ details > summary { cursor: pointer; color: var(--accent-ink); }
 .nowrap { white-space: nowrap; }
 /* 작은 글씨 링크는 대비가 더 높은 색으로(작은 글자 4.5:1) */
 button.link.small { color: var(--accent-ink); }
+.presets { align-items: center; gap: 8px; margin-top: 4px; }

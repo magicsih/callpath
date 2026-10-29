@@ -4,7 +4,7 @@ import { LlmError } from "@callpath/llm";
 import { cancelConnectionCheck, deleteConnection, listConnections, saveConnection } from "./connections";
 import { InvalidPrUrl, listPullRequests, NeedsConnection, openPullRequest } from "./pullRequests";
 import { addNote, deleteNote, listNotes, planPost, postNotes } from "./notes";
-import { cancelExplain, cancelLlmCheck, discardExplain, getLlmSettings, previewExplain, saveLlmSettings, sendExplain, showLlmLog } from "./llm";
+import { cancelExplain, cancelLlmCheck, discardExplain, getLlmSettings, keyFileStatus, previewExplain, saveLlmSettings, sendExplain, showLlmLog } from "./llm";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import workerPath from "./analyzeWorker?modulePath";
@@ -136,6 +136,8 @@ ipcMain.handle("sendExplain", (e, id: string) => wrap(() => sendExplain(id, e.se
 ipcMain.handle("cancelExplain", (_e, id: string) => cancelExplain(id));
 ipcMain.handle("discardExplain", (_e, id: string) => discardExplain(id));
 ipcMain.handle("showLlmLog", () => showLlmLog());
+// 입력 중인 경로와 이름으로 키 파일 상태만 본다(값은 돌려주지 않는다)
+ipcMain.handle("checkKeyFile", (_e, k: { path: string; name: string }) => keyFileStatus(k));
 ipcMain.handle("loadState", () => loadState());
 ipcMain.handle("saveState", (_e, s: UiState) => saveState(s));
 

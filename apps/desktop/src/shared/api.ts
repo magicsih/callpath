@@ -135,6 +135,9 @@ export interface LlmSettingsView {
   endpoint: string;
   model: string;
   hasKey: boolean;
+  /** 키를 어디서 읽는지. stored는 앱에 암호화해 둔 키, file은 이 컴퓨터의 키 파일 */
+  keySource: "stored" | "file";
+  keyFile: { path: string; name: string } | null;
   headerNames: string[];
   /** Linux에 암호 저장소가 없어 키를 약하게 보관하게 되는지 */
   weakStorage: boolean;
@@ -148,6 +151,9 @@ export interface LlmSettingsInput {
   model: string;
   /** 넣으면 바꾸고, null이면 지우고, 빼면 그대로 둔다 */
   apiKey?: string | null;
+  /** 빼면 지금 방식을 그대로 둔다 */
+  keySource?: "stored" | "file";
+  keyFile?: { path: string; name: string };
   /** "이름: 값" 줄. 넣으면 바꾸고, null이면 지우고, 빼면 그대로 둔다 */
   headers?: string | null;
 }
@@ -171,7 +177,7 @@ export interface ExplainPreview {
   model: string;
 }
 
-export type LlmEvent = { id: string; type: "chunk"; text: string } | { id: string; type: "done" } | { id: string; type: "error"; error: string; kind: string };
+export type LlmEvent = { id: string; type: "chunk"; text: string } | { id: string; type: "thinking" } | { id: string; type: "done" } | { id: string; type: "error"; error: string; kind: string };
 
 export interface UiState {
   recent: string[];
@@ -236,6 +242,8 @@ export interface CallpathApi {
   discardExplain(id: string): Promise<void>;
   onLlmEvent(cb: (e: LlmEvent) => void): () => void;
   showLlmLog(): Promise<void>;
+  /** 키 파일에서 그 이름의 값을 찾을 수 있는지. 값은 돌려주지 않는다 */
+  checkKeyFile(k: { path: string; name: string }): Promise<"found" | "missing-file" | "missing-name">;
   listNotes(scope: NoteScope): Promise<Result<Note[]>>;
   addNote(scope: NoteScope, note: { path: string; line: number; body: string }): Promise<Result<Note>>;
   deleteNote(id: number): Promise<Result<void>>;

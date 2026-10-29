@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { analyze, DirectorySource, type ReviewSession } from "@callpath/core";
-import { apiUrl, explain, listModels, LlmError, MAX_CODE_CHARS, parseHeaders, preview, type LlmConfig, type Snippet } from "../src/index.js";
+import { apiUrl, explain, listModels, LlmError, MAX_CODE_CHARS, parseHeaders, preview, readEnvValue, ThinkFilter, type LlmConfig, type Snippet } from "../src/index.js";
 
 const FIX = resolve(__dirname, "../../../fixtures/java");
 let session: ReviewSession;
@@ -142,6 +142,33 @@ describe("추가 헤더", () => {
   });
 });
 
+describe("키 파일", () => {
+  it("export 줄과 따옴표, 주석을 정리해 값을 읽고, 없으면 null", () => {
+    const text = "# 주석\nexport MINIMAX_API_KEY=sk-cp-abc\nOTHER=\"q v\" # 꼬리\nEMPTY=";
+    expect(readEnvValue(text, "MINIMAX_API_KEY")).toBe("sk-cp-abc");
+    expect(readEnvValue(text, "OTHER")).toBe("q v");
+    expect(readEnvValue(text, "EMPTY")).toBeNull();
+    expect(readEnvValue(text, "NONE")).toBeNull();
+  });
+});
+
+describe("생각 과정 거르기", () => {
+  it("조각 경계에서 갈린 <think> 태그도 걸러 내고 답 앞 빈 줄을 없앤다", () => {
+    const f = new ThinkFilter();
+    const parts = ["<thi", "nk>고민 중", "…</th", "ink>\n\n재고 차감이 ", "앞으로 <", "옮겨졌습니다"];
+    let out = "";
+    let thinking = 0;
+    for (const p of parts) {
+      const r = f.push(p);
+      out += r.text;
+      if (r.thinking) thinking++;
+    }
+    out += f.flush();
+    expect(out).toBe("재고 차감이 앞으로 <옮겨졌습니다");
+    expect(thinking).toBeGreaterThan(0);
+  });
+});
+
 describe("주소", () => {
   it("기준 주소 뒤에 경로를 붙이고, 전체 주소를 받아도 같은 곳을 부른다", () => {
     expect(apiUrl("http://localhost:11434/v1/", "/chat/completions")).toBe("http://localhost:11434/v1/chat/completions");
@@ -191,6 +218,20 @@ describe("전송", () => {
     expect(JSON.parse(seen[0]!.body)).toEqual({ model: "test-model", messages: payload.messages, stream: true });
     expect(seen[0]!.headers.authorization).toBe("Bearer sk-secret-key-123");
     expect(seen[0]!.headers["x-gateway"]).toBe("gw-secret-456");
+  });
+
+  it("reasoning_content로 오는 생각 과정은 답에 넣지 않고 생각 중이라고 알린다(MiniMax 형식)", async () => {
+    const { cfg } = await serve((_req, _b, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { role: "assistant", reasoning_content: "사용자가 묻는 것은…" } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "답" } }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
+    });
+    let thought = 0;
+    let out = "";
+    for await (const p of explain(cfg, payload, undefined, { onThinking: () => thought++ })) out += p;
+    expect(out).toBe("답");
+    expect(thought).toBe(1);
   });
 
   it("스트리밍하지 않는 끝점의 한 번에 온 답도 받는다", async () => {

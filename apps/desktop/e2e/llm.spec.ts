@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { launch, makeFixtureRepo, makeUserData, openAndAnalyze, shot } from "./harness";
 import { startMockLlm, type MockLlm } from "./mockLlm";
@@ -64,8 +64,10 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     await expect(dialog.getByTestId("explain-stop")).toBeVisible();
     await expect(dialog.getByTestId("explain-answer")).toContainText("재고 차감이 결제 승인 앞으로 옮겨졌습니다.");
     // 마크다운은 기호 대신 굵게, 목록, 줄 안 코드로 보인다
-    await expect(dialog.getByTestId("explain-answer").locator("strong")).toHaveText("재고 차감");
-    await expect(dialog.getByTestId("explain-answer").locator("li code")).toHaveText("approve");
+    await expect(dialog.getByTestId("explain-answer").locator("strong").first()).toHaveText("재고 차감");
+    await expect(dialog.getByTestId("explain-answer").locator("li code").first()).toHaveText("approve");
+    // 굵게 안의 줄 안 코드도 코드로 보인다
+    await expect(dialog.getByTestId("explain-answer").locator("strong code")).toHaveText("decrease");
     await expect(dialog.getByTestId("explain-answer")).not.toContainText("**");
     await expect(dialog.getByRole("button", { name: "다시 요청" })).toBeVisible();
     await expect(dialog).not.toContainText("지난번에 받은 답입니다");
@@ -87,7 +89,7 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     const lines = log.trim().split("\n").map((l) => JSON.parse(l));
     expect(lines.map((l) => l.status)).toEqual(["sent", "done"]);
     expect(lines[0].messages.map((m: { content: string }) => m.content)).toEqual(shown);
-    expect(lines[1].answer).toBe("**재고 차감**이 결제 승인 앞으로 옮겨졌습니다.\n\n- 확인할 점: `approve` 실패 시 되돌림");
+    expect(lines[1].answer).toBe("**재고 차감**이 결제 승인 앞으로 옮겨졌습니다.\n\n- 확인할 점: `approve` 실패 시 되돌림\n- **`decrease` 먼저** 호출");
     expect(log).not.toContain(KEY);
 
     // 설정을 다녀와도 받은 답은 남는다(같은 커밋)
@@ -167,5 +169,68 @@ test("LLM 설정: 저장 못 하는 이유, 헤더를 바꾼다는 안내, 저�
   } finally {
     await app.close();
     await mock.close();
+  }
+});
+
+test("LLM 키 파일: 키를 앱에 두지 않고 이 컴퓨터의 파일에서 쓸 때마다 읽고, MiniMax로 채우기와 생각 중 표시", async () => {
+  const mock = await startMockLlm();
+  const data = makeUserData();
+  // 시험용 키 파일은 이 시험의 데이터 폴더 안에 두고 끝나면 지운다
+  const keyFile = join(data, "test-llm-key.env");
+  writeFileSync(keyFile, "# 시험용\nexport TEST_LLM_KEY=\"sk-file-first-111\"\n");
+  const { app, page } = await launch(data);
+  try {
+    await page.getByRole("button", { name: "LLM 설정" }).click();
+    await page.getByLabel("LLM 설명 쓰기").check();
+    // MiniMax로 채우기는 공식 OpenAI 호환 주소와 최신 모델, 키 변수 이름을 채운다
+    await page.getByLabel("이 컴퓨터의 키 파일에서 읽기").check();
+    await page.getByTestId("preset-minimax").click();
+    await expect(page.getByLabel("끝점 주소")).toHaveValue("https://api.minimax.io/v1");
+    await expect(page.getByLabel("모델")).toHaveValue("MiniMax-M3.1-Flash");
+    await expect(page.getByLabel("변수 이름")).toHaveValue("MINIMAX_API_KEY");
+    // 시험은 모의 끝점과 시험용 키 파일로 한다
+    await page.getByLabel("끝점 주소").fill(mock.endpoint);
+    await page.getByLabel("모델").fill("test-model");
+    await page.getByLabel("키 파일 경로").fill(keyFile);
+    await page.getByLabel("변수 이름").fill("NO_SUCH_KEY");
+    await page.getByRole("button", { name: "확인하고 저장" }).click();
+    // 키를 못 찾아도 다른 설정은 저장하고, 확인하지 않았다고 알린다
+    await expect(page.getByTestId("llm-note")).toContainText("NO_SUCH_KEY 값이 없어");
+    await expect(page.getByTestId("llm-keyfile-status")).toContainText("NO_SUCH_KEY 값이 없습니다");
+    expect(mock.requests).toHaveLength(0);
+    // 파일을 고치고 창으로 돌아오면 상태가 바뀐다
+    writeFileSync(keyFile, "# 시험용\nexport TEST_LLM_KEY=\"sk-file-first-111\"\nexport NO_SUCH_KEY=sk-temp-999\n");
+    await page.getByTestId("llm-keyfile-status").getByRole("button", { name: "다시 읽기" }).click();
+    await expect(page.getByTestId("llm-keyfile-status")).toContainText("파일에서 키를 찾았습니다");
+    writeFileSync(keyFile, "# 시험용\nexport TEST_LLM_KEY=\"sk-file-first-111\"\n");
+    await page.getByLabel("변수 이름").fill("TEST_LLM_KEY");
+    await page.getByRole("button", { name: "확인하고 저장" }).click();
+    await expect(page.getByTestId("llm-saved")).toBeVisible();
+    await expect(page.getByTestId("llm-keyfile-status")).toContainText("파일에서 키를 찾았습니다");
+    expect(mock.requests.at(-1)!.auth).toBe("Bearer sk-file-first-111");
+    const saved = readFileSync(join(data, "llm.json"), "utf8");
+    expect(saved).toContain("TEST_LLM_KEY");
+    expect(saved).not.toContain("sk-file-first-111");
+    await page.getByRole("button", { name: "돌아가기" }).click();
+
+    // 파일의 키를 바꾸면 다음 요청부터 새 키를 쓴다
+    writeFileSync(keyFile, "export TEST_LLM_KEY=sk-file-second-222\n");
+    mock.reasoning = true;
+    await openAndAnalyze(page, makeFixtureRepo("java"));
+    await page.keyboard.press("j");
+    await page.locator(".pane.right").getByRole("button", { name: /placeOrder 설명/ }).click();
+    const dialog = page.getByTestId("explain-dialog");
+    await dialog.getByRole("button", { name: "보내기" }).click();
+    await expect(dialog.getByTestId("explain-answer")).toContainText("모델이 답을 생각하는 중");
+    await expect(dialog.getByTestId("explain-answer")).toContainText("재고 차감이 결제 승인 앞으로 옮겨졌습니다.");
+    await expect(dialog.getByTestId("explain-answer")).not.toContainText("생각 중");
+    expect(chats(mock).at(-1)!.auth).toBe("Bearer sk-file-second-222");
+    const log = readFileSync(join(data, "llm-log.jsonl"), "utf8");
+    expect(log).not.toContain("sk-file-");
+    expect(log).not.toContain("생각 중");
+  } finally {
+    await app.close();
+    await mock.close();
+    rmSync(keyFile, { force: true });
   }
 });
