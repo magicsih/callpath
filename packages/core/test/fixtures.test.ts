@@ -108,3 +108,17 @@ describe("깊이 상한", () => {
     expect(session.orphans.map((s) => s.symbol.name)).toEqual(["m13"]);
   });
 });
+
+describe("테스트 연결 상한", () => {
+  it("한 메서드를 부르는 바뀐 테스트가 상한(20)을 넘어도 hunk가 사라지지 않는다", async () => {
+    const { analyzeTrees } = await import("./helpers.js");
+    const svc = (v: string) => `package p;\n\npublic class Svc {\n    public void run() {\n        work("${v}");\n    }\n    void work(String s) {}\n}\n`;
+    const test = (i: number, v: string) => `package p;\n\nimport org.junit.jupiter.api.Test;\n\nclass T${i}Test {\n    @Test\n    void t() {\n        new Svc().run(); // ${v}\n    }\n}\n`;
+    const tree = (v: string) => Object.fromEntries([["src/main/java/p/Svc.java", svc(v)], ...Array.from({ length: 25 }, (_, i) => [`src/test/java/p/T${i}Test.java`, test(i, v)])]);
+    const s = await analyzeTrees(tree("a"), tree("b"));
+    const step = s.orphans.find((x) => x.symbol.name === "run")!;
+    expect(step.tests).toHaveLength(20);
+    const shown = new Set([...step.tests.map((t) => t.symbol.path), ...s.otherTests.map((f) => f.path)]);
+    expect(shown.size).toBe(25);
+  });
+});

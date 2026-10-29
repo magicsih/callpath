@@ -139,7 +139,6 @@ function attachTests(graph: CallGraph, steps: Step[], testChanges: Map<string, S
       const t = graph.methods.get(e.caller)!;
       const changed = testChanges.get(e.caller);
       const hunks = changed?.hunks ?? [];
-      hunks.forEach((h) => attached.add(hunkKey(h)));
       const change = changed && changed.change !== "removed" && changed.change !== "unchanged" ? changed.change : null;
       const baseSymbol = changed?.baseSymbol ? toRef(changed.baseSymbol) : null;
       refs.set(e.caller, { symbol: toRef(t), baseSymbol, change, hunks, confidence: e.confidence });
@@ -147,6 +146,8 @@ function attachTests(graph: CallGraph, steps: Step[], testChanges: Map<string, S
     step.tests = [...refs.values()]
       .sort((a, b) => Number(b.change !== null) - Number(a.change !== null) || a.symbol.path.localeCompare(b.symbol.path) || a.symbol.range.startLine - b.symbol.range.startLine)
       .slice(0, MAX_TESTS_PER_STEP);
+    // 목록에 남긴 테스트의 hunk만 붙은 것으로 본다. 잘린 테스트의 hunk는 기타 테스트로 가야 사라지지 않는다
+    for (const t of step.tests) t.hunks.forEach((h) => attached.add(hunkKey(h)));
   }
   return attached;
 }
