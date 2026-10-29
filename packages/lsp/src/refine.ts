@@ -77,7 +77,11 @@ export function createRefiner(opts: RefinerOptions): Refiner {
   };
 }
 
-async function startServer(lang: Language, files: FileIndex[], tree: string, opts: RefinerOptions, env: NodeJS.ProcessEnv): Promise<LspClient | LanguageAnalysis> {
+/** 시작(60초)과 준비 대기(100초)를 합쳐도 언어별 기본 제한(180초) 안에 들게 한다 */
+const START_TIMEOUT = 60000;
+const READY_TIMEOUT = 100000;
+
+async function startServer(lang: Language, files: FileIndex[], tree: string, opts: RefinerOptions, env: NodeJS.ProcessEnv, cancel: Cancel): Promise<LspClient | LanguageAnalysis> {
   if (lang === "java") {
     const java = await findJava(env);
     if ("error" in java) return { status: "skipped", code: "no-tool", reason: java.error };
@@ -91,18 +95,26 @@ async function startServer(lang: Language, files: FileIndex[], tree: string, opt
     const settings = { java: { project: { sourcePaths: roots }, import: { gradle: { enabled: false }, maven: { enabled: false } } } };
     const { command, args } = jdtlsCommand(dir, java.bin, join(opts.cacheDir, "work", "jdtls", opts.headSha));
     opts.onStatus?.("Java 정밀 분석 중");
-    const client = await LspClient.start({ name: "JDT LS", command, args, cwd: tree, rootDir: tree, settings });
-    // 프로젝트를 다 읽기 전의 호출 계층은 일부만 돌아와, 그것으로 간선을 고치면 흐름이 끊긴다
-    if (!(await client.waitForServiceReady(120000))) {
+    const client = await LspClient.start({ name: "JDT LS", command, args, cwd: tree, rootDir: tree, settings, requestTimeoutMs: START_TIMEOUT });
+    // 뜨자마자 취소에 연결해, 준비를 기다리는 동안 시간이 다 되면 바로 끈다
+    cancel.stop = () => client.stop();
+    if (cancel.cancelled) {
       await client.stop();
-      return { status: "failed", code: "timeout", reason: "JDT LS가 120초 안에 프로젝트를 다 읽지 못했습니다" };
+      throw new Cancelled();
+    }
+    // 프로젝트를 다 읽기 전의 호출 계층은 일부만 돌아와, 그것으로 간선을 고치면 흐름이 끊긴다
+    if (!(await client.waitForServiceReady(READY_TIMEOUT))) {
+      await client.stop();
+      return { status: "failed", code: "timeout", reason: `JDT LS가 ${READY_TIMEOUT / 1000}초 안에 프로젝트를 다 읽지 못했습니다` };
     }
     return client;
   }
   const kotlin = await findKotlinLsp(env);
   if ("error" in kotlin) return { status: "skipped", code: "no-tool", reason: kotlin.error };
   opts.onStatus?.("Kotlin 정밀 분석 중");
-  return LspClient.start({ name: "kotlin-lsp", command: kotlin.command, args: kotlin.args, cwd: tree, rootDir: tree, settings: {} });
+  const client = await LspClient.start({ name: "kotlin-lsp", command: kotlin.command, args: kotlin.args, cwd: tree, rootDir: tree, settings: {}, requestTimeoutMs: START_TIMEOUT });
+  cancel.stop = () => client.stop();
+  return client;
 }
 
 async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: CallGraph, files: FileIndex[], tree: string, opts: RefinerOptions, env: NodeJS.ProcessEnv, cancel: Cancel): Promise<LanguageAnalysis> {
@@ -111,21 +123,26 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
     if (cancel.cancelled) throw new Cancelled();
   };
   try {
-    const started = await startServer(lang, files, tree, opts, env);
+    const started = await startServer(lang, files, tree, opts, env, cancel);
     if (!(started instanceof LspClient)) return started;
     client = started;
     cancel.stop = () => started.stop();
     check();
     const toPath = (uri: string): string | null => {
       if (!uri.startsWith("file:")) return null;
-      let file = fileURLToPath(uri);
+      const raw = fileURLToPath(uri);
+      // 서버가 링크를 푼 경로로 답할 수도, 받은 경로 그대로 답할 수도 있어 둘 다 시도한다
+      const candidates = [raw];
       try {
-        file = realpathSync(file);
+        candidates.push(realpathSync(raw));
       } catch {
-        // 지워진 파일 등은 받은 경로 그대로 비교한다
+        // 지워진 파일 등
       }
-      const rel = relative(tree, file);
-      return rel.startsWith("..") ? null : rel.split(sep).join("/");
+      for (const file of candidates) {
+        const rel = relative(tree, file);
+        if (!rel.startsWith("..")) return rel.split(sep).join("/");
+      }
+      return null;
     };
     let confirmed = 0;
     let first = true;
@@ -140,8 +157,6 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
       check();
       const incomingCalls = (await client.incoming(item)) ?? [];
       check();
-      // 나가는, 들어오는 호출이 모두 비었는데 1계층에는 간선이 있으면 아직 다 읽지 못한 결과로 보고 고치지 않는다
-      if (outgoing.length === 0 && incomingCalls.length === 0 && (graph.outgoing(id).length > 0 || graph.incoming(id).length > 0)) continue;
       const outEdges: Edge[] = [];
       for (const call of outgoing) {
         const path = toPath(call.to.uri);
