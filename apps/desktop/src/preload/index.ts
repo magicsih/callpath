@@ -36,6 +36,7 @@ const api: CallpathApi = {
     return () => ipcRenderer.removeListener("llm-event", h);
   },
   showLlmLog: () => ipcRenderer.invoke("showLlmLog"),
+  checkKeyFile: (k) => ipcRenderer.invoke("checkKeyFile", k),
   listNotes: (scope) => ipcRenderer.invoke("listNotes", scope),
   addNote: (scope, note) => ipcRenderer.invoke("addNote", scope, note),
   deleteNote: (id) => ipcRenderer.invoke("deleteNote", id),

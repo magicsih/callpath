@@ -27,21 +27,24 @@ interface Stored {
 
 const expandHome = (p: string) => (p === "~" ? homedir() : p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
 
+/** 키 파일을 읽지 못함. 끝점이 키를 거부한 것(401)과 구분해, 저장할 때는 막지 않고 알린다 */
+class KeyFileError extends LlmError {}
+
 /** 키 파일에서 키를 읽는다. 값은 돌려주기만 하고 어디에도 남기지 않는다 */
 async function readKeyFile(k: { path: string; name: string }): Promise<string> {
   let text: string;
   try {
     text = await readFile(expandHome(k.path), "utf8");
   } catch {
-    throw new LlmError(`키 파일을 읽지 못했습니다: ${k.path}`, "auth");
+    throw new KeyFileError(`키 파일을 읽지 못했습니다: ${k.path}`, "auth");
   }
   const v = readEnvValue(text, k.name);
-  if (!v) throw new LlmError(`키 파일 ${k.path}에 ${k.name} 값이 없습니다`, "auth");
+  if (!v) throw new KeyFileError(`키 파일 ${k.path}에 ${k.name} 값이 없습니다`, "auth");
   return v;
 }
 
 /** 화면에 보일 키 파일 상태. 값은 보이지 않는다 */
-async function keyFileStatus(k: { path: string; name: string }): Promise<"found" | "missing-file" | "missing-name"> {
+export async function keyFileStatus(k: { path: string; name: string }): Promise<"found" | "missing-file" | "missing-name"> {
   try {
     const text = await readFile(expandHome(k.path), "utf8");
     return readEnvValue(text, k.name) ? "found" : "missing-name";
@@ -76,7 +79,6 @@ async function view(s: Stored): Promise<LlmSettingsView> {
     hasKey: !!s.apiKey,
     keySource: s.keyFile ? "file" : "stored",
     keyFile: s.keyFile ?? null,
-    keyFileStatus: s.keyFile ? await keyFileStatus(s.keyFile) : null,
     headerNames: s.headerNames ?? [],
     weakStorage: isWeakStorage(),
     logPath: logPath(),
@@ -155,8 +157,10 @@ export async function saveLlmSettings(input: LlmSettingsInput, requestId?: strin
       const models = await listModels(await configOf(next), ctl.signal);
       if (models.length && !models.includes(model)) note = `끝점의 모델 목록에 "${model}"이 없습니다. 이름을 확인하세요 (목록: ${models.slice(0, 5).join(", ")}${models.length > 5 ? " 등" : ""})`;
     } catch (e) {
+      // 상태를 본 뒤 확인하는 사이에 키 파일이 바뀐 경우도 저장은 하고 알린다
+      if (e instanceof KeyFileError) note = `${e.message}. 끝점과 키를 확인하지 않고 저장했습니다`;
       // 모델 목록을 열지 않는 끝점도 있다(404, 405, 501). 주소와 키는 맞을 수 있으므로 저장하고 알린다
-      if (e instanceof LlmError && (e.code === "not-found" || e.status === 405 || e.status === 501)) note = "이 끝점은 모델 목록을 지원하지 않아 주소와 키를 미리 확인하지 못했습니다. 첫 요청에서 확인됩니다";
+      else if (e instanceof LlmError && (e.code === "not-found" || e.status === 405 || e.status === 501)) note = "이 끝점은 모델 목록을 지원하지 않아 주소와 키를 미리 확인하지 못했습니다. 첫 요청에서 확인됩니다";
       else throw e;
     } finally {
       if (requestId) checks.delete(requestId);

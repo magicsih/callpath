@@ -138,8 +138,6 @@ export interface LlmSettingsView {
   /** 키를 어디서 읽는지. stored는 앱에 암호화해 둔 키, file은 이 컴퓨터의 키 파일 */
   keySource: "stored" | "file";
   keyFile: { path: string; name: string } | null;
-  /** 키 파일에서 값을 찾았는지(값은 보이지 않는다) */
-  keyFileStatus: "found" | "missing-file" | "missing-name" | null;
   headerNames: string[];
   /** Linux에 암호 저장소가 없어 키를 약하게 보관하게 되는지 */
   weakStorage: boolean;
@@ -244,6 +242,8 @@ export interface CallpathApi {
   discardExplain(id: string): Promise<void>;
   onLlmEvent(cb: (e: LlmEvent) => void): () => void;
   showLlmLog(): Promise<void>;
+  /** 키 파일에서 그 이름의 값을 찾을 수 있는지. 값은 돌려주지 않는다 */
+  checkKeyFile(k: { path: string; name: string }): Promise<"found" | "missing-file" | "missing-name">;
   listNotes(scope: NoteScope): Promise<Result<Note[]>>;
   addNote(scope: NoteScope, note: { path: string; line: number; body: string }): Promise<Result<Note>>;
   deleteNote(id: number): Promise<Result<void>>;

@@ -43,8 +43,22 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
     void window.callpath.getLlmSettings().then(apply);
     title.current?.focus();
   }, []);
-  // 키 파일은 앱 밖에서 바뀐다. 창으로 돌아오거나 다시 읽기를 누르면 상태만 새로 읽는다(입력 중인 값은 건드리지 않는다)
-  const refreshStatus = () => void window.callpath.getLlmSettings().then((v) => setView(v));
+  // 키 파일은 앱 밖에서 바뀐다. 입력 중인 경로와 이름으로 상태만 본다(저장 전에도). 창으로 돌아오거나 다시 읽기를 누르면 새로 본다
+  const [fileCheck, setFileCheck] = useState<"found" | "missing-file" | "missing-name" | null>(null);
+  const [checkNonce, setCheckNonce] = useState(0);
+  const refreshStatus = () => setCheckNonce((n) => n + 1);
+  useEffect(() => {
+    if (keySource !== "file" || !keyPath.trim() || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(keyName.trim())) {
+      setFileCheck(null);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(() => void window.callpath.checkKeyFile({ path: keyPath.trim(), name: keyName.trim() }).then((s) => alive && setFileCheck(s)), 250);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [keySource, keyPath, keyName, checkNonce, view]);
   useEffect(() => {
     window.addEventListener("focus", refreshStatus);
     return () => window.removeEventListener("focus", refreshStatus);
@@ -105,7 +119,7 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
       endpoint,
       model,
       keySource,
-      ...(keySource === "file" ? { keyFile: { path: keyPath, name: keyName } } : clearKey ? { apiKey: null } : key.trim() ? { apiKey: key } : {}),
+      ...(keySource === "file" ? { keyFile: { path: keyPath, name: keyName }, ...(clearKey ? { apiKey: null } : {}) } : clearKey ? { apiKey: null } : key.trim() ? { apiKey: key } : {}),
       ...(clearHeaders ? { headers: null } : headers.trim() ? { headers } : {}),
     };
     const r = await window.callpath.saveLlmSettings(input, id);
@@ -225,16 +239,23 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
               <span className="hint" id="llm-key-path-hint">
                 "export 이름=값" 또는 "이름=값" 줄이 있는 파일입니다. 앱에는 경로와 이름만 저장하고, 쓸 때마다 이 파일을 읽습니다. 키는 화면에 보이지 않습니다.
               </span>
-              {view?.keySource === "file" && view.keyFileStatus && keyPath.trim() === view.keyFile?.path && keyName.trim() === view.keyFile?.name && (
-                <span className={view.keyFileStatus === "found" ? "ok-text small" : "warn-text small"} data-testid="llm-keyfile-status">
-                  <Icon name={view.keyFileStatus === "found" ? "check" : "warn"} size={12} />{" "}
-                  {view.keyFileStatus === "found" ? "파일에서 키를 찾았습니다" : view.keyFileStatus === "missing-file" ? "파일을 읽지 못했습니다" : `파일에 ${view.keyFile?.name} 값이 없습니다`}{" "}
+              {fileCheck && (
+                <span className={fileCheck === "found" ? "ok-text small" : "warn-text small"} data-testid="llm-keyfile-status" role="status">
+                  <Icon name={fileCheck === "found" ? "check" : "warn"} size={12} />{" "}
+                  {fileCheck === "found" ? "파일에서 키를 찾았습니다" : fileCheck === "missing-file" ? "파일을 읽지 못했습니다" : `파일에 ${keyName.trim()} 값이 없습니다`}{" "}
                   <button type="button" className="link small" onClick={refreshStatus}>
                     다시 읽기
                   </button>
                 </span>
               )}
-              {view?.hasKey && <span className="muted small">앱에 넣어 둔 키는 그대로 남아 있습니다. "앱에 넣어 두기"로 돌아가면 그 키를 다시 씁니다.</span>}
+              {view?.hasKey && (
+                <>
+                  <span className="muted small">앱에 넣어 둔 키는 그대로 남아 있습니다. "앱에 넣어 두기"로 돌아가면 그 키를 다시 씁니다.</span>
+                  <label className="choice small">
+                    <input type="checkbox" checked={clearKey} onChange={(e) => setClearKey(e.target.checked)} /> 앱에 넣어 둔 키도 지우기
+                  </label>
+                </>
+              )}
             </div>
           )}
           {keySource === "stored" && (
