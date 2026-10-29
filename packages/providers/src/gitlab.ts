@@ -42,7 +42,12 @@ export class GitLabProvider implements Provider {
   }
 
   async listPullRequests(repo: string): Promise<PullRequestSummary[]> {
-    const { data } = await this.call<GlMr[]>("GET", `${this.project(repo)}/merge_requests?state=opened&per_page=50&order_by=updated_at`);
+    const data: GlMr[] = [];
+    for (let page = 1; page <= 30; page++) {
+      const { data: chunk } = await this.call<GlMr[]>("GET", `${this.project(repo)}/merge_requests?state=opened&order_by=updated_at&per_page=100&page=${page}`);
+      data.push(...chunk);
+      if (chunk.length < 100) break;
+    }
     return data.map((m) => ({ number: m.iid, title: m.title, author: m.author?.username ?? "", url: m.web_url, updatedAt: m.updated_at }));
   }
 

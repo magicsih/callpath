@@ -31,7 +31,9 @@ export async function fetchPullRequestCode(cacheRoot: string, pr: PullRequestInf
   const remotes = await git("remote");
   if (remotes.split("\n").includes("origin")) await git("remote", "set-url", "origin", pr.cloneUrl);
   else await git("remote", "add", "origin", pr.cloneUrl);
-  await git("fetch", "--no-tags", "--quiet", "origin", `+refs/heads/${pr.baseRef}:refs/remotes/origin/${pr.baseRef}`, `+${pr.fetchRef}:refs/callpath/pr/${pr.number}`);
+  // PR head는 반드시 받고, base 브랜치는 지워졌거나 이름이 바뀌었을 수 있어 따로 시도한다
+  await git("fetch", "--no-tags", "--quiet", "origin", `+${pr.fetchRef}:refs/callpath/pr/${pr.number}`);
+  await git("fetch", "--no-tags", "--quiet", "origin", `+refs/heads/${pr.baseRef}:refs/remotes/origin/${pr.baseRef}`).catch(() => undefined);
   const head = await git("rev-parse", `refs/callpath/pr/${pr.number}`);
   if (head !== pr.headSha) throw new Error(`받은 PR head(${head.slice(0, 7)})가 PR 정보(${pr.headSha.slice(0, 7)})와 다릅니다. PR에 새 커밋이 올라왔을 수 있으니 다시 여세요`);
   // base 커밋은 PR 정보의 SHA를 그대로 쓴다. 받은 base 브랜치 이력에 없으면 그 커밋만 따로 받는다

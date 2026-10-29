@@ -107,3 +107,31 @@ describe("코드 받기 실패", () => {
     expect(err.message).not.toContain("c2VjcmV0LXZhbHVl");
   });
 });
+
+describe("리뷰 지적 회귀", () => {
+  it("열린 PR이 100개를 넘어도 모두 읽는다", async () => {
+    const p = new GitHubProvider("ghe.test", `${mockUrl()}/api/v3`, async () => GOOD_TOKEN);
+    expect(await p.listPullRequests("shop/many")).toHaveLength(120);
+  });
+
+  it("JSON이 아닌 성공 응답은 원인을 담은 제공자 오류다", async () => {
+    const p = new GitHubProvider("ghe.test", `${mockUrl()}/api/v3`, async () => GOOD_TOKEN);
+    const err = await p.fetchPullRequest("shop/html", 1).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect((err as Error).message).toContain("API가 아닌 응답");
+  });
+
+  it("포트가 붙은 ssh 주소와 scp 형식 주소", () => {
+    expect(parseRemote("ssh://git@git.corp.io:2222/team/svc.git")).toEqual({ host: "git.corp.io", repo: "team/svc" });
+    expect(parseRemote("git@git.corp.io:team/svc.git")).toEqual({ host: "git.corp.io", repo: "team/svc" });
+  });
+
+  it("base 브랜치가 지워진 PR도 head와 base 커밋으로 코드를 받는다", async () => {
+    const p = new GitHubProvider("ghe.test", `${mockUrl()}/api/v3`, async () => GOOD_TOKEN);
+    const pr = { ...(await p.fetchPullRequest("shop/order", 1)), baseRef: "deleted-branch" };
+    const cache = mkdtempSync(join(tmpdir(), "callpath-prov-cache-"));
+    cacheRoots.push(cache);
+    const gitDir = await fetchPullRequestCode(cache, pr, await p.gitAuthHeader());
+    expect(await mergeBase(gitDir, pr.baseSha, pr.headSha)).toBe(pr.baseSha);
+  });
+});

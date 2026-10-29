@@ -38,12 +38,14 @@ export function parsePrUrl(input: string, hosts: KnownHosts = { github: [], gitl
 
 /** git 원격 주소(https, ssh)에서 호스트와 저장소 경로를 읽는다 */
 export function parseRemote(remote: string): { host: string; repo: string } | null {
-  const ssh = /^(?:ssh:\/\/)?git@([^:/]+)[:/](.+?)(?:\.git)?\/?$/.exec(remote.trim());
+  // scp 형식(git@host:org/repo)에는 포트가 없다. 포트가 붙는 ssh://git@host:2222/org/repo는 아래 URL 해석으로 간다
+  const ssh = /^git@([^:/]+):(.+?)(?:\.git)?\/?$/.exec(remote.trim());
   if (ssh) return { host: ssh[1]!.toLowerCase(), repo: ssh[2]! };
   try {
     const u = new URL(remote.trim());
     const repo = u.pathname.replace(/^\/+/, "").replace(/\.git\/?$/, "");
-    return repo ? { host: u.host.toLowerCase(), repo } : null;
+    // 제공자 판별에는 포트를 뺀 호스트 이름을 쓴다
+    return repo ? { host: u.hostname.toLowerCase(), repo } : null;
   } catch {
     return null;
   }

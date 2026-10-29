@@ -38,7 +38,12 @@ export async function request<T>(
     const what = code === "auth" ? "토큰이 거부되었습니다" : code === "not-found" ? "찾을 수 없습니다(권한이 없을 수도 있습니다)" : "요청이 거부되었습니다";
     throw new ProviderError(`${what} (HTTP ${res.status}${detail ? `, ${redact(detail, token)}` : ""})`, res.status, code);
   }
-  return { data: (text ? JSON.parse(text) : null) as T, headers: res.headers };
+  try {
+    return { data: (text ? JSON.parse(text) : null) as T, headers: res.headers };
+  } catch {
+    // 프록시나 로그인 페이지가 HTML을 돌려주는 경우
+    throw new ProviderError(`API가 아닌 응답을 받았습니다 (HTTP ${res.status}). 호스트 주소를 확인하세요`, res.status, "other");
+  }
 }
 
 /** unified diff에서 head 쪽 hunk 범위(1부터)를 읽는다 */

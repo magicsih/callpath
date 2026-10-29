@@ -87,7 +87,17 @@ export async function startMock(fx: Fixture): Promise<MockServer> {
       const r = p.slice("/api/v3".length);
       const pull = { number: 1, title: "쿠폰 할인", html_url: "https://ghe.test/shop/order/pull/1", updated_at: "2026-10-29T00:00:00Z", user: { login: "dev" }, base: { ref: "main", sha: fx.baseSha, repo: { clone_url: fx.bare } }, head: { ref: "feature", sha: fx.headSha } };
       if (m === "GET" && r === "/user") return json(res, 200, { login: "reviewer" });
-      if (m === "GET" && r === "/repos/shop/order/pulls") return json(res, 200, [pull]);
+      if (m === "GET" && r === "/repos/shop/order/pulls") return json(res, 200, page > 1 ? [] : [pull]);
+      if (m === "GET" && r === "/repos/shop/many/pulls") {
+        // 열린 PR 120개: 100개, 20개 두 페이지
+        const all = Array.from({ length: 120 }, (_, i) => ({ ...pull, number: i + 1 }));
+        return json(res, 200, all.slice((page - 1) * 100, page * 100));
+      }
+      if (m === "GET" && r === "/repos/shop/html/pulls/1") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<html>sign in</html>");
+        return;
+      }
       if (m === "GET" && r === "/repos/shop/order/pulls/1") return json(res, 200, pull);
       if (m === "GET" && r === "/repos/shop/order/pulls/1/files") return json(res, 200, page > 1 ? [] : [...fx.patches].map(([filename, patch]) => ({ filename, patch })));
       if (m === "POST" && r === "/repos/shop/order/pulls/1/comments") {
@@ -121,7 +131,7 @@ export async function startMock(fx: Fixture): Promise<MockServer> {
       // 경로의 %2F는 Node가 그대로 두므로 원문과 비교한다
       const raw = req.url!.split("?")[0]!.slice("/api/v4".length);
       if (m === "GET" && r === "/user") return json(res, 200, { username: "reviewer" });
-      if (m === "GET" && raw === `${proj}/merge_requests`) return json(res, 200, [mr]);
+      if (m === "GET" && raw === `${proj}/merge_requests`) return json(res, 200, page > 1 ? [] : [mr]);
       if (m === "GET" && raw === `${proj}/merge_requests/1`) return json(res, 200, mr);
       if (m === "GET" && raw === proj) return json(res, 200, { http_url_to_repo: fx.bare });
       if (m === "GET" && raw === `${proj}/merge_requests/1/diffs`) return json(res, 200, page > 1 ? [] : [...fx.patches].map(([new_path, diff]) => ({ new_path, diff })));

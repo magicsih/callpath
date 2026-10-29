@@ -48,7 +48,7 @@ export class GitHubProvider implements Provider {
   }
 
   async listPullRequests(repo: string): Promise<PullRequestSummary[]> {
-    const { data } = await this.call<GhPull[]>("GET", `/repos/${repo}/pulls?state=open&per_page=50&sort=updated`);
+    const data = await this.all<GhPull>(`/repos/${repo}/pulls?state=open&sort=updated&direction=desc`);
     return data.map((p) => ({ number: p.number, title: p.title, author: p.user?.login ?? "", url: p.html_url, updatedAt: p.updated_at }));
   }
 

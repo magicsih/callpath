@@ -24,7 +24,9 @@ describe.skipIf(!LIVE)("실제 GitHub PR (A9)", () => {
       const gitDir = await fetchPullRequestCode(cache, pr, await provider.gitAuthHeader());
       const base = await mergeBase(gitDir, pr.baseSha, pr.headSha);
       const session = await analyze(new GitRefSource(gitDir, base), new GitRefSource(gitDir, pr.headSha), { repo: gitDir, baseLabel: base, headLabel: pr.headSha });
-      const changed = [...session.nonCode, ...session.outsideMethods, ...session.otherTests].map((f) => f.path).concat(session.orphans.map((s) => s.symbol.path), session.flows.flatMap((f) => f.steps.map((s) => s.symbol.path)));
+      const changed = [...session.nonCode, ...session.outsideMethods, ...session.otherTests].map((f) => f.path).concat(
+        [...session.orphans, ...session.flows.flatMap((f) => f.steps)].flatMap((s) => [s.symbol.path, ...s.tests.filter((t) => t.change !== null).map((t) => t.symbol.path)]),
+      );
       console.log(JSON.stringify({ user: me, pr: pr.url, base: pr.baseSha.slice(0, 7), mergeBase: base.slice(0, 7), head: pr.headSha.slice(0, 7), files: [...ranges.keys()], analyzed: [...new Set(changed)] }));
       expect(new Set(changed)).toEqual(new Set(ranges.keys()));
 
