@@ -29,6 +29,7 @@ const api: CallpathApi = {
   previewExplain: (req) => ipcRenderer.invoke("previewExplain", req),
   sendExplain: (id) => ipcRenderer.invoke("sendExplain", id),
   cancelExplain: (id) => ipcRenderer.invoke("cancelExplain", id),
+  discardExplain: (id) => ipcRenderer.invoke("discardExplain", id),
   onLlmEvent: (cb) => {
     const h = (_e: unknown, ev: Parameters<typeof cb>[0]) => cb(ev);
     ipcRenderer.on("llm-event", h);

@@ -95,8 +95,8 @@ export async function saveLlmSettings(input: LlmSettingsInput, requestId?: strin
       const models = await listModels(configOf(next), ctl.signal);
       if (models.length && !models.includes(model)) note = `끝점의 모델 목록에 "${model}"이 없습니다. 이름을 확인하세요 (목록: ${models.slice(0, 5).join(", ")}${models.length > 5 ? " 등" : ""})`;
     } catch (e) {
-      // 모델 목록을 열지 않는 끝점도 있다. 주소와 키는 맞을 수 있으므로 저장하고 알린다
-      if (e instanceof LlmError && e.code === "not-found") note = "이 끝점은 모델 목록을 지원하지 않아 주소와 키를 미리 확인하지 못했습니다. 첫 요청에서 확인됩니다";
+      // 모델 목록을 열지 않는 끝점도 있다(404, 405, 501). 주소와 키는 맞을 수 있으므로 저장하고 알린다
+      if (e instanceof LlmError && (e.code === "not-found" || e.status === 405 || e.status === 501)) note = "이 끝점은 모델 목록을 지원하지 않아 주소와 키를 미리 확인하지 못했습니다. 첫 요청에서 확인됩니다";
       else throw e;
     } finally {
       if (requestId) checks.delete(requestId);
@@ -108,7 +108,8 @@ export async function saveLlmSettings(input: LlmSettingsInput, requestId?: strin
 
 // ---------- 미리보기와 전송 ----------
 
-const pending = new Map<string, { payload: ExplainPayload; cfg: LlmConfig; created: number }>();
+/** 확인을 기다리는 미리보기. 키는 암호화한 채로 두고 보낼 때만 푼다 */
+const pending = new Map<string, { payload: ExplainPayload; stored: Stored; created: number }>();
 const running = new Map<string, AbortController>();
 /** 확인하지 않고 둔 미리보기는 30분 뒤 버린다 */
 const PREVIEW_TTL_MS = 30 * 60 * 1000;
@@ -144,12 +145,11 @@ export async function previewExplain(req: { repo: string; base: string; head: st
     const baseSnippet = st.change !== "removed" && st.change !== "added" && st.baseSymbol ? await snippetOf(repo, base, st.baseSymbol, "base") : null;
     // 단계의 path는 진입점부터 자신까지라 바로 앞이 부르는 쪽이다
     const callers = st.path.length >= 2 ? [st.path[st.path.length - 2]!] : [];
-    payload = preview({ kind: "method", step: st, snippet, baseSnippet, callers, callees: target.callees });
+    payload = preview({ kind: "method", step: st, snippet, baseSnippet, callers, callees: target.callees, orphan: target.orphan });
   }
-  const cfg = configOf(s);
   const id = randomUUID();
-  pending.set(id, { payload, cfg, created: Date.now() });
-  return { id, payload, endpointHost: new URL(cfg.endpoint).host, model: cfg.model };
+  pending.set(id, { payload, stored: s, created: Date.now() });
+  return { id, payload, endpointHost: new URL(s.endpoint).host, model: s.model };
 }
 
 async function log(entry: Record<string, unknown>): Promise<void> {
@@ -159,9 +159,10 @@ async function log(entry: Record<string, unknown>): Promise<void> {
 
 /** 미리보기에서 확인한 그 내용만 보낸다. 미리보기 없이 보내는 길은 없다(설계 3.4, 인수조건 A10) */
 export async function sendExplain(id: string, sender: WebContents): Promise<void> {
-  const p = pending.get(id);
-  if (!p) throw new Error("미리보기가 만료되었습니다. 다시 열어 확인하세요");
+  const held = pending.get(id);
   pending.delete(id);
+  if (!held || Date.now() - held.created > PREVIEW_TTL_MS) throw new Error("미리보기가 만료되었습니다. 다시 열어 확인하세요");
+  const p = { payload: held.payload, cfg: configOf(held.stored) };
   const ctl = new AbortController();
   running.set(id, ctl);
   const emit = (e: Record<string, unknown>) => !sender.isDestroyed() && sender.send("llm-event", { id, ...e });
@@ -186,6 +187,11 @@ export async function sendExplain(id: string, sender: WebContents): Promise<void
       running.delete(id);
     }
   })();
+}
+
+/** 보내지 않고 닫은 미리보기를 버린다 */
+export function discardExplain(id: string): void {
+  pending.delete(id);
 }
 
 export function cancelExplain(id: string): void {

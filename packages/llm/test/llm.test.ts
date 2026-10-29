@@ -30,6 +30,24 @@ describe("미리보기", () => {
     expect(p.omitted).toBe(0);
   });
 
+  it("상한을 넘으면 흐름 뒤쪽 조각부터 빼고, 첫 조각 하나가 넘으면 앞부분 줄만 보낸다", () => {
+    const flow = session.flows[0]!;
+    const lines = (n: number, w: number) => Array.from({ length: n }, (_, i) => `line${i} ${"y".repeat(w)}`).join("\n");
+    const huge: Snippet = { path: "Huge.java", side: "head", startLine: 10, endLine: 1009, text: lines(1000, 40) };
+    const small: Snippet = { path: "Small.java", side: "head", startLine: 1, endLine: 3, text: "a\nb\nc" };
+    const p = preview({ kind: "flow", flow, snippets: [huge, small] });
+    expect(p.scope).toHaveLength(1);
+    expect(p.scope[0]!.path).toBe("Huge.java");
+    expect(p.scope[0]!.endLine).toBeLessThan(1009);
+    expect(p.messages[1]!.content).toContain("이하");
+    expect(p.omitted).toBe(1);
+    // 작은 앞 조각 뒤에 큰 조각이 오면 큰 조각부터 뒤를 뺀다
+    const q = preview({ kind: "flow", flow, snippets: [small, huge, small] });
+    expect(q.scope.map((s) => s.path)).toEqual(["Small.java"]);
+    expect(q.omitted).toBe(2);
+    expect(q.omittedScope.map((s) => s.path)).toEqual(["Huge.java", "Small.java"]);
+  });
+
   it("글자 상한을 넘는 조각은 빼고 몇 개 뺐는지 적는다", () => {
     const flow = session.flows[0]!;
     const big = (i: number): Snippet => ({ path: `Big${i}.java`, side: "head", startLine: 1, endLine: 2, text: "x".repeat(MAX_CODE_CHARS / 2) });
@@ -53,6 +71,13 @@ describe("미리보기", () => {
     expect(p.graphSummary).toContain("호출 경로: OrderController.place → OrderService.placeOrder");
     expect(p.graphSummary).toContain("부르는 쪽: OrderController.place");
     expect(p.scope.map((s) => s.side)).toEqual(["head", "base"]);
+  });
+
+  it("진입점 미확정 단계는 호출 경로를 진입점이라고 적지 않는다", () => {
+    const step = session.orphans[0]!;
+    const p = preview({ kind: "method", step, snippet: { path: step.symbol.path, side: "head", startLine: 1, endLine: 1, text: "x" }, baseSnippet: null, callers: [], callees: [], orphan: true });
+    expect(p.graphSummary).toContain("진입점 미확정");
+    expect(p.graphSummary).not.toContain("이 메서드가 진입점");
   });
 });
 

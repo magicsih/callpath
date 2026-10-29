@@ -161,7 +161,7 @@ export interface LlmSaved {
 /** 무엇을 설명받을지. 렌더러가 가진 분석 결과를 그대로 넘긴다 */
 export type ExplainTarget =
   | { kind: "flow"; flow: import("@callpath/core").Flow }
-  | { kind: "method"; step: import("@callpath/core").Step; callees: string[] };
+  | { kind: "method"; step: import("@callpath/core").Step; callees: string[]; /** 진입점 미확정 묶음의 단계 */ orphan: boolean };
 
 export interface ExplainPreview {
   id: string;
@@ -232,6 +232,8 @@ export interface CallpathApi {
   /** 미리보기에서 확인한 그 내용을 보낸다. 답은 onLlmEvent로 조각씩 온다 */
   sendExplain(id: string): Promise<Result<void>>;
   cancelExplain(id: string): Promise<void>;
+  /** 보내지 않고 닫은 미리보기를 버린다 */
+  discardExplain(id: string): Promise<void>;
   onLlmEvent(cb: (e: LlmEvent) => void): () => void;
   showLlmLog(): Promise<void>;
   listNotes(scope: NoteScope): Promise<Result<Note[]>>;

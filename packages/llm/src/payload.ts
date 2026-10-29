@@ -27,11 +27,14 @@ export interface ExplainPayload {
   chars: number;
   /** 글자 상한에 걸려 뺀 코드 조각 수 */
   omitted: number;
+  /** 뺀 조각의 범위. 미리보기에서 어디를 뺐는지 보인다 */
+  omittedScope: Array<Omit<Snippet, "text">>;
 }
 
 export type ExplainRequest =
   | { kind: "flow"; flow: Flow; snippets: Snippet[] }
-  | { kind: "method"; step: Step; snippet: Snippet; baseSnippet: Snippet | null; callers: SymbolRef[]; callees: string[] };
+  /** orphan: 진입점에서 닿는 호출을 찾지 못한 단계(진입점 미확정 묶음) */
+  | { kind: "method"; step: Step; snippet: Snippet; baseSnippet: Snippet | null; callers: SymbolRef[]; callees: string[]; orphan?: boolean };
 
 /** 한 번에 보내는 코드 조각의 글자 상한. 넘으면 흐름 뒤쪽 조각부터 뺀다 */
 export const MAX_CODE_CHARS = 24000;
@@ -75,17 +78,36 @@ function fence(s: Snippet): string {
   return `### ${s.path}:${s.startLine}-${s.endLine} (${side})\n\`\`\`${lang}\n${s.text}\n\`\`\``;
 }
 
-/** 상한 안에 들어가는 조각만 앞에서부터 고른다 */
-function fit(snippets: Snippet[]): { kept: Snippet[]; omitted: number } {
+/**
+ * 흐름 순서대로 앞에서부터 채우고, 상한을 넘는 조각부터는 뒤쪽을 모두 뺀다(앞 단계가 더 중요하다).
+ * 첫 조각 하나가 상한을 넘으면 그 조각의 앞부분 줄만 보낸다
+ */
+function fit(snippets: Snippet[]): { kept: Snippet[]; omitted: number; dropped: Snippet[] } {
+  const r = fitInner(snippets);
+  // 남기는 것은 늘 앞쪽 몇 조각(첫 조각은 줄여서라도)이라 뺀 것은 그 뒤 전부다
+  return { ...r, dropped: snippets.slice(r.kept.length) };
+}
+
+function fitInner(snippets: Snippet[]): { kept: Snippet[]; omitted: number } {
   const kept: Snippet[] = [];
   let used = 0;
-  for (const s of snippets) {
+  for (const [i, s] of snippets.entries()) {
     const size = fence(s).length;
-    if (used + size > MAX_CODE_CHARS) continue;
-    kept.push(s);
-    used += size;
+    if (used + size <= MAX_CODE_CHARS) {
+      kept.push(s);
+      used += size;
+      continue;
+    }
+    if (kept.length === 0) {
+      const lines = s.text.split("\n");
+      let n = lines.length;
+      while (n > 1 && fence({ ...s, endLine: s.startLine + n - 1, text: lines.slice(0, n).join("\n") }).length > MAX_CODE_CHARS) n = Math.floor(n * 0.9);
+      kept.push({ ...s, endLine: s.startLine + n - 1, text: `${lines.slice(0, n).join("\n")}\n// … 글자 상한으로 이하 ${lines.length - n}줄 생략` });
+      return { kept, omitted: snippets.length - 1 };
+    }
+    return { kept, omitted: snippets.length - i };
   }
-  return { kept, omitted: snippets.length - kept.length };
+  return { kept, omitted: 0 };
 }
 
 const SYSTEM = [
@@ -101,7 +123,7 @@ export function preview(req: ExplainRequest): ExplainPayload {
     const graphSummary = [`흐름: ${f.label} (진입점 ${f.entry.qualifiedName})`, "단계(호출 순서대로):", ...f.steps.map(stepLine), f.truncated ? "탐색 상한에 걸려 잘린 가지가 있습니다." : ""]
       .filter(Boolean)
       .join("\n");
-    const { kept, omitted } = fit(req.snippets);
+    const { kept, omitted, dropped } = fit(req.snippets);
     const user = [
       "아래 흐름에서 무엇이 바뀌었는지 진입점부터 호출 순서대로 요약하세요.",
       "호출 순서가 바뀐 곳은 그 결과로 달라지는 동작과 위험(예: 실패했을 때 되돌림)을 짚으세요. 리뷰어가 확인할 점을 마지막에 목록으로 주세요.",
@@ -117,7 +139,7 @@ export function preview(req: ExplainRequest): ExplainPayload {
       { role: "system", content: SYSTEM },
       { role: "user", content: user },
     ];
-    return { kind: "flow", title: `${f.label} 흐름 요약`, scope: kept.map(({ text: _t, ...r }) => r), graphSummary, messages, chars: user.length + SYSTEM.length, omitted };
+    return { kind: "flow", title: `${f.label} 흐름 요약`, scope: kept.map(({ text: _t, ...r }) => r), graphSummary, messages, chars: user.length + SYSTEM.length, omitted, omittedScope: dropped.map(({ text: _t, ...r }) => r) };
   }
   const s = req.step;
   // 단계의 path는 진입점부터 그 단계 자신까지다. 자신이 빠진 경우에만 붙인다
@@ -125,7 +147,11 @@ export function preview(req: ExplainRequest): ExplainPayload {
   const chain = last && last.qualifiedName === s.symbol.qualifiedName && last.path === s.symbol.path ? s.path : [...s.path, s.symbol];
   const graphSummary = [
     `메서드: ${s.symbol.qualifiedName} (${s.symbol.path}) [${CHANGE[s.change]}]`,
-    chain.length > 1 ? `호출 경로: ${chain.map(short).join(" → ")}` : "호출 경로: 이 메서드가 진입점",
+    req.orphan
+      ? "호출 경로: 진입점에서 이 메서드까지 닿는 호출을 찾지 못했습니다(진입점 미확정)"
+      : chain.length > 1
+        ? `호출 경로: ${chain.map(short).join(" → ")}`
+        : "호출 경로: 이 메서드가 진입점",
     req.callers.length ? `부르는 쪽: ${req.callers.map(short).join(", ")}` : "",
     req.callees.length ? `부르는 메서드: ${req.callees.join(", ")}` : "",
     s.callOrderDiff ? `호출 순서: ${callOrder(s.callOrderDiff)}` : "",
@@ -133,7 +159,7 @@ export function preview(req: ExplainRequest): ExplainPayload {
     .filter(Boolean)
     .join("\n");
   const snippets = [req.snippet, ...(req.baseSnippet ? [req.baseSnippet] : [])];
-  const { kept, omitted } = fit(snippets);
+  const { kept, omitted, dropped } = fit(snippets);
   const user = [
     "아래 메서드의 변경을 설명하세요. 부르는 쪽과 부르는 메서드 관점에서 영향과 리뷰어가 확인할 점을 짚으세요.",
     "",
@@ -148,5 +174,5 @@ export function preview(req: ExplainRequest): ExplainPayload {
     { role: "system", content: SYSTEM },
     { role: "user", content: user },
   ];
-  return { kind: "method", title: `${short(s.symbol)} 설명`, scope: kept.map(({ text: _t, ...r }) => r), graphSummary, messages, chars: user.length + SYSTEM.length, omitted };
+  return { kind: "method", title: `${short(s.symbol)} 설명`, scope: kept.map(({ text: _t, ...r }) => r), graphSummary, messages, chars: user.length + SYSTEM.length, omitted, omittedScope: dropped.map(({ text: _t, ...r }) => r) };
 }

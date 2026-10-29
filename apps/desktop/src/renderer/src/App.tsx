@@ -7,6 +7,7 @@ import { Review } from "./screens/Review";
 import { Connections } from "./screens/Connections";
 import { PrOpening } from "./screens/PrOpening";
 import { LlmSettings } from "./screens/LlmSettings";
+import type { SavedAnswer } from "./components/Explain";
 
 type Screen =
   | { name: "boot" }
@@ -23,6 +24,8 @@ function prRepo(m: PrMeta): RepoInfo {
 }
 
 export function App() {
+  // LLM 답은 리뷰 화면이 다시 그려져도(설정을 다녀와도) 남게 여기 둔다. 키에 커밋 SHA가 들어가 다른 커밋과 섞이지 않는다
+  const answers = useRef<Record<string, SavedAnswer>>({});
   const [screen, setScreen] = useState<Screen>({ name: "boot" });
   const [busy, setBusy] = useState(false);
   const state = useRef<UiState>(EMPTY_STATE);
@@ -183,6 +186,7 @@ export function App() {
         } else setScreen({ name: "compare", repo, base: req.base, head: req.head });
       }}
       onLlmSettings={(selection, showTests) => setScreen({ name: "llm", back: { ...screen, selection, showTests } })}
+      answerStore={answers.current}
       onPersist={(selection, showTests) =>
         persist({ ...state.current, lastRepo: req.repo, repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } })
       }

@@ -15,7 +15,7 @@ export interface MockLlm {
 
 /** OpenAI 호환 끝점을 흉내 낸다. /v1/models와 스트리밍 /v1/chat/completions */
 export async function startMockLlm(): Promise<MockLlm> {
-  const mock = { requests: [], pieces: ["재고 차감이 ", "결제 승인 앞으로 ", "옮겨졌습니다."], rejectChat: false } as unknown as MockLlm;
+  const mock = { requests: [], pieces: ["**재고 차감**이 ", "결제 승인 앞으로 ", "옮겨졌습니다.\n\n- 확인할 점: `approve` 실패 시 되돌림"], rejectChat: false } as unknown as MockLlm;
   const server: Server = createServer((req, res) => {
     let raw = "";
     req.on("data", (d) => (raw += d));

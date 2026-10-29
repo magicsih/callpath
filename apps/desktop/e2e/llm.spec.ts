@@ -36,7 +36,7 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
     await expect(page.getByTestId("llm-actions")).toBeVisible();
     // 메서드 설명: 미리보기를 보고 취소하면 아무것도 나가지 않는다
-    await page.getByRole("button", { name: "이 메서드 설명" }).click();
+    await page.getByRole("button", { name: "OrderService.placeOrder 설명" }).click();
     const dialog = page.getByTestId("explain-dialog");
     await expect(dialog.getByTestId("explain-dest")).toContainText("test-model");
     await expect(dialog.getByTestId("explain-scope")).toContainText("OrderService.java");
@@ -48,13 +48,17 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     expect(chats(mock)).toHaveLength(0);
 
     // 흐름 요약: 보내면 답이 조각씩 오고, 보낸 내용은 미리보기와 같다
-    await page.getByRole("button", { name: "이 흐름 요약" }).click();
+    await page.getByRole("button", { name: "POST /orders 흐름 요약" }).click();
     await expect(dialog.getByTestId("explain-scope")).toBeVisible();
     await dialog.locator("summary").click();
     const shown = await dialog.getByTestId("explain-message").allTextContents();
     await dialog.getByRole("button", { name: "보내기" }).click();
     await expect(dialog.getByTestId("explain-stop")).toBeVisible();
     await expect(dialog.getByTestId("explain-answer")).toContainText("재고 차감이 결제 승인 앞으로 옮겨졌습니다.");
+    // 마크다운은 기호 대신 굵게, 목록, 줄 안 코드로 보인다
+    await expect(dialog.getByTestId("explain-answer").locator("strong")).toHaveText("재고 차감");
+    await expect(dialog.getByTestId("explain-answer").locator("li code")).toHaveText("approve");
+    await expect(dialog.getByTestId("explain-answer")).not.toContainText("**");
     await expect(dialog.getByRole("button", { name: "다시 요청" })).toBeVisible();
     await expect(dialog).not.toContainText("지난번에 받은 답입니다");
     await shot(app, "19-llm-answer");
@@ -63,9 +67,9 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     expect(sent.model).toBe("test-model");
     expect(sent.messages.map((m) => m.content)).toEqual(shown);
     await dialog.getByRole("button", { name: "닫기" }).click();
-    await expect(page.getByRole("button", { name: /이 흐름 요약/ })).toContainText("(받음)");
+    await expect(page.getByRole("button", { name: /POST \/orders 흐름 요약/ })).toContainText("(받음)");
     // 다시 열면 받은 답을 먼저 보인다(다시 보내지 않는다)
-    await page.getByRole("button", { name: /이 흐름 요약/ }).click();
+    await page.getByRole("button", { name: /POST \/orders 흐름 요약/ }).click();
     await expect(dialog).toContainText("지난번에 받은 답입니다");
     await page.keyboard.press("Escape");
     expect(chats(mock)).toHaveLength(1);
@@ -75,16 +79,30 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     const lines = log.trim().split("\n").map((l) => JSON.parse(l));
     expect(lines.map((l) => l.status)).toEqual(["sent", "done"]);
     expect(lines[0].messages.map((m: { content: string }) => m.content)).toEqual(shown);
-    expect(lines[1].answer).toBe("재고 차감이 결제 승인 앞으로 옮겨졌습니다.");
+    expect(lines[1].answer).toBe("**재고 차감**이 결제 승인 앞으로 옮겨졌습니다.\n\n- 확인할 점: `approve` 실패 시 되돌림");
     expect(log).not.toContain(KEY);
 
+    // 설정을 다녀와도 받은 답은 남는다(같은 커밋)
+    await page.getByTestId("llm-actions").getByRole("button", { name: "LLM 설정" }).click();
+    await page.getByRole("button", { name: "리뷰로 돌아가기" }).click();
+    await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
+    await expect(page.getByRole("button", { name: /POST \/orders 흐름 요약/ })).toContainText("(받음)");
+    // 진입점 미확정 단계는 흐름 요약이 없다고 알리고, 호출 경로를 진입점이라고 보내지 않는다
+    await page.getByRole("button", { name: /생성자/ }).first().click();
+    await expect(page.getByTestId("llm-reason")).toContainText("진입점 미확정 묶음이라 흐름 요약은 없습니다");
+    await page.locator(".pane.right").getByRole("button", { name: /설명$/ }).click();
+    await expect(dialog.getByTestId("explain-dest")).toBeVisible();
+    await expect(dialog).toContainText("진입점 미확정");
+    await expect(dialog).not.toContainText("이 메서드가 진입점");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: /placeOrder/ }).first().click();
     // 좁은 창에서는 오른쪽 영역 대신 상세 머리에 버튼이 보인다
     await app.evaluate(({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0]!;
       w.setContentSize(900, 600);
       w.webContents.setZoomFactor(1.5);
     });
-    await expect(page.locator(".head-extra").getByRole("button", { name: /이 메서드 설명/ })).toBeVisible();
+    await expect(page.locator(".head-extra").getByRole("button", { name: /placeOrder 설명/ })).toBeVisible();
     await app.evaluate(({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0]!;
       w.setContentSize(1360, 860);
@@ -94,7 +112,7 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     await expect(page.locator(".head-extra")).toHaveCount(0);
     // 키가 거부되면 원인과 LLM 설정으로 가는 길을 보인다
     mock.rejectChat = true;
-    await page.locator(".pane.right").getByRole("button", { name: /이 메서드 설명/ }).click();
+    await page.locator(".pane.right").getByRole("button", { name: /placeOrder 설명/ }).click();
     await dialog.getByRole("button", { name: "보내기" }).click();
     await expect(dialog.getByTestId("explain-error")).toContainText("키가 거부되었습니다");
     await expect(dialog.getByRole("button", { name: "LLM 설정" })).toBeVisible();

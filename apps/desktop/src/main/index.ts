@@ -4,7 +4,7 @@ import { LlmError } from "@callpath/llm";
 import { cancelConnectionCheck, deleteConnection, listConnections, saveConnection } from "./connections";
 import { InvalidPrUrl, listPullRequests, NeedsConnection, openPullRequest } from "./pullRequests";
 import { addNote, deleteNote, listNotes, planPost, postNotes } from "./notes";
-import { cancelExplain, cancelLlmCheck, getLlmSettings, previewExplain, saveLlmSettings, sendExplain, showLlmLog } from "./llm";
+import { cancelExplain, cancelLlmCheck, discardExplain, getLlmSettings, previewExplain, saveLlmSettings, sendExplain, showLlmLog } from "./llm";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import workerPath from "./analyzeWorker?modulePath";
@@ -134,6 +134,7 @@ ipcMain.handle("cancelLlmCheck", (_e, requestId: string) => cancelLlmCheck(reque
 ipcMain.handle("previewExplain", (_e, req: { repo: string; base: string; head: string; target: ExplainTarget }) => wrap(() => previewExplain(req)));
 ipcMain.handle("sendExplain", (e, id: string) => wrap(() => sendExplain(id, e.sender)));
 ipcMain.handle("cancelExplain", (_e, id: string) => cancelExplain(id));
+ipcMain.handle("discardExplain", (_e, id: string) => discardExplain(id));
 ipcMain.handle("showLlmLog", () => showLlmLog());
 ipcMain.handle("loadState", () => loadState());
 ipcMain.handle("saveState", (_e, s: UiState) => saveState(s));

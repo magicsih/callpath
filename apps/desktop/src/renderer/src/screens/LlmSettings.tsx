@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { LlmSettingsInput, LlmSettingsView } from "../../../shared/api";
 import { Icon } from "../components/Icon";
 
-type Status = { s: "idle"; note?: string } | { s: "saving"; id: string; started: number } | { s: "saved"; note: string | null } | { s: "error"; message: string };
+type Status = { s: "idle"; note?: string } | { s: "saving"; id: string; started: number } | { s: "saved"; note: string | null } | { s: "error"; message: string; kind: string };
 
 export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: () => void; backLabel?: string }) {
   const [view, setView] = useState<LlmSettingsView | null>(null);
@@ -19,6 +19,7 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
   const savedMsg = useRef<HTMLParagraphElement>(null);
   const saveBtn = useRef<HTMLButtonElement>(null);
   const endpointInput = useRef<HTMLInputElement>(null);
+  const keyInput = useRef<HTMLInputElement>(null);
 
   const apply = (v: LlmSettingsView) => {
     setView(v);
@@ -43,7 +44,8 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
   useEffect(() => {
     if (status.s === "saved") savedMsg.current?.focus();
     else if (status.s === "idle" && status.note) saveBtn.current?.focus();
-    else if (status.s === "error") endpointInput.current?.focus();
+    // 키가 거부되면 키 칸으로, 그 밖의 실패는 주소 칸으로
+    else if (status.s === "error") (status.kind === "auth" ? keyInput : endpointInput).current?.focus();
   }, [status]);
 
   const ready = !enabled || (endpoint.trim() !== "" && model.trim() !== "");
@@ -63,7 +65,7 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
       apply(r.value.view);
       setStatus({ s: "saved", note: r.value.note });
     } else if (r.kind === "cancelled") setStatus({ s: "idle", note: "확인을 멈췄습니다. 저장하지 않았습니다" });
-    else setStatus({ s: "error", message: r.error });
+    else setStatus({ s: "error", message: r.error, kind: r.kind });
   };
 
   return (
@@ -125,6 +127,7 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
             <label htmlFor="llm-key">API 키</label>
             <input
               id="llm-key"
+              ref={keyInput}
               type="password"
               autoComplete="off"
               spellCheck={false}
@@ -178,10 +181,16 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
           )}
           {status.s === "idle" && status.note && <p className="muted" role="status">{status.note}</p>}
           {status.s === "saved" && (
-            <p className="ok-text" role="status" data-testid="llm-saved" tabIndex={-1} ref={savedMsg}>
-              <Icon name="check" /> {view?.enabled ? `저장했습니다. ${view.model} 모델로 설명을 받습니다` : "저장했습니다. LLM 설명은 꺼져 있습니다"}
-              {status.note && <span className="block small muted">{status.note}</span>}
-            </p>
+            <div role="status" data-testid="llm-saved-wrap">
+              <p className="ok-text" data-testid="llm-saved" tabIndex={-1} ref={savedMsg}>
+                <Icon name="check" /> {view?.enabled ? `저장했습니다. ${view.model} 모델로 설명을 받습니다` : "저장했습니다. LLM 설명은 꺼져 있습니다"}
+              </p>
+              {status.note && (
+                <p className="warn-text small" data-testid="llm-note">
+                  <Icon name="warn" size={12} /> {status.note}
+                </p>
+              )}
+            </div>
           )}
           {status.s === "saving" ? (
             <div className="row" role="status" data-testid="llm-checking">

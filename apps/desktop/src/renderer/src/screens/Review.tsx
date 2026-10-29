@@ -47,9 +47,11 @@ interface Props {
   onPersist: (selection: string | null, showTests: boolean) => void;
   /** LLM 설정으로 간다. 돌아올 때 보던 위치를 지키려고 지금 위치를 넘긴다 */
   onLlmSettings: (selection: string | null, showTests: boolean) => void;
+  /** 받은 LLM 답. 리뷰 화면 밖에 두어 설정을 다녀와도 남는다 */
+  answerStore: Record<string, SavedAnswer>;
 }
 
-export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initialShowTests, onChangeCompare, onPersist, onLlmSettings }: Props) {
+export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initialShowTests, onChangeCompare, onPersist, onLlmSettings, answerStore }: Props) {
   const [analysis, setAnalysis] = useState<Analysis>({ status: "loading" });
   const [run, setRun] = useState(0);
   const [showTests, setShowTests] = useState(initialShowTests);
@@ -64,8 +66,12 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
   useEffect(() => {
     void window.callpath.getLlmSettings().then(setLlm);
   }, []);
-  const [explain, setExplain] = useState<{ key: string; target: ExplainTarget } | null>(null);
-  const [answers, setAnswers] = useState<Record<string, SavedAnswer>>({});
+  const [explain, setExplain] = useState<{ key: string; target: ExplainTarget; title: string } | null>(null);
+  const [answers, setAnswers] = useState<Record<string, SavedAnswer>>(() => ({ ...answerStore }));
+  const saveAnswer = (key: string, a: SavedAnswer) => {
+    answerStore[key] = a;
+    setAnswers((m) => ({ ...m, [key]: a }));
+  };
   const [notesError, setNotesError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
   const [posting, setPosting] = useState<number[] | null>(null);
@@ -396,15 +402,20 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
   const callees = llmStep
     ? [...new Set(llmStep.step.callOrderDiff ? llmStep.step.callOrderDiff.head.filter((c) => !c.nested).map((c) => c.name) : childSteps(llmStep, nav).map((c) => c.step.symbol.name))]
     : [];
-  const methodTarget: ExplainTarget | null = llmStep ? { kind: "method", step: llmStep.step, callees } : null;
+  const methodTarget: ExplainTarget | null = llmStep ? { kind: "method", step: llmStep.step, callees, orphan: !llmStep.flow } : null;
+  const flowTitle = llmStep?.flow ? `${llmStep.flow.label} 흐름 요약` : "흐름 요약";
+  const methodTitle = llmStep ? `${shortName(llmStep.step.symbol)} 설명` : "메서드 설명";
   const flowKey = llmStep?.flow ? `${headSha}|flow:${llmStep.flow.id}` : null;
   const methodKey = llmStep ? `${headSha}|method:${llmStep.key}` : null;
   const openLlmSettings = () => onLlmSettings(current.key, showTests);
   const llmActions = (compact: boolean) => (
     <LlmActions
       enabled={llm ? llm.enabled : null}
-      onFlow={flowTarget && flowKey ? () => setExplain({ key: flowKey, target: flowTarget }) : null}
-      onMethod={methodTarget && methodKey ? () => setExplain({ key: methodKey, target: methodTarget }) : null}
+      onFlow={flowTarget && flowKey ? () => setExplain({ key: flowKey, target: flowTarget, title: flowTitle }) : null}
+      onMethod={methodTarget && methodKey ? () => setExplain({ key: methodKey, target: methodTarget, title: methodTitle }) : null}
+      flowName={llmStep?.flow ? llmStep.flow.label : null}
+      methodName={llmStep ? shortName(llmStep.step.symbol) : null}
+      reason={!llmStep ? "메서드 밖 변경이라 설명할 메서드와 흐름이 없습니다" : !llmStep.flow ? "진입점 미확정 묶음이라 흐름 요약은 없습니다" : null}
       flowAnswered={!!(flowKey && answers[flowKey])}
       methodAnswered={!!(methodKey && answers[methodKey])}
       onSettings={openLlmSettings}
@@ -489,7 +500,8 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           key={explain.key}
           req={{ repo: req.repo, base: session!.base, head: session!.head, target: explain.target }}
           saved={answers[explain.key] ?? null}
-          onAnswer={(a) => setAnswers((m) => ({ ...m, [explain.key]: a }))}
+          onAnswer={(a) => saveAnswer(explain.key, a)}
+          fallbackTitle={explain.title}
           onClose={() => setExplain(null)}
           onSettings={() => {
             setExplain(null);
