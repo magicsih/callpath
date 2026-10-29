@@ -25,7 +25,12 @@ export async function exportTree(repo: string, sha: string, dest: string): Promi
       untar.on("error", reject);
       untar.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`head 코드를 내보내지 못했습니다: ${err.trim()}`))));
     });
-    rmSync(dest, { recursive: true, force: true });
+    // 그사이 다른 실행이 같은 커밋을 끝냈으면 그것을 쓰고, 쓰는 중일 수 있는 폴더는 지우지 않는다
+    if (existsSync(join(dest, MARKER))) {
+      rmSync(tmp, { recursive: true, force: true });
+      return dest;
+    }
+    if (existsSync(dest)) rmSync(dest, { recursive: true, force: true }); // 완료 표시가 없는 이전 실패 흔적
     renameSync(tmp, dest);
     writeFileSync(join(dest, MARKER), sha);
     return dest;

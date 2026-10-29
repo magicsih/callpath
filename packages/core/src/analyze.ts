@@ -20,10 +20,11 @@ export interface RefineContext {
 /** 정밀 분석(설계 5.2의 2계층). 그래프를 고치고 언어별 결과를 돌려준다 */
 export type Refiner = (ctx: RefineContext) => Promise<Partial<Record<Language, LanguageAnalysis>>>;
 
-function overall(languages: Partial<Record<Language, LanguageAnalysis>>): PreciseStatus {
+/** 한 언어라도 정밀 분석이 끝나면 done이다. 실패하거나 건너뛴 언어는 languages에 남아 화면이 따로 알린다 */
+export function overall(languages: Partial<Record<Language, LanguageAnalysis>>): PreciseStatus {
   const s = Object.values(languages).map((l) => l!.status);
-  if (s.includes("failed")) return "failed";
   if (s.includes("done")) return "done";
+  if (s.includes("failed")) return "failed";
   return "skipped";
 }
 

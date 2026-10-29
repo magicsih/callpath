@@ -14,6 +14,15 @@ export interface ClientOptions {
   requestTimeoutMs?: number;
 }
 
+function lookup(settings: Record<string, unknown>, section: string): unknown {
+  let cur: unknown = settings;
+  for (const key of section.split(".")) {
+    if (cur === null || typeof cur !== "object" || !(key in cur)) return null;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`${what} 시간 초과(${Math.round(ms / 1000)}초)`)), ms);
@@ -48,7 +57,10 @@ export class LspClient {
       });
     });
     exited.catch(() => undefined);
-    conn.onRequest("workspace/configuration", (params: { items: unknown[] }) => params.items.map(() => opts.settings));
+    // 규약대로 요청한 섹션(예: "java", "java.project")의 값을 돌려준다. 섹션이 없으면 설정 전체
+    conn.onRequest("workspace/configuration", (params: { items: Array<{ section?: string }> }) =>
+      params.items.map((item) => (item.section ? lookup(opts.settings, item.section) : opts.settings)),
+    );
     conn.onRequest("client/registerCapability", () => null);
     conn.onRequest("client/unregisterCapability", () => null);
     conn.onRequest("window/workDoneProgress/create", () => null);

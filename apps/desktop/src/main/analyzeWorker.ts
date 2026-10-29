@@ -1,7 +1,8 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyze, GitRefSource, mergeBase, type ReviewSession } from "@callpath/core";
 import { createRefiner, JDTLS } from "@callpath/lsp";
@@ -17,8 +18,22 @@ export type WorkerEvent =
 
 const { userData } = workerData as { userData: string };
 const lspDir = process.env.CALLPATH_LSP_CACHE ?? join(userData, "lsp");
-// 분석기가 바뀌면 이전 결과를 쓰지 않도록 이 워커 파일의 내용 해시를 캐시 키에 넣는다
-const version = `${createHash("sha1").update(readFileSync(fileURLToPath(import.meta.url))).digest("hex").slice(0, 12)}+jdtls-${JDTLS.version}`;
+/** 폴더 안 .js 파일들의 내용 해시 */
+function hashDir(h: ReturnType<typeof createHash>, dir: string): void {
+  for (const name of readdirSync(dir).sort()) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) hashDir(h, p);
+    else if (name.endsWith(".js")) h.update(name).update(readFileSync(p));
+  }
+}
+
+// 분석기가 바뀌면 이전 결과를 쓰지 않도록 이 워커와 코어, LSP 패키지 빌드 결과의 해시를 캐시 키에 넣는다
+const version = (() => {
+  const h = createHash("sha1").update(readFileSync(fileURLToPath(import.meta.url)));
+  const require = createRequire(import.meta.url);
+  for (const pkg of ["@callpath/core", "@callpath/lsp"]) hashDir(h, dirname(require.resolve(pkg)));
+  return `${h.digest("hex").slice(0, 12)}+jdtls-${JDTLS.version}`;
+})();
 const cache = new SessionCache(join(userData, "cache.db"), version);
 const post = (e: WorkerEvent) => parentPort!.postMessage(e);
 
@@ -56,11 +71,24 @@ parentPort!.on("message", async (msg: { id: number; req: CompareRequest }) => {
     post({ id, kind: "fast", ok: false, error: e instanceof Error ? e.message : String(e) });
     return;
   }
+  // 정밀 분석은 한 번에 하나씩 돌린다. 같은 커밋의 head 사본과 JDT LS 작업 공간을 두 실행이 함께 쓰지 않게 한다
+  preciseQueue = preciseQueue.then(() => runPrecise(id, req, baseSha, headSha, opts));
+});
+
+let preciseQueue: Promise<void> = Promise.resolve();
+
+async function runPrecise(id: number, req: CompareRequest, baseSha: string, headSha: string, opts: { repo: string; baseLabel: string; headLabel: string }): Promise<void> {
+  // 기다리는 동안 앞선 실행이 같은 비교를 끝냈으면 그 결과를 쓴다
+  const done = cache.get(req.repo, baseSha, headSha);
+  if (done) {
+    post({ id, kind: "precise", ok: true, value: done });
+    return;
+  }
   try {
     const refine = createRefiner({ repo: req.repo, headSha, cacheDir: lspDir, onStatus: (message) => post({ id, kind: "status", message }) });
     const precise = await analyze(new GitRefSource(req.repo, baseSha), new GitRefSource(req.repo, headSha), { ...opts, refine });
-    // 정밀 분석이 실제로 끝난 결과만 저장한다(도구가 없거나 실패한 결과는 다음에 다시 시도)
-    if (precise.analysis.precise === "done") cache.put(precise);
+    // 바뀐 메서드가 있는 모든 언어의 정밀 분석이 끝난 결과만 저장한다(도구가 없거나 실패한 언어는 다음에 다시 시도)
+    if (Object.values(precise.analysis.languages).every((l) => l!.status === "done")) cache.put(precise);
     post({ id, kind: "precise", ok: true, value: precise });
   } catch (e) {
     post({ id, kind: "precise", ok: false, error: e instanceof Error ? e.message : String(e) });
@@ -68,4 +96,4 @@ parentPort!.on("message", async (msg: { id: number; req: CompareRequest }) => {
     prune(join(lspDir, "trees"));
     prune(join(lspDir, "work", "jdtls"));
   }
-});
+}

@@ -234,6 +234,20 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
       </div>
     );
   }
+  // 테스트 코드만 바뀌었는데 테스트를 숨겨 둔 경우: 바뀐 것이 없다고 하지 않고 테스트 표시를 안내한다
+  if (!current && session && !showTests && session.otherTests.length > 0) {
+    return (
+      <div className="review">
+        {head}
+        <div className="state" data-testid="state-tests-only" role="status">
+          <Icon name="test" size={28} />
+          <h2 className="state-title">테스트 코드만 바뀌었습니다</h2>
+          <p className="muted">숨겨 둔 테스트 파일 {session.otherTests.length}개가 바뀌었습니다.</p>
+          <button className="primary" onClick={toggleTests} autoFocus>테스트 표시 켜기</button>
+        </div>
+      </div>
+    );
+  }
   if (!nav || !current) {
     return (
       <div className="review">

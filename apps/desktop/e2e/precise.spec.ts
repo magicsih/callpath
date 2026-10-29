@@ -66,3 +66,20 @@ test("A8 JDK가 있으면 JDT LS로 정밀 분석하고, 보던 위치를 지키
   await expect(second.page.getByTestId("precise-chip")).toHaveText("정밀 분석 완료", { timeout: 10_000 });
   await second.app.close();
 });
+
+test("정밀 분석할 바뀐 메서드가 없으면 상태를 보이지 않는다", async () => {
+  const { makeRepoWithHeadEdit } = await import("./harness");
+  const repo = makeRepoWithHeadEdit("src/test/java/shop/order/OrderServiceTest.java", (t) => t.replace("assertEquals(2000", "assertEquals(2_000"));
+  const { app, page } = await launch(makeUserData(), PRECISE_ON);
+  await page.getByLabel("저장소 경로").fill(repo);
+  await page.getByLabel("저장소 경로").press("Enter");
+  await page.getByRole("button", { name: "흐름 분석" }).click();
+  // 테스트만 바뀌었으면 바뀐 것이 없다고 하지 않고 테스트 표시를 안내한다
+  await expect(page.getByTestId("state-tests-only")).toContainText("테스트 코드만 바뀌었습니다");
+  await page.getByRole("button", { name: "테스트 표시 켜기" }).click();
+  await page.getByTestId("file-row").first().waitFor();
+  await page.waitForTimeout(1500);
+  await expect(page.getByTestId("precise-chip")).toHaveCount(0);
+  await expect(page.getByTestId("precise-banner")).toHaveCount(0);
+  await app.close();
+});

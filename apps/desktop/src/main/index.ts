@@ -69,6 +69,9 @@ function getWorker(): Worker {
   const fail = (message: string) => {
     for (const resolve of pending.values()) resolve({ ok: false, error: message, kind: "other" });
     pending.clear();
+    // 빠른 분석은 끝났고 정밀 분석을 기다리던 화면도 멈추지 않게 알린다
+    for (const [id, l] of listeners) forward(id, { req: l.req, kind: "precise-error", error: message });
+    listeners.clear();
     if (worker === w) worker = null;
   };
   w.on("error", (err) => fail(`분석 중 오류: ${err.message}`));

@@ -9,6 +9,8 @@ const LANG: Record<Language, string> = { java: "Java", kotlin: "Kotlin" };
 export function PreciseChip({ session, view }: { session: ReviewSession; view: PreciseView }) {
   const a = session.analysis;
   const langs = Object.entries(a.languages) as Array<[Language, NonNullable<ReviewSession["analysis"]["languages"][Language]>]>;
+  // 정밀 분석할 바뀐 메서드가 없으면 보일 것이 없다
+  if (!view.running && !view.error && a.precise !== "pending" && langs.length === 0) return null;
   if (view.running && a.precise === "pending") {
     return (
       <span className="pchip running" role="status" data-testid="precise-chip" title={view.message ?? "정밀 분석 중"}>
@@ -18,13 +20,14 @@ export function PreciseChip({ session, view }: { session: ReviewSession; view: P
   }
   if (a.precise === "done") {
     const detail = langs.filter(([, l]) => l.status === "done").map(([k, l]) => `${LANG[k]} 바뀐 메서드 ${l.queried ?? 0}개, 확인한 연결 ${l.confirmedEdges ?? 0}개`).join(". ");
+    const partial = langs.some(([, l]) => l.status !== "done" && l.code !== "disabled");
     return (
       <span className="pchip done" data-testid="precise-chip" title={detail}>
-        <Icon name="check" size={12} />정밀 분석 완료
+        <Icon name="check" size={12} />{partial ? "정밀 분석 일부 완료" : "정밀 분석 완료"}
       </span>
     );
   }
-  if (a.precise === "skipped" && langs.every(([, l]) => l.code === "disabled")) {
+  if (a.precise === "skipped" && langs.length > 0 && langs.every(([, l]) => l.code === "disabled")) {
     return <span className="pchip off" data-testid="precise-chip">정밀 분석 꺼짐</span>;
   }
   if (a.precise === "pending" && !view.error) return null;

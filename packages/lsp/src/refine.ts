@@ -22,6 +22,13 @@ export interface RefinerOptions {
   maxMethods?: number;
 }
 
+interface Cancel {
+  cancelled: boolean;
+  stop?: () => Promise<void>;
+}
+
+class Cancelled extends Error {}
+
 /** 서버가 프로젝트를 다 읽기 전에는 빈 결과를 줄 수 있어 첫 질의는 몇 번 다시 시도한다 */
 const READY_RETRIES = 30;
 
@@ -49,12 +56,20 @@ export function createRefiner(opts: RefinerOptions): Refiner {
     }
     for (const [lang, methods] of byLang) {
       const limited = methods.slice(0, opts.maxMethods ?? 300);
-      const job = refineLanguage(lang, limited, graph, [...files.values()], tree, opts, env);
+      const cancel: Cancel = { cancelled: false };
+      const job = refineLanguage(lang, limited, graph, [...files.values()], tree, opts, env, cancel);
       const timeout = opts.timeoutMs ?? 180000;
-      out[lang] = await Promise.race([
-        job,
-        new Promise<LanguageAnalysis>((r) => setTimeout(() => r({ status: "failed", code: "timeout", reason: `정밀 분석이 ${Math.round(timeout / 1000)}초 안에 끝나지 않았습니다` }), timeout)),
-      ]);
+      let timer: NodeJS.Timeout | undefined;
+      const expired = new Promise<LanguageAnalysis>((r) => {
+        timer = setTimeout(() => {
+          // 시간이 지나면 그 뒤의 질의 결과로 그래프를 고치지 않고 서버를 끈다
+          cancel.cancelled = true;
+          void cancel.stop?.();
+          r({ status: "failed", code: "timeout", reason: `정밀 분석이 ${Math.round(timeout / 1000)}초 안에 끝나지 않았습니다` });
+        }, timeout);
+      });
+      out[lang] = await Promise.race([job, expired]);
+      clearTimeout(timer);
     }
     return out;
   };
@@ -82,12 +97,17 @@ async function startServer(lang: Language, files: FileIndex[], tree: string, opt
   return LspClient.start({ name: "kotlin-lsp", command: kotlin.command, args: kotlin.args, cwd: tree, rootDir: tree, settings: {} });
 }
 
-async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: CallGraph, files: FileIndex[], tree: string, opts: RefinerOptions, env: NodeJS.ProcessEnv): Promise<LanguageAnalysis> {
+async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: CallGraph, files: FileIndex[], tree: string, opts: RefinerOptions, env: NodeJS.ProcessEnv, cancel: Cancel): Promise<LanguageAnalysis> {
   let client: LspClient | null = null;
+  const check = () => {
+    if (cancel.cancelled) throw new Cancelled();
+  };
   try {
     const started = await startServer(lang, files, tree, opts, env);
     if (!(started instanceof LspClient)) return started;
     client = started;
+    cancel.stop = () => started.stop();
+    check();
     const toPath = (uri: string): string | null => {
       if (!uri.startsWith("file:")) return null;
       const rel = relative(tree, fileURLToPath(uri));
@@ -101,7 +121,9 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
       if (!item) continue;
       const id = methodId(m);
 
+      check();
       const outgoing = (await client.outgoing(item)) ?? [];
+      check();
       const outEdges: Edge[] = [];
       for (const call of outgoing) {
         const path = toPath(call.to.uri);
@@ -119,6 +141,7 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
       graph.replaceOutgoing(id, dedupe(outEdges));
 
       const incoming = (await client.incoming(item)) ?? [];
+      check();
       const inEdges: Edge[] = [];
       for (const call of incoming) {
         const path = toPath(call.from.uri);
@@ -131,6 +154,7 @@ async function refineLanguage(lang: Language, methods: MethodSymbol[], graph: Ca
     }
     return { status: "done", queried: methods.length, confirmedEdges: confirmed };
   } catch (e) {
+    if (e instanceof Cancelled || cancel.cancelled) return { status: "failed", code: "timeout", reason: "시간 초과로 멈췄습니다" };
     const detail = client?.lastError;
     return { status: "failed", code: "error", reason: `${(e as Error).message}${detail ? ` (${detail.slice(0, 200)})` : ""}` };
   } finally {

@@ -50,6 +50,21 @@ export function makeTransitRepo(): string {
   return dir;
 }
 
+/** base 표본에서 head 쪽 파일 하나만 고친 저장소 */
+export function makeRepoWithHeadEdit(file: string, edit: (text: string) => string): string {
+  const dir = temp("callpath-e2e-edit-");
+  const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  cpSync(join(FIXTURES, "java", "base"), dir, { recursive: true });
+  git("add", "-A");
+  git("commit", "-qm", "base");
+  git("checkout", "-q", "-b", "feature/edit");
+  const path = join(dir, file);
+  writeFileSync(path, edit(readFileSync(path, "utf8")));
+  git("commit", "-qam", "edit");
+  return dir;
+}
+
 export function makeTempDir(prefix: string): string {
   return temp(prefix);
 }
