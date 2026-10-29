@@ -14,7 +14,8 @@ AI가 한 번에 고쳐 올린 PR을 파일 순서가 아니라 호출 흐름 �
 | `fixtures/` | 쿠폰 예시 표본 저장소 (Java, Kotlin) | |
 | `apps/desktop` | Electron 앱. 시작, 비교 선택, 리뷰 화면(흐름 목록, 메서드 diff, 호출 스택), 정밀 분석 상태 | 4단계 |
 | `packages/lsp` | 정밀 분석. JDT LS(Java), kotlin-lsp(Kotlin)로 바뀐 메서드 주변 호출을 확정 | 4단계 |
-| `packages/providers`, `packages/llm` | 설계 4.1 참고 | 예정 |
+| `packages/providers` | GitHub, GitHub Enterprise, GitLab PR 읽기, diff 범위, 코드 받기, 코멘트 게시 | 5단계 |
+| `packages/llm` | 설계 4.1 참고 | 예정 |
 
 ## 코어 CLI 사용
 
