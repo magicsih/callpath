@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
 import { ProviderError } from "@callpath/providers";
 import { deleteConnection, listConnections, saveConnection } from "./connections";
-import { listPullRequests, NeedsConnection, openPullRequest } from "./pullRequests";
+import { InvalidPrUrl, listPullRequests, NeedsConnection, openPullRequest } from "./pullRequests";
 import { addNote, deleteNote, listNotes, planPost, postNotes } from "./notes";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
@@ -20,6 +20,7 @@ function friendly(e: unknown): { error: string; kind: ErrorKind } {
   const msg = e instanceof Error ? e.message : String(e);
   if (e instanceof PathError) return { error: msg, kind: "path" };
   if (e instanceof NeedsConnection) return { error: msg, kind: "connection" };
+  if (e instanceof InvalidPrUrl) return { error: msg, kind: "input" };
   if (e instanceof ProviderError) return { error: msg, kind: e.code === "auth" ? "auth" : e.code === "network" ? "network" : "other" };
   if (/merge-base|unknown revision|bad revision|Not a valid object name|no merge base/i.test(msg)) {
     const ref = /Not a valid object name ([^\s]+)/.exec(msg)?.[1] ?? /bad revision '([^']+)'/.exec(msg)?.[1] ?? /unknown revision[^']*'([^']+)'/.exec(msg)?.[1];
@@ -114,15 +115,15 @@ ipcMain.handle("saveConnection", (_e, input: ConnectionInput) => wrap(() => save
 ipcMain.handle("deleteConnection", (_e, id: string) => deleteConnection(id));
 ipcMain.handle("openPullRequest", (e, url: string) => wrap(() => openPullRequest(url, (p) => !e.sender.isDestroyed() && e.sender.send("pr-progress", p))));
 ipcMain.handle("listPullRequests", (_e, repoPath: string) => wrap(() => listPullRequests(repoPath)));
-// 앱 밖 브라우저로는 https 주소만 연다
+// 앱 밖 브라우저로는 웹 주소만 연다. 사내 GitHub Enterprise나 GitLab은 http로 쓰기도 한다
 ipcMain.handle("openExternal", (_e, url: string) => {
-  if (/^https:\/\//.test(url)) void shell.openExternal(url);
+  if (/^https?:\/\//.test(url)) void shell.openExternal(url);
 });
 ipcMain.handle("listNotes", (_e, s: NoteScope) => listNotes(s));
-ipcMain.handle("addNote", (_e, s: NoteScope, n: { path: string; line: number; body: string }) => addNote(s, n));
+ipcMain.handle("addNote", (_e, s: NoteScope, n: { path: string; line: number; body: string }) => wrap(async () => addNote(s, n)));
 ipcMain.handle("deleteNote", (_e, id: number) => deleteNote(id));
 ipcMain.handle("planPost", (_e, pr: PrMeta, ids: number[]) => wrap(() => planPost(pr, ids)));
-ipcMain.handle("postNotes", (_e, pr: PrMeta, plans: PostPlan[]) => postNotes(pr, plans));
+ipcMain.handle("postNotes", (_e, pr: PrMeta, plans: PostPlan[]) => wrap(() => postNotes(pr, plans)));
 ipcMain.handle("loadState", () => loadState());
 ipcMain.handle("saveState", (_e, s: UiState) => saveState(s));
 

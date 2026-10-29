@@ -37,6 +37,8 @@ interface Props {
   onCursorLine?: (line: number) => void;
   /** 오른쪽 클릭 메뉴의 "이 줄에 메모" */
   onNoteRequest?: (line: number) => void;
+  /** 값이 바뀌면 편집기로 초점을 돌린다(메모를 저장하거나 취소한 뒤) */
+  focusNonce?: number;
 }
 
 const noteDeco = (lines: number[], start: number) =>
@@ -69,7 +71,7 @@ export function DiffView(props: Props) {
   return props.input.kind === "diff" ? <SideBySide {...props} /> : <SingleView {...props} />;
 }
 
-function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest }: Props) {
+function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce }: Props) {
   const startRef = useRef(input.modifiedStart);
   startRef.current = input.modifiedStart;
   const cbs = useRef({ onCursorLine, onNoteRequest });
@@ -150,11 +152,14 @@ function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteReques
   useEffect(() => {
     noteDecos.current?.set(noteDeco(notes ?? [], input.modifiedStart));
   }, [notes, input]);
+  useEffect(() => {
+    if (focusNonce) editor.current?.getModifiedEditor().focus();
+  }, [focusNonce]);
 
   return <div className="diff" ref={host} data-testid="diff" data-view="diff" />;
 }
 
-function SingleView({ input, highlight, label, notes, onCursorLine, onNoteRequest }: Props) {
+function SingleView({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce }: Props) {
   const cbs = useRef({ onCursorLine, onNoteRequest });
   cbs.current = { onCursorLine, onNoteRequest };
   const noteDecos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
@@ -205,6 +210,9 @@ function SingleView({ input, highlight, label, notes, onCursorLine, onNoteReques
   useEffect(() => {
     noteDecos.current?.set(removed ? [] : noteDeco(notes ?? [], start));
   }, [notes, input, removed, start]);
+  useEffect(() => {
+    if (focusNonce) editor.current?.focus();
+  }, [focusNonce]);
 
   return <div className="diff" ref={host} data-testid="diff" data-view={input.kind} />;
 }

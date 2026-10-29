@@ -23,6 +23,11 @@ test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서
   await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
   await addNote(page, "결제 실패 시 재고 복구가 없습니다");
   await expect(page.getByTestId("notes-toggle")).toHaveText("메모 1");
+  // 다시 분석해 상세 영역이 새로 그려져도 이미 처리한 m으로 작성 칸이 다시 열리지 않는다
+  await page.getByRole("button", { name: "다시 분석" }).click();
+  await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId("composer")).toHaveCount(0);
   await expect(page.locator(".memo-glyph").first()).toBeVisible();
   // 다른 단계로 갔다가 목록에서 메모를 누르면 그 단계로 돌아온다
   await page.keyboard.press("j");
@@ -34,6 +39,19 @@ test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서
   await expect(page.getByTestId("notes-drawer")).toContainText("이 컴퓨터에만 남습니다");
   await page.getByTestId("note-row").getByRole("button").first().click();
   await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
+  // 다른 단계에서 돌아와도 메모를 남긴 줄(head 17줄)이 강조된다
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const ed = document.querySelector("[data-testid=diff] .editor.modified");
+        if (!ed) return false;
+        const num = [...ed.querySelectorAll(".line-numbers")].find((n) => n.textContent?.trim() === "17");
+        if (!num) return false;
+        const top = Math.round(num.getBoundingClientRect().top);
+        return [...ed.querySelectorAll(".line-highlight")].some((h) => Math.abs(Math.round(h.getBoundingClientRect().top) - top) <= 1);
+      }),
+    )
+    .toBe(true);
   await page.waitForTimeout(300);
   await shot(first.app, "16-notes");
   await first.app.close();
@@ -77,6 +95,21 @@ test("A17 게시: diff 안 줄은 줄 코멘트, 밖 줄은 일반 코멘트로 
     await expect(dialog.getByTestId("post-plan")).toHaveCount(2);
     await expect(dialog.getByTestId("post-plan").filter({ hasText: "OrderService.java:17" })).toContainText("줄 코멘트");
     await expect(dialog.getByTestId("post-plan").filter({ hasText: "OrderController.java" })).toContainText("일반 코멘트");
+    await expect(dialog).toContainText("shop/order #1 쿠폰 할인");
+    // 밖으로 올리는 일이라 첫 초점은 취소. 대화상자가 열린 동안 j는 뒤 화면을 움직이지 않는다
+    await expect(dialog.getByRole("button", { name: "취소" })).toBeFocused();
+    const before = await page.getByTestId("position").textContent();
+    await page.keyboard.press("j");
+    await expect(page.getByTestId("position")).toHaveText(before!);
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => !!document.activeElement?.closest("dialog"))).toBe(true);
+    }
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByTestId("post-open")).toBeFocused();
+    await page.getByTestId("post-open").click();
+    await expect(dialog.getByTestId("post-plan")).toHaveCount(2);
     await shot(app, "17-post-preview");
     // 확인하기 전에는 아무것도 올라가지 않는다
     expect(mock.posted).toHaveLength(0);
@@ -85,6 +118,7 @@ test("A17 게시: diff 안 줄은 줄 코멘트, 밖 줄은 일반 코멘트로 
     expect(mock.posted.map((p) => p.kind).sort()).toEqual(["general", "line"]);
     expect(mock.posted.find((p) => p.kind === "general")!.body).toContain("src/main/java/shop/order/OrderController.java:");
     expect(mock.posted.find((p) => p.kind === "line")).toMatchObject({ path: "src/main/java/shop/order/OrderService.java", line: 17 });
+    await expect(dialog.getByRole("button", { name: /코멘트를 브라우저로 열기/ })).toHaveCount(2);
     await dialog.getByRole("button", { name: "닫기" }).click();
     await expect(page.getByTestId("note-posted")).toHaveCount(2);
     await expect(page.getByTestId("post-open")).toHaveCount(0);

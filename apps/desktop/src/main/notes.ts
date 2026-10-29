@@ -27,6 +27,7 @@ function open(): DatabaseSync {
 
 interface Row {
   id: number;
+  subject: string;
   base: string;
   head: string;
   path: string;
@@ -45,7 +46,7 @@ const toNote = (r: Row, s?: NoteScope): Note => ({
 
 /** 지금 커밋의 메모와, 같은 비교의 이전 커밋 메모(stale)를 함께 돌려준다 */
 export function listNotes(s: NoteScope): Note[] {
-  const rows = open().prepare("select * from notes where repo = ? and (subject = ? or (base = ? and head = ?)) order by path, line, id").all(s.repo, s.subject, s.base, s.head) as unknown as Row[];
+  const rows = open().prepare("select * from notes where repo = ? and subject = ? order by path, line, id").all(s.repo, s.subject) as unknown as Row[];
   return rows.map((r) => toNote(r, s));
 }
 
@@ -80,7 +81,7 @@ export async function planPost(pr: PrMeta, ids: number[]): Promise<PostPlan[]> {
   return ids.map((id) => {
     const n = noteById(id);
     if (!n) throw new Error("메모를 찾지 못했습니다");
-    if (n.head !== pr.headSha) throw new Error(`${n.path}:${n.line} 메모는 이전 커밋에 남긴 것이라 올리지 않습니다`);
+    if (n.subject !== pr.url || n.head !== pr.headSha) throw new Error(`${n.path}:${n.line} 메모는 이전 커밋에 남긴 것이라 올리지 않습니다`);
     const inside = canComment(ranges, n.path, n.line);
     return inside
       ? { noteId: id, mode: "line", path: n.path, line: n.line, body: n.body }

@@ -1,16 +1,33 @@
-import { useEffect, useState } from "react";
-import type { ConnectionInput, ConnectionsState, ProviderKindName } from "../../../shared/api";
+import { useEffect, useRef, useState } from "react";
+import type { ConnectionHint, ConnectionInput, ConnectionsState, ErrorKind, ProviderKindName } from "../../../shared/api";
 import { Icon } from "../components/Icon";
 
 type Choice = "github.com" | "ghe" | "gitlab";
-type Status = { s: "idle" } | { s: "saving" } | { s: "saved"; user: string; host: string } | { s: "error"; message: string };
+type Status = { s: "idle" } | { s: "saving" } | { s: "saved"; user: string; host: string } | { s: "error"; message: string; kind: ErrorKind };
 
 const LABEL: Record<Choice, string> = { "github.com": "GitHub.com", ghe: "GitHub Enterprise", gitlab: "GitLab" };
 
-export function Connections({ onBack }: { onBack: () => void }) {
+/** 한 번 더 눌러야 지운다 */
+function DeleteConnection({ host, onConfirm }: { host: string; onConfirm: () => void }) {
+  const [armed, setArmed] = useState(false);
+  return armed ? (
+    <span className="confirm" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setArmed(false)}>
+      <button className="danger" onClick={onConfirm} autoFocus aria-label={`${host} 연결 지우기 확인`}>지우기 확인</button>
+      <button onClick={() => setArmed(false)}>취소</button>
+    </span>
+  ) : (
+    <button onClick={() => setArmed(true)} aria-label={`${host} 연결 지우기`}>지우기</button>
+  );
+}
+
+export function Connections({ onBack, hint }: { onBack: () => void; hint?: ConnectionHint }) {
   const [state, setState] = useState<ConnectionsState | null>(null);
-  const [choice, setChoice] = useState<Choice>("github.com");
-  const [host, setHost] = useState("");
+  // PR 주소나 저장소 원격에서 온 경우 제공자와 호스트를 미리 채운다
+  const [choice, setChoice] = useState<Choice>(hint?.choice ?? "github.com");
+  const [host, setHost] = useState(hint?.host ?? "");
+  const hostInput = useRef<HTMLInputElement>(null);
+  const tokenInput = useRef<HTMLInputElement>(null);
+  const savedMsg = useRef<HTMLParagraphElement>(null);
   const [auth, setAuth] = useState<"gh-cli" | "token">("gh-cli");
   const [token, setToken] = useState("");
   const [status, setStatus] = useState<Status>({ s: "idle" });
@@ -32,12 +49,16 @@ export function Connections({ onBack }: { onBack: () => void }) {
     setStatus({ s: "saving" });
     const input: ConnectionInput = { kind, host: choice === "github.com" ? "github.com" : host.trim() || (choice === "gitlab" ? "gitlab.com" : ""), auth: useCli ? "gh-cli" : "token", ...(useCli ? {} : { token }) };
     const r = await window.callpath.saveConnection(input);
-    // 토큰은 저장하든 실패하든 입력칸에서 바로 지운다
-    setToken("");
+    // 토큰은 저장했거나 거부되면 입력칸에서 지운다. 호스트에 닿지 않은 경우는 주소만 고치면 되므로 남긴다
+    if (r.ok || r.kind !== "network") setToken("");
     if (r.ok) {
       setStatus({ s: "saved", user: r.value.user ?? "", host: r.value.host });
       void reload();
-    } else setStatus({ s: "error", message: r.error });
+      requestAnimationFrame(() => savedMsg.current?.focus());
+    } else {
+      setStatus({ s: "error", message: r.error, kind: r.kind });
+      requestAnimationFrame(() => (r.kind === "network" ? (hostInput.current ?? tokenInput.current) : tokenInput.current)?.focus());
+    }
   };
 
   return (
@@ -66,7 +87,7 @@ export function Connections({ onBack }: { onBack: () => void }) {
                     </span>
                     {c.weakStorage && <span className="error-text small"><Icon name="warn" size={12} /> 이 컴퓨터에는 암호 저장소가 없어 토큰을 약하게 보관합니다</span>}
                   </div>
-                  <button onClick={() => window.callpath.deleteConnection(c.id).then(reload)} aria-label={`${c.host} 연결 지우기`}>지우기</button>
+                  <DeleteConnection host={c.host} onConfirm={() => void window.callpath.deleteConnection(c.id).then(reload)} />
                 </li>
               ))}
             </ul>
@@ -94,8 +115,8 @@ export function Connections({ onBack }: { onBack: () => void }) {
           {needsHost && (
             <div className="ref">
               <label htmlFor="conn-host">호스트</label>
-              <input id="conn-host" value={host} onChange={(e) => setHost(e.target.value)} placeholder={choice === "gitlab" ? "gitlab.com" : "ghe.example.com"} />
-              <span className="hint">이름만 넣으면 https로 연결합니다</span>
+              <input id="conn-host" ref={hostInput} value={host} onChange={(e) => setHost(e.target.value)} placeholder={choice === "gitlab" ? "gitlab.com" : "ghe.example.com"} aria-describedby="conn-host-hint" />
+              <span className="hint" id="conn-host-hint">이름만 넣으면 https로 연결합니다. http 서버는 http://까지 넣습니다</span>
             </div>
           )}
           {choice === "github.com" && (
@@ -114,15 +135,36 @@ export function Connections({ onBack }: { onBack: () => void }) {
           {!useCli && (
             <div className="ref">
               <label htmlFor="conn-token">토큰</label>
-              <input id="conn-token" type="password" autoComplete="off" spellCheck={false} value={token} onChange={(e) => setToken(e.target.value)} />
-              <span className="hint">{kind === "gitlab" ? "api 권한이 있는 개인 액세스 토큰" : "비공개 저장소면 repo 권한이 있는 토큰"}. 저장하면 암호화해 보관하고 다시 보여주지 않습니다.</span>
+              <input
+                id="conn-token"
+                ref={tokenInput}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                aria-describedby={state?.weakStorage ? "conn-token-hint weak-storage" : "conn-token-hint"}
+              />
+              <span className="hint" id="conn-token-hint">{kind === "gitlab" ? "api 권한이 있는 개인 액세스 토큰" : "비공개 저장소면 repo 권한이 있는 토큰"}. 저장하면 암호화해 보관하고 다시 보여주지 않습니다.</span>
+              {state?.weakStorage && (
+                <span className="error-text small" data-testid="weak-storage" id="weak-storage">
+                  <Icon name="warn" size={12} /> 이 컴퓨터에는 암호 저장소(GNOME 키링, KWallet)가 없어 토큰을 고정 키로만 암호화합니다. 같은 계정의 다른 프로그램이 읽을 수 있습니다
+                </span>
+              )}
             </div>
           )}
           {status.s === "error" && (
-            <p className="error-text" role="alert" data-testid="conn-error"><Icon name="warn" /> {status.message}</p>
+            <div className="error-text" role="alert" data-testid="conn-error">
+              <Icon name="warn" />
+              <span>
+                {status.message}
+                {status.kind === "network" && <span className="block small">주소와 포트, 사내망(VPN) 연결을 확인하세요. 토큰은 지우지 않았습니다.</span>}
+                {status.kind === "auth" && <span className="block small">토큰의 권한과 만료일을 확인하고 다시 넣으세요.</span>}
+              </span>
+            </div>
           )}
           {status.s === "saved" && (
-            <p className="ok-text" role="status" data-testid="conn-saved"><Icon name="check" /> {status.host}에 {status.user}로 연결했습니다</p>
+            <p className="ok-text" role="status" data-testid="conn-saved" tabIndex={-1} ref={savedMsg}><Icon name="check" /> {status.host}에 {status.user}로 연결했습니다</p>
           )}
           <button type="submit" className="primary big" disabled={!ready || status.s === "saving"}>
             {status.s === "saving" ? "확인 중" : "연결 저장"}

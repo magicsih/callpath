@@ -1,8 +1,28 @@
 import { useEffect, useState } from "react";
-import type { ErrorKind, PrMeta, PrProgress } from "../../../shared/api";
+import type { ConnectionHint, ErrorKind, PrMeta, PrProgress } from "../../../shared/api";
 import { Icon } from "../components/Icon";
 
-export function PrOpening({ url, onOpened, onBack, onConnections }: { url: string; onOpened: (m: PrMeta) => void; onBack: () => void; onConnections: () => void }) {
+/** PR 주소의 모양(…/pull/번호, …/-/merge_requests/번호)으로 연결 설정에 채울 값을 정한다 */
+export function hintFromPrUrl(url: string): ConnectionHint | undefined {
+  try {
+    const u = new URL(url.trim());
+    const host = u.protocol === "https:" ? u.host : `${u.protocol}//${u.host}`;
+    if (/\/-\/merge_requests\/\d+/.test(u.pathname)) return { choice: "gitlab", host };
+    if (/\/pull\/\d+/.test(u.pathname)) return u.host === "github.com" ? { choice: "github.com", host: "" } : { choice: "ghe", host };
+  } catch {
+    // 주소가 아님
+  }
+  return undefined;
+}
+
+export function PrOpening({ url, onOpened, onBack, onConnections, onInvalid }: {
+  url: string;
+  onOpened: (m: PrMeta) => void;
+  onBack: () => void;
+  onConnections: (hint?: ConnectionHint) => void;
+  /** 주소 형식이 틀리면 입력한 곳으로 돌아가 원인을 보인다 */
+  onInvalid: (message: string) => void;
+}) {
   const [progress, setProgress] = useState<PrProgress | null>(null);
   const [error, setError] = useState<{ message: string; kind: ErrorKind } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -15,6 +35,7 @@ export function PrOpening({ url, onOpened, onBack, onConnections }: { url: strin
     window.callpath.openPullRequest(url).then((r) => {
       if (!alive) return;
       if (r.ok) onOpened(r.value);
+      else if (r.kind === "input") onInvalid(r.error);
       else setError({ message: r.error, kind: r.kind });
     });
     return () => {
@@ -32,7 +53,7 @@ export function PrOpening({ url, onOpened, onBack, onConnections }: { url: strin
         <p className="muted">{error.message}</p>
         <div className="row">
           {needsSetup ? (
-            <button className="primary" onClick={onConnections} autoFocus>연결 설정</button>
+            <button className="primary" onClick={() => onConnections(hintFromPrUrl(url))} autoFocus>연결 설정</button>
           ) : (
             <button className="primary" onClick={() => setAttempt((n) => n + 1)} autoFocus>다시 시도</button>
           )}

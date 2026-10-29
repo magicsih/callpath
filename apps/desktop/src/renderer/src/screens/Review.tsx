@@ -11,6 +11,16 @@ import { Icon } from "../components/Icon";
 import { PreciseBanner, PreciseChip, type PreciseView } from "../components/PreciseStatus";
 
 /** run은 이 결과를 받은 분석 실행 번호. 정밀 분석 결과로 세션이 바뀌어도 그대로다 */
+/** 메모를 흐름 순서(목록에 보이는 순서), 같은 항목 안에서는 줄 순서로 놓는다 */
+function sortByFlow(nav: NonNullable<ReturnType<typeof buildNav>>, notes: Note[]): Note[] {
+  const rank = (n: Note) => {
+    const hit = findItemFor(nav, n.path, n.line);
+    const i = hit ? nav.order.findIndex((x) => x.key === hit.key) : -1;
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  return [...notes].sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path) || a.line - b.line || a.id - b.id);
+}
+
 /** 메모 위치가 들어 있는 항목. 단계, 테스트, 파일 순으로 찾는다 */
 function findItemFor(nav: NonNullable<ReturnType<typeof buildNav>>, path: string, line: number): NavItem | null {
   const row = line - 1;
@@ -88,6 +98,11 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
     if (scope) void window.callpath.listNotes(scope).then(setNotes);
   }, [scope?.repo, scope?.base, scope?.head, scope?.subject]);
   const currentNotes = notes.filter((n) => !n.stale);
+  const notesToggle = useRef<HTMLButtonElement>(null);
+  const closeDrawer = () => {
+    setDrawer(false);
+    notesToggle.current?.focus();
+  };
   useEffect(() => reloadNotes(), [reloadNotes]);
   const nav = useMemo(() => (session ? buildNav(session, showTests) : null), [session, showTests]);
   const current = nav ? resolveSelection(nav, selectedKey) : null;
@@ -164,6 +179,8 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
     if (!nav || !current) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // 게시 미리보기가 열려 있으면 뒤 화면을 움직이지 않는다
+      if (document.querySelector("dialog[open]")) return;
       const target = e.target as HTMLElement;
       if (target.closest("textarea, select, input:not([type=checkbox])")) return;
       const inEditor = target.closest(".monaco-editor") != null;
@@ -234,7 +251,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
       )}
       <span className="spacer" />
       {session && (
-        <button onClick={() => setDrawer((v) => !v)} aria-expanded={drawer} aria-controls="notes-drawer" data-testid="notes-toggle">
+        <button ref={notesToggle} onClick={() => setDrawer((v) => !v)} aria-expanded={drawer} aria-controls="notes-drawer" data-testid="notes-toggle">
           메모 {currentNotes.length}
         </button>
       )}
@@ -353,30 +370,33 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           noteRequest={noteRequest}
           reveal={reveal}
           onAddNote={async (path, line, body) => {
-            await window.callpath.addNote(scope!, { path, line, body });
+            const r = await window.callpath.addNote(scope!, { path, line, body });
             reloadNotes();
+            return r.ok ? null : r.error;
           }}
         />
         <StackPane item={current} nav={nav} onSelect={(i) => select(i)} />
+        {drawer && (
+          <div id="notes-drawer" className="drawer-slot">
+            <NotesDrawer
+              notes={sortByFlow(nav, notes)}
+              pr={pr}
+              onClose={closeDrawer}
+              onDelete={(n) => void window.callpath.deleteNote(n.id).then(reloadNotes)}
+              onPost={(ids) => setPosting(ids)}
+              onGo={(n) => {
+                const hit = findItemFor(nav, n.path, n.line);
+                if (!hit) return;
+                if (hit.kind === "test" && !showTests) toggleTests();
+                // 서랍이 코드를 덮지 않게 닫고, 그 줄을 강조한다
+                setDrawer(false);
+                select(hit);
+                setReveal({ line: n.line, nonce: Date.now() });
+              }}
+            />
+          </div>
+        )}
       </div>
-      {drawer && (
-        <div id="notes-drawer">
-          <NotesDrawer
-            notes={notes}
-            pr={pr}
-            onClose={() => setDrawer(false)}
-            onDelete={(n) => void window.callpath.deleteNote(n.id).then(reloadNotes)}
-            onPost={(ids) => setPosting(ids)}
-            onGo={(n) => {
-              const hit = findItemFor(nav, n.path, n.line);
-              if (!hit) return;
-              if (hit.kind === "test" && !showTests) toggleTests();
-              select(hit);
-              setReveal({ line: n.line, nonce: Date.now() });
-            }}
-          />
-        </div>
-      )}
       {posting && pr && <PostDialog pr={pr} ids={posting} onClose={() => setPosting(null)} onPosted={reloadNotes} />}
       <footer className="bottombar">
         <button

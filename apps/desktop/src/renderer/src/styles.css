@@ -114,6 +114,10 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 /* ---------- 리뷰 ---------- */
 .review { height: 100%; display: flex; flex-direction: column; }
 .toolbar, .bottombar { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--bg-pane); min-width: 0; }
+/* PR 모드는 버튼이 많아 좁은 창에서 넘친다. 넘치면 버튼을 다음 줄로 보낸다 */
+.toolbar { flex-wrap: wrap; row-gap: 6px; }
+.toolbar .pr-chip { flex: 0 1 auto !important; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1100px) { .toolbar .stats { display: none; } }
 .toolbar > *, .bottombar > * { flex: none; }
 .bottombar { border-top: 1px solid var(--border); border-bottom: none; }
 .brand { font-weight: 700; }
@@ -175,6 +179,13 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 .tests-toggle { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); flex-wrap: wrap; cursor: pointer; }
 
 .detail-head { padding: 10px 14px 6px; border-bottom: 1px solid var(--border); }
+.note-open { white-space: nowrap; }
+/* 좁은 창에서는 상단 바 앞쪽 이름을 줄여 버튼이 한 줄에 더 들어가게 한다 */
+@media (max-width: 760px) {
+  .toolbar .brand { display: none; }
+  .toolbar { gap: 6px; padding: 4px 8px; }
+  .toolbar button { padding-left: 8px; padding-right: 8px; }
+}
 .title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .title-row h2 { font: 600 15px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .detail-head .path { font-size: var(--fs-small); margin-top: 2px; }
@@ -217,8 +228,11 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 .pr-chip { font-family: var(--font); }
 .composer { padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--bg-pane); display: flex; flex-direction: column; gap: 6px; }
 .composer textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 8px; resize: vertical; }
-.memo-glyph::before { content: "✎"; color: var(--accent-ink); font-size: 12px; margin-left: 3px; }
-.drawer { position: absolute; top: 44px; right: 12px; bottom: 52px; width: min(360px, calc(100% - 24px)); z-index: 20; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.memo-glyph { display: flex !important; align-items: center; justify-content: center; }
+.memo-glyph::before { content: "✎"; color: var(--accent-ink); font-size: 15px; font-weight: 700; line-height: 1; }
+.panes { position: relative; }
+.drawer-slot { position: absolute; top: 8px; right: 12px; bottom: 8px; width: min(360px, calc(100% - 24px)); z-index: 20; display: flex; }
+.drawer { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
 .drawer:focus { outline: none; }
 .drawer-head { display: flex; align-items: center; gap: 6px; }
 .notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -231,8 +245,12 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 .note.stale { background: var(--bg-pane); }
 .stale-notes { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 8px; }
 .review { position: relative; }
-.modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
-.modal { background: var(--bg); border-radius: 8px; padding: 16px 18px; width: min(620px, 100%); max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+dialog.modal { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; width: min(620px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; flex-direction: column; gap: 10px; }
+dialog.modal[open] { display: flex; }
+dialog.modal::backdrop { background: rgba(0, 0, 0, 0.35); }
+.confirm { display: inline-flex; gap: 8px; }
+.block { display: block; }
+button.danger { color: var(--del); }
 .plans { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .plan { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .plan > .chip { align-self: flex-start; }

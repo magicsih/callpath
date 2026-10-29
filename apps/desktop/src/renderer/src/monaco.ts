@@ -1,3 +1,5 @@
+// 기본 메뉴(복사, 찾기 등)를 화면 언어에 맞춘다. 문구는 모듈을 읽는 순간 정해지므로 가장 먼저 불러온다
+import "monaco-editor/nls/lang/ko";
 import * as monaco from "monaco-editor/editor/editor.api";
 // editor.api에는 기여 모듈이 없다. 언어 서비스 없이 읽기 전용 diff에 필요한 것만 불러온다
 import "monaco-editor/features/codicon/register";

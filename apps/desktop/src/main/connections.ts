@@ -37,6 +37,15 @@ async function persist(list: Stored[]): Promise<void> {
 
 const weak = () => process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text";
 
+/**
+ * Linux에 암호 저장소(gnome-libsecret, kwallet)가 없으면 Electron은 고정 키로만 암호화할 수 있고,
+ * 그것도 명시적으로 허용해야 쓸 수 있다. gh CLI가 hosts.yml에 평문으로 두는 것과 같은 수준이라 허용하되,
+ * 저장 전과 저장한 연결 옆에 약하게 보관한다고 알린다. 파일 권한은 0600
+ */
+function ensureCrypto(): void {
+  if (weak()) safeStorage.setUsePlainTextEncryption(true);
+}
+
 function view(s: Stored): ConnectionView {
   return { id: s.id, kind: s.kind, host: s.host, auth: s.auth, user: s.user, weakStorage: s.auth === "token" && weak() };
 }
@@ -52,7 +61,11 @@ function normalize(kind: "github" | "gitlab", input: string): { host: string; ap
 
 function tokenSource(s: Stored): () => Promise<string | null> {
   if (s.auth === "gh-cli") return () => ghCliToken(s.host);
-  return async () => (s.token ? safeStorage.decryptString(Buffer.from(s.token, "base64")) : null);
+  return async () => {
+    if (!s.token) return null;
+    ensureCrypto();
+    return safeStorage.decryptString(Buffer.from(s.token, "base64"));
+  };
 }
 
 function providerOf(s: Stored): Provider {
@@ -60,7 +73,7 @@ function providerOf(s: Stored): Provider {
 }
 
 export async function listConnections(): Promise<ConnectionsState> {
-  return { connections: load().map(view), ghCli: await ghCliAvailable("github.com") };
+  return { connections: load().map(view), ghCli: await ghCliAvailable("github.com"), weakStorage: weak() };
 }
 
 /** 연결을 확인한 뒤 저장한다. 같은 제공자와 호스트의 연결은 바꿔 끼운다 */
@@ -70,6 +83,7 @@ export async function saveConnection(input: ConnectionInput): Promise<Connection
   let token: string | undefined;
   if (input.auth === "token") {
     if (!input.token?.trim()) throw new Error("토큰을 넣으세요");
+    ensureCrypto();
     if (!safeStorage.isEncryptionAvailable()) throw new Error("이 컴퓨터에서는 토큰을 암호화해 보관할 수 없습니다");
     token = safeStorage.encryptString(input.token.trim()).toString("base64");
   }

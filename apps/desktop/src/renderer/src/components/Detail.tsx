@@ -115,7 +115,8 @@ interface Props {
   refLabel: string | null;
   crumbs: Crumbs | null;
   notes: Note[];
-  onAddNote: (path: string, line: number, body: string) => Promise<void>;
+  /** 저장하면 null, 실패하면 이유 */
+  onAddNote: (path: string, line: number, body: string) => Promise<string | null>;
   /** 값이 바뀌면 현재 줄에 메모 작성 칸을 연다(m 키) */
   noteRequest: number;
   /** 메모 목록에서 고른 줄. 값이 바뀌면 그 줄로 가서 강조한다 */
@@ -141,27 +142,40 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
   const [composer, setComposer] = useState<{ line: number } | null>(null);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [focusNonce, setFocusNonce] = useState(0);
   const openComposer = (line?: number) => {
     if (!target) return;
-    setComposer({ line: line ?? cursor.current ?? target.line });
+    const l = line ?? cursor.current ?? target.line;
+    setComposer({ line: l });
+    // 어느 줄에 남기는지 보이게 그 줄을 강조한다
+    setChip({ original: [], modified: [l] });
+  };
+  const closeComposer = () => {
+    setComposer(null);
+    setFocusNonce((n) => n + 1);
   };
   useEffect(() => {
     cursor.current = null;
     setComposer(null);
     setDraft("");
+    setSaveError(null);
   }, [item.key]);
+  // 다시 분석하면 이 영역이 새로 그려진다. 그때 이미 처리한 요청을 다시 열지 않도록 처리한 값을 기억한다
+  const handledNote = useRef(noteRequest);
   useEffect(() => {
-    if (noteRequest > 0) openComposer();
+    if (noteRequest === handledNote.current) return;
+    handledNote.current = noteRequest;
+    openComposer();
   }, [noteRequest]);
-  useEffect(() => {
-    if (reveal) setChip({ original: [], modified: [reveal.line] });
-  }, [reveal?.nonce]);
   const save = async () => {
     if (!target || !composer || !draft.trim()) return;
     setSaving(true);
-    await onAddNote(target.path, composer.line, draft);
+    setSaveError(null);
+    const error = await onAddNote(target.path, composer.line, draft);
     setSaving(false);
-    setComposer(null);
+    if (error) return setSaveError(error);
+    closeComposer();
     setDraft("");
   };
   // 창 높이가 낮으면 호출 순서 띠를 요약 한 줄로 접어 diff 자리를 남긴다
@@ -188,6 +202,13 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
     };
     // 정밀 분석 결과로 세션 객체만 바뀌면 비교할 코드는 같으므로 다시 읽지 않는다(깜빡임과 스크롤 위치 유지)
   }, [item.key, session.repo, session.base, session.head]);
+  // 메모 목록에서 고른 줄을 강조한다. 다른 항목으로 옮겨 갈 때는 위의 불러오기가 강조를 지운 뒤에 돌아야 하므로 그 뒤에 둔다
+  const handledReveal = useRef(reveal?.nonce);
+  useEffect(() => {
+    if (!reveal || reveal.nonce === handledReveal.current) return;
+    handledReveal.current = reveal.nonce;
+    setChip({ original: [], modified: [reveal.line] });
+  }, [reveal?.nonce]);
 
   const sym = item.kind === "file" ? null : item.kind === "test" ? item.test.symbol : item.step.symbol;
   const title = item.kind === "file" ? item.file.path.split("/").pop()! : item.kind === "test" ? item.test.symbol.name.replace(/`/g, "") : shortName(item.step.symbol);
@@ -221,7 +242,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
           {step?.signatureChanged && step.change === "body" && <span className="chip change-signature">시그니처</span>}
           <span className="spacer" />
           {target && (
-            <button onClick={() => openComposer()} aria-keyshortcuts="m" data-testid="note-open">
+            <button className="note-open" onClick={() => openComposer()} aria-keyshortcuts="m" data-testid="note-open">
               메모 남기기 <kbd aria-hidden="true">m</kbd>
             </button>
           )}
@@ -318,6 +339,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
           </label>
           <textarea
             id="note-body"
+            aria-describedby="note-hint"
             rows={3}
             autoFocus
             value={draft}
@@ -325,7 +347,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 e.preventDefault();
-                setComposer(null);
+                closeComposer();
               } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
                 void save();
@@ -334,9 +356,10 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
           />
           <div className="row">
             <button type="submit" className="primary" disabled={!draft.trim() || saving}>메모 저장</button>
-            <button type="button" onClick={() => setComposer(null)}>취소</button>
-            <span className="muted small">⌘ Enter 저장, Esc 취소. 코드에서 다른 줄을 누른 뒤 m을 누르면 그 줄에 남깁니다</span>
+            <button type="button" onClick={closeComposer}>취소</button>
+            <span className="muted small" id="note-hint">⌘ Enter 저장, Esc 취소. 코드에서 다른 줄을 누른 뒤 m을 누르면 그 줄에 남깁니다</span>
           </div>
+          {saveError && <p className="error-text small" role="alert">{saveError}</p>}
         </form>
       )}
 
@@ -357,6 +380,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
             notes={target ? notes.filter((n) => n.path === target.path && inShown(load.input, n.line)).map((n) => n.line) : []}
             onCursorLine={(l) => (cursor.current = l)}
             onNoteRequest={(l) => openComposer(l)}
+            focusNonce={focusNonce}
           />
         )}
       </div>

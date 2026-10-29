@@ -61,6 +61,8 @@ export interface ConnectionsState {
   connections: ConnectionView[];
   /** 로그인된 gh CLI가 있어 GitHub.com에 쓸 수 있는지 */
   ghCli: boolean;
+  /** Linux에 암호 저장소가 없어 토큰을 약하게 보관하게 되는지 */
+  weakStorage: boolean;
 }
 
 /** 리뷰 중인 PR. 분석 요청의 repo는 앱 캐시의 bare 저장소이고 base, head는 PR의 커밋이다 */
@@ -138,7 +140,14 @@ export interface UiState {
 }
 
 /** ref: 비교할 브랜치나 커밋을 못 찾음(비교를 바꿔야 함), path: 경로 문제, auth: 토큰 거부, connection: 연결 설정이 없음, network: 호스트에 닿지 않음 */
-export type ErrorKind = "ref" | "path" | "auth" | "connection" | "network" | "other";
+export type ErrorKind = "ref" | "path" | "auth" | "connection" | "network" | "input" | "other";
+
+/** 연결 설정을 열 때 미리 채울 값. PR 주소나 저장소 원격에서 알아낸다 */
+export interface ConnectionHint {
+  choice: "github.com" | "ghe" | "gitlab";
+  /** 입력칸에 넣을 호스트. https가 아니면 scheme까지 */
+  host: string;
+}
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string; kind: ErrorKind };
 
@@ -165,12 +174,12 @@ export interface CallpathApi {
   listPullRequests(repoPath: string): Promise<Result<PrList>>;
   openExternal(url: string): Promise<void>;
   listNotes(scope: NoteScope): Promise<Note[]>;
-  addNote(scope: NoteScope, note: { path: string; line: number; body: string }): Promise<Note>;
+  addNote(scope: NoteScope, note: { path: string; line: number; body: string }): Promise<Result<Note>>;
   deleteNote(id: number): Promise<void>;
   /** PR에 올릴 메모를 줄 코멘트와 일반 코멘트로 나눈다 */
   planPost(pr: PrMeta, noteIds: number[]): Promise<Result<PostPlan[]>>;
   /** 미리보기에서 확인한 메모를 올린다 */
-  postNotes(pr: PrMeta, plans: PostPlan[]): Promise<PostResult[]>;
+  postNotes(pr: PrMeta, plans: PostPlan[]): Promise<Result<PostResult[]>>;
   /** 정밀 분석 소식을 받는다. 돌려준 함수를 부르면 그만 받는다 */
   onAnalysisEvent(cb: (e: AnalysisEvent) => void): () => void;
   loadState(): Promise<UiState>;

@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import type { PrList, RepoInfo } from "../../../shared/api";
+import type { ConnectionHint, PrList, ProviderKindName, RepoInfo } from "../../../shared/api";
 import { Icon } from "../components/Icon";
+
+/** 원격 주소에서 알아낸 호스트와 제공자로 연결 설정에 채울 값을 정한다. 제공자를 모르면 채우지 않는다 */
+function hintFromRemote(host: string, kind: ProviderKindName | null): ConnectionHint | undefined {
+  if (host === "github.com") return { choice: "github.com", host: "" };
+  if (kind === "gitlab") return { choice: "gitlab", host };
+  if (kind === "github") return { choice: "ghe", host };
+  return undefined;
+}
 
 export function Compare(props: {
   repo: RepoInfo;
@@ -10,7 +18,7 @@ export function Compare(props: {
   onReload: () => void;
   onAnalyze: (base: string, head: string) => void;
   onOpenPr: (url: string) => void;
-  onConnections: () => void;
+  onConnections: (hint?: ConnectionHint) => void;
 }) {
   const { repo } = props;
   const [prs, setPrs] = useState<PrList | { status: "loading" } | { status: "error"; message: string }>({ status: "loading" });
@@ -112,7 +120,7 @@ export function Compare(props: {
             {prs.status === "error" && <p className="error-text"><Icon name="warn" /> {prs.message}</p>}
             {prs.status === "needs-connection" && (
               <p className="muted">
-                {prs.host} PR을 보려면 연결이 필요합니다. <button className="link" onClick={props.onConnections}>연결 설정</button>
+                {prs.host} PR을 보려면 연결이 필요합니다. <button className="link" onClick={() => props.onConnections(hintFromRemote(prs.host, prs.kind))}>연결 설정</button>
               </p>
             )}
             {prs.status === "ok" && prs.prs.length === 0 && <p className="muted">열린 PR이 없습니다.</p>}

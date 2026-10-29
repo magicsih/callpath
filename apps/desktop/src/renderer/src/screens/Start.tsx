@@ -10,9 +10,13 @@ export function Start(props: {
   onPick: () => void;
   onOpenPr: (url: string) => void;
   onConnections: () => void;
+  /** 형식이 틀려 열지 못한 PR 주소와 원인 */
+  prError?: { url: string; message: string } | undefined;
 }) {
   const [path, setPath] = useState("");
-  const [prUrl, setPrUrl] = useState("");
+  const [prUrl, setPrUrl] = useState(props.prError?.url ?? "");
+  const [prEdited, setPrEdited] = useState(false);
+  const prError = prEdited ? null : (props.prError?.message ?? null);
   // 입력을 고치기 시작하면 이전 시도의 오류는 숨긴다
   const [edited, setEdited] = useState(false);
   const error = edited ? null : props.error;
@@ -65,10 +69,26 @@ export function Start(props: {
         >
           <label htmlFor="pr-url">PR 주소</label>
           <div className="row">
-            <input id="pr-url" value={prUrl} onChange={(e) => setPrUrl(e.target.value)} placeholder="https://github.com/owner/repo/pull/123" />
+            <input
+              id="pr-url"
+              value={prUrl}
+              onChange={(e) => {
+                setPrUrl(e.target.value);
+                setPrEdited(true);
+              }}
+              placeholder="https://github.com/owner/repo/pull/123"
+              aria-describedby={prError ? "pr-error pr-hint" : "pr-hint"}
+              aria-invalid={prError ? true : undefined}
+              autoFocus={!!prError}
+            />
             <button type="submit" disabled={props.busy || !prUrl.trim()}>PR 열기</button>
           </div>
-          <span className="hint">GitHub, GitHub Enterprise, GitLab. <button type="button" className="link" onClick={props.onConnections}>연결 설정</button></span>
+          {prError && (
+            <p id="pr-error" className="error-text" role="alert" data-testid="pr-url-error">
+              <Icon name="warn" /> {prError}
+            </p>
+          )}
+          <span className="hint" id="pr-hint">GitHub, GitHub Enterprise, GitLab. <button type="button" className="link" onClick={props.onConnections}>연결 설정</button></span>
         </form>
         {props.recentPrs.length > 0 && (
           <section aria-labelledby="recent-pr-title" className="recent">

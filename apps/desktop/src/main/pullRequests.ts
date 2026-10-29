@@ -20,7 +20,7 @@ export async function openPullRequest(url: string, progress: (p: PrProgress) => 
     }
     const looksLikePr = host && (parsePrUrl(url, { github: [host], gitlab: [] }) ?? parsePrUrl(url, { github: [], gitlab: [host] }));
     if (looksLikePr) throw new NeedsConnection(host);
-    throw new Error("PR 주소를 읽지 못했습니다. GitHub는 …/pull/번호, GitLab은 …/-/merge_requests/번호 형식입니다");
+    throw new InvalidPrUrl();
   }
   const provider = providerForHost(ref.kind, ref.host);
   if (!provider) throw new NeedsConnection(ref.host);
@@ -32,6 +32,12 @@ export async function openPullRequest(url: string, progress: (p: PrProgress) => 
     url: pr.url || url, kind: pr.kind, host: pr.host, repo: pr.repo, number: pr.number, title: pr.title, author: pr.author,
     baseRef: pr.baseRef, headRef: pr.headRef, baseSha: pr.baseSha, headSha: pr.headSha, ...(pr.startSha ? { startSha: pr.startSha } : {}), gitDir,
   };
+}
+
+export class InvalidPrUrl extends Error {
+  constructor() {
+    super("PR 주소를 읽지 못했습니다. GitHub는 …/pull/번호, GitLab은 …/-/merge_requests/번호 형식입니다");
+  }
 }
 
 export class NeedsConnection extends Error {

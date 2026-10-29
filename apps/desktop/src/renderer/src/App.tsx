@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CompareRequest, PrMeta, RepoInfo, UiState } from "../../shared/api";
+import type { CompareRequest, ConnectionHint, PrMeta, RepoInfo, UiState } from "../../shared/api";
 import { EMPTY_STATE } from "../../shared/api";
 import { Start } from "./screens/Start";
 import { Compare } from "./screens/Compare";
@@ -9,10 +9,10 @@ import { PrOpening } from "./screens/PrOpening";
 
 type Screen =
   | { name: "boot" }
-  | { name: "start"; error: string | null }
+  | { name: "start"; error: string | null; prError?: { url: string; message: string } }
   | { name: "compare"; repo: RepoInfo; base?: string; head?: string }
   | { name: "review"; repo: RepoInfo; req: CompareRequest; selection: string | null; showTests: boolean; pr: PrMeta | null }
-  | { name: "connections"; back: Screen }
+  | { name: "connections"; back: Screen; hint?: ConnectionHint }
   | { name: "pr"; url: string; back: Screen };
 
 /** PR 리뷰는 앱 캐시의 bare 저장소를 쓰므로 그 경로로 화면용 저장소 정보를 만든다 */
@@ -106,9 +106,17 @@ export function App() {
   }, [open]);
 
   if (screen.name === "boot") return <div className="state" role="status">불러오는 중</div>;
-  if (screen.name === "connections") return <Connections onBack={() => setScreen(screen.back)} />;
+  if (screen.name === "connections") return <Connections onBack={() => setScreen(screen.back)} {...(screen.hint ? { hint: screen.hint } : {})} />;
   if (screen.name === "pr") {
-    return <PrOpening url={screen.url} onOpened={prOpened} onBack={() => setScreen(screen.back)} onConnections={() => setScreen({ name: "connections", back: screen })} />;
+    return (
+      <PrOpening
+        url={screen.url}
+        onOpened={prOpened}
+        onBack={() => setScreen(screen.back)}
+        onConnections={(hint) => setScreen({ name: "connections", back: screen, ...(hint ? { hint } : {}) })}
+        onInvalid={(message) => setScreen({ name: "start", error: null, prError: { url: screen.url, message } })}
+      />
+    );
   }
   if (screen.name === "start") {
     return (
@@ -116,6 +124,7 @@ export function App() {
         recent={recent}
         recentPrs={recentPrs}
         error={screen.error}
+        prError={screen.prError}
         busy={busy}
         onOpen={open}
         onPick={pick}
@@ -136,7 +145,7 @@ export function App() {
         }}
         onReload={() => void open(screen.repo.path)}
         onOpenPr={(url) => setScreen({ name: "pr", url, back: screen })}
-        onConnections={() => setScreen({ name: "connections", back: screen })}
+        onConnections={(hint) => setScreen({ name: "connections", back: screen, ...(hint ? { hint } : {}) })}
         onAnalyze={(base, head) => {
           const req = { repo: screen.repo.path, base, head };
           // 같은 비교를 다시 열면 보던 위치까지, 다른 비교면 테스트 표시만 저장소별로 이어간다

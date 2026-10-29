@@ -19,9 +19,19 @@ test("A15 연결 저장: 잘못된 토큰은 원인과 함께 실패, 맞는 토
   try {
     await page.getByRole("button", { name: "연결 설정" }).click();
     await expect(page.getByText("연결된 계정이 없습니다.")).toBeVisible();
+    // CI의 Linux에는 암호 저장소가 없어(--password-store=basic) 저장 전에 약한 보관을 알린다
+    await page.getByRole("radio", { name: "GitHub Enterprise" }).check();
+    if (process.platform === "linux") await expect(page.getByTestId("weak-storage")).toBeVisible();
+    else await expect(page.getByTestId("weak-storage")).toHaveCount(0);
+    // 닿지 않는 호스트는 주소만 고치면 되므로 토큰을 남기고 호스트 칸으로 초점을 돌린다
+    await addGhe(page, "http://127.0.0.1:1", "kept-token");
+    await expect(page.getByTestId("conn-error")).toContainText("사내망(VPN)");
+    await expect(page.getByLabel("토큰")).toHaveValue("kept-token");
+    await expect(page.getByLabel("호스트")).toBeFocused();
     await addGhe(page, mock.url, "wrong-token");
     await expect(page.getByTestId("conn-error")).toContainText("토큰이 거부되었습니다");
     await expect(page.getByLabel("토큰")).toHaveValue("");
+    await expect(page.getByLabel("토큰")).toBeFocused();
     await addGhe(page, mock.url, GOOD_TOKEN);
     await expect(page.getByTestId("conn-saved")).toContainText("reviewer로 연결했습니다");
     await expect(page.getByTestId("connections")).toContainText("reviewer로 확인됨");
@@ -31,7 +41,11 @@ test("A15 연결 저장: 잘못된 토큰은 원인과 함께 실패, 맞는 토
     const saved = readFileSync(join(data, "connections.json"), "utf8");
     expect(saved).not.toContain(GOOD_TOKEN);
     expect(saved).not.toContain("wrong-token");
-    await page.getByRole("button", { name: /연결 지우기/ }).click();
+    expect(saved).not.toContain("kept-token");
+    // 지우기는 한 번 더 확인한다
+    await page.getByRole("button", { name: /연결 지우기$/ }).click();
+    await expect(page.getByTestId("connections")).toBeVisible();
+    await page.getByRole("button", { name: /연결 지우기 확인$/ }).click();
     await expect(page.getByText("연결된 계정이 없습니다.")).toBeVisible();
   } finally {
     await app.close();
@@ -45,11 +59,20 @@ test("PR 열기: 연결이 없으면 연결 설정으로 안내하고, 연결하
   const first = await launch(data);
   const page = first.page;
   try {
+    // 형식이 틀린 주소는 시작 화면의 입력 아래에 원인을 보이고 입력을 남긴다
+    await page.getByLabel("PR 주소").fill("https://example.com/shop/order/issues/1");
+    await page.getByRole("button", { name: "PR 열기" }).click();
+    await expect(page.getByTestId("pr-url-error")).toContainText("PR 주소를 읽지 못했습니다");
+    await expect(page.getByLabel("PR 주소")).toHaveValue("https://example.com/shop/order/issues/1");
     await page.getByLabel("PR 주소").fill(mock.prUrl);
     await page.getByRole("button", { name: "PR 열기" }).click();
     await expect(page.getByTestId("pr-error")).toContainText("연결하지 않았습니다");
     await page.getByRole("button", { name: "연결 설정" }).click();
-    await addGhe(page, mock.url, GOOD_TOKEN);
+    // PR 주소에서 제공자와 호스트를 채워 둔다
+    await expect(page.getByRole("radio", { name: "GitHub Enterprise" })).toBeChecked();
+    await expect(page.getByLabel("호스트")).toHaveValue(mock.url);
+    await page.getByLabel("토큰").fill(GOOD_TOKEN);
+    await page.getByRole("button", { name: "연결 저장" }).click();
     await expect(page.getByTestId("conn-saved")).toBeVisible();
     // 연결 설정에서 돌아오면 같은 PR을 다시 연다
     await page.getByRole("button", { name: "돌아가기" }).click();
@@ -58,6 +81,38 @@ test("PR 열기: 연결이 없으면 연결 설정으로 안내하고, 연결하
     await expect(page.locator(".group-title").first()).toContainText("POST /orders");
     await page.keyboard.press("j");
     await shot(first.app, "15-pr-review");
+    for (const [w, h, zoom] of [[900, 600, 1], [1280, 800, 1.5], [900, 600, 1.5]] as const) {
+      await first.app.evaluate(({ BrowserWindow }, [w, h, zoom]) => {
+        const win = BrowserWindow.getAllWindows()[0]!;
+        win.setContentSize(w, h);
+        win.webContents.setZoomFactor(zoom);
+      }, [w, h, zoom] as const);
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const bar = document.querySelector(".toolbar")!;
+            const right = Math.max(...[...bar.querySelectorAll("button")].map((b) => b.getBoundingClientRect().right));
+            return bar.scrollWidth <= bar.clientWidth + 1 && right <= window.innerWidth + 1;
+          }),
+          { message: `${w}x${h} 확대 ${zoom}` },
+        )
+        .toBe(true);
+      // 상단 바가 두 줄이 되어도 코드가 보일 자리가 남는다
+      await expect.poll(async () => (await page.locator(".diff-wrap").boundingBox())?.height ?? 0).toBeGreaterThan(120);
+      // 가운데 영역과 창 안에 코드 줄이 하나 이상 보인다
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const pane = document.querySelector(".pane.center")!.getBoundingClientRect();
+            return [...document.querySelectorAll("[data-testid=diff] .view-line")].some((e) => {
+              const b = e.getBoundingClientRect();
+              return b.height > 0 && b.top >= pane.top && b.bottom <= Math.min(pane.bottom, window.innerHeight) && b.left < Math.min(pane.right, window.innerWidth);
+            });
+          }),
+        )
+        .toBe(true);
+    }
+    await shot(first.app, "15b-pr-toolbar-small");
   } finally {
     await first.app.close();
     await mock.close();
