@@ -90,9 +90,11 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
       w.setContentSize(1360, 860);
       w.webContents.setZoomFactor(1);
     });
+    // 넓어지면 상세 머리의 버튼은 사라지고 오른쪽 영역의 버튼만 남는다
+    await expect(page.locator(".head-extra")).toHaveCount(0);
     // 키가 거부되면 원인과 LLM 설정으로 가는 길을 보인다
     mock.rejectChat = true;
-    await page.getByRole("button", { name: /이 메서드 설명/ }).click();
+    await page.locator(".pane.right").getByRole("button", { name: /이 메서드 설명/ }).click();
     await dialog.getByRole("button", { name: "보내기" }).click();
     await expect(dialog.getByTestId("explain-error")).toContainText("키가 거부되었습니다");
     await expect(dialog.getByRole("button", { name: "LLM 설정" })).toBeVisible();
