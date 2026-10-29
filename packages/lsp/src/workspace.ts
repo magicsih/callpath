@@ -31,8 +31,9 @@ export async function exportTree(repo: string, sha: string, dest: string): Promi
       return dest;
     }
     if (existsSync(dest)) rmSync(dest, { recursive: true, force: true }); // 완료 표시가 없는 이전 실패 흔적
+    // 완료 표시를 먼저 써 두고 통째로 옮겨, 다른 프로세스가 표시 없는 폴더를 보는 순간이 없게 한다
+    writeFileSync(join(tmp, MARKER), sha);
     renameSync(tmp, dest);
-    writeFileSync(join(dest, MARKER), sha);
     return dest;
   } catch (e) {
     rmSync(tmp, { recursive: true, force: true });

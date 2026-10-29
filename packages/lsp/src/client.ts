@@ -115,15 +115,27 @@ export class LspClient {
     return this.stderrTail.trim().split("\n").slice(-3).join(" ");
   }
 
-  async stop(): Promise<void> {
+  private stopping: Promise<void> | null = null;
+
+  /** 여러 곳(시간 초과, 정리)에서 불러도 한 번만 끄고, 끄는 중의 오류는 삼킨다 */
+  stop(): Promise<void> {
+    this.stopping ??= this.doStop().catch(() => undefined);
+    return this.stopping;
+  }
+
+  private async doStop(): Promise<void> {
     if (!this.exited) {
       await withTimeout(this.conn.sendRequest("shutdown"), 10000, "shutdown").catch(() => undefined);
-      this.conn.sendNotification("exit");
+      try {
+        this.conn.sendNotification("exit");
+      } catch {
+        // 이미 끊긴 연결
+      }
     }
     this.conn.dispose();
     const proc = this.proc;
     await new Promise<void>((resolve) => {
-      if (proc.exitCode !== null) return resolve();
+      if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
       const t = setTimeout(() => (proc.kill("SIGKILL"), resolve()), 5000);
       proc.once("exit", () => (clearTimeout(t), resolve()));
     });

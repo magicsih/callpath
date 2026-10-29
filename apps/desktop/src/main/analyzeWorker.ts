@@ -28,10 +28,15 @@ function hashDir(h: ReturnType<typeof createHash>, dir: string): void {
 }
 
 // 분석기가 바뀌면 이전 결과를 쓰지 않도록 이 워커와 코어, LSP 패키지 빌드 결과의 해시를 캐시 키에 넣는다
+// 패키지 위치를 못 찾아도 워커는 떠야 하므로, 실패하면 워커 파일 해시와 시각을 써서 캐시를 쓰지 않는 쪽으로 둔다
 const version = (() => {
   const h = createHash("sha1").update(readFileSync(fileURLToPath(import.meta.url)));
-  const require = createRequire(import.meta.url);
-  for (const pkg of ["@callpath/core", "@callpath/lsp"]) hashDir(h, dirname(require.resolve(pkg)));
+  try {
+    const require = createRequire(import.meta.url);
+    for (const pkg of ["@callpath/core", "@callpath/lsp"]) hashDir(h, dirname(require.resolve(pkg)));
+  } catch {
+    h.update(String(Date.now()));
+  }
   return `${h.digest("hex").slice(0, 12)}+jdtls-${JDTLS.version}`;
 })();
 const cache = new SessionCache(join(userData, "cache.db"), version);
@@ -72,7 +77,9 @@ parentPort!.on("message", async (msg: { id: number; req: CompareRequest }) => {
     return;
   }
   // 정밀 분석은 한 번에 하나씩 돌린다. 같은 커밋의 head 사본과 JDT LS 작업 공간을 두 실행이 함께 쓰지 않게 한다
-  preciseQueue = preciseQueue.then(() => runPrecise(id, req, baseSha, headSha, opts));
+  preciseQueue = preciseQueue
+    .then(() => runPrecise(id, req, baseSha, headSha, opts))
+    .catch((e) => post({ id, kind: "precise", ok: false, error: e instanceof Error ? e.message : String(e) }));
 });
 
 let preciseQueue: Promise<void> = Promise.resolve();

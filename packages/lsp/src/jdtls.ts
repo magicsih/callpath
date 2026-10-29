@@ -50,8 +50,8 @@ export async function ensureJdtls(cacheDir: string, env: NodeJS.ProcessEnv = pro
     await run("tar", ["xzf", archive, "-C", out], { timeout: 120000 });
     if (existsSync(join(dir, MARKER)) && launcherIn(dir)) return dir; // 그사이 다른 실행이 준비를 끝냄
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true }); // 완료 표시가 없는 이전 실패 흔적
+    writeFileSync(join(out, MARKER), JDTLS.sha256);
     renameSync(out, dir);
-    writeFileSync(join(dir, MARKER), JDTLS.sha256);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
