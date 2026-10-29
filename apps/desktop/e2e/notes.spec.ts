@@ -21,8 +21,16 @@ test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서
   await openAndAnalyze(page, repo);
   await page.keyboard.press("j");
   await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
+  // 왼쪽(바뀌기 전) 줄을 고르고 m을 누르면 남길 수 없다고 알리고 작성 칸을 열지 않는다
+  await page.locator("[data-testid=diff] .editor.original .view-line").nth(2).click();
+  await page.keyboard.press("m");
+  await expect(page.getByTestId("base-notice")).toBeVisible();
+  await expect(page.getByTestId("composer")).toHaveCount(0);
+  await page.locator("[data-testid=diff] .editor.modified .view-line").first().click();
+  await expect(page.getByTestId("base-notice")).toHaveCount(0);
   await addNote(page, "결제 실패 시 재고 복구가 없습니다");
   await expect(page.getByTestId("notes-toggle")).toHaveText("메모 1");
+  await expect(page.getByTestId("memo-chip")).toHaveText("✎ 메모 1");
   // 다시 분석해 상세 영역이 새로 그려져도 이미 처리한 m으로 작성 칸이 다시 열리지 않는다
   await page.getByRole("button", { name: "다시 분석" }).click();
   await expect(page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
@@ -31,6 +39,16 @@ test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서
   await expect(page.locator(".memo-glyph").first()).toBeVisible();
   // 다른 단계로 갔다가 목록에서 메모를 누르면 그 단계로 돌아온다
   await page.keyboard.press("j");
+  await page.getByTestId("notes-toggle").click();
+  // 넓은 창에서는 서랍이 호출 스택 자리에 들어가 코드를 덮지 않는다
+  const drawerBox = (await page.getByTestId("notes-drawer").boundingBox())!;
+  const centerBox = (await page.locator(".pane.center").boundingBox())!;
+  expect(drawerBox.x).toBeGreaterThanOrEqual(centerBox.x + centerBox.width - 1);
+  await expect(page.locator(".pane.right")).toHaveCount(0);
+  // 초점이 서랍 밖(메모 버튼)에 있어도 Esc로 닫힌다
+  await page.getByTestId("notes-toggle").focus();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("notes-drawer")).toHaveCount(0);
   await page.getByTestId("notes-toggle").click();
   await expect(page.getByTestId("note-row")).toContainText("OrderService.java:17");
   await expect(page.getByTestId("note-row")).toContainText("결제 실패 시 재고 복구가 없습니다");
@@ -52,6 +70,9 @@ test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서
       }),
     )
     .toBe(true);
+  // 서랍은 닫히고 초점은 목록의 그 항목으로 간다
+  await expect(page.getByTestId("notes-drawer")).toHaveCount(0);
+  await expect(page.locator(".pane.left button.row.selected")).toBeFocused();
   await page.waitForTimeout(300);
   await shot(first.app, "16-notes");
   await first.app.close();
@@ -62,7 +83,8 @@ test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서
   appendFileSync(join(repo, "src/main/java/shop/order/OrderService.java"), "\n// 후속 커밋\n");
   execFileSync("git", ["-C", repo, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", "commit", "-qam", "후속"]);
   await second.page.getByRole("button", { name: "다시 분석" }).click();
-  await expect(second.page.getByTestId("notes-toggle")).toHaveText("메모 0");
+  await expect(second.page.getByTestId("notes-toggle")).toHaveText("메모 0 이전 1");
+  await expect(second.page.getByTestId("notes-toggle")).toHaveAccessibleName("메모 0개, 이전 커밋 메모 1개");
   await second.page.getByTestId("notes-toggle").click();
   await expect(second.page.getByTestId("note-row")).toHaveCount(0);
   await expect(second.page.getByTestId("note-stale")).toContainText("결제 실패 시 재고 복구가 없습니다");

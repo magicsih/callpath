@@ -32,17 +32,24 @@ interface Props {
   highlight: Highlight | null;
   label: string;
   /** 메모가 있는 head 쪽 줄(원본 파일 기준, 1부터) */
-  notes?: number[];
+  notes?: Array<{ line: number; body: string }>;
   /** head 쪽 커서가 놓인 줄(원본 파일 기준)이 바뀔 때 */
-  onCursorLine?: (line: number) => void;
+  onCursorLine?: (line: number, side: "head" | "base") => void;
   /** 오른쪽 클릭 메뉴의 "이 줄에 메모" */
   onNoteRequest?: (line: number) => void;
   /** 값이 바뀌면 편집기로 초점을 돌린다(메모를 저장하거나 취소한 뒤) */
   focusNonce?: number;
 }
 
-const noteDeco = (lines: number[], start: number) =>
-  lines.map((l) => ({ range: new monaco.Range(l - start + 1, 1, l - start + 1, 1), options: { isWholeLine: false, glyphMarginClassName: "memo-glyph", glyphMarginHoverMessage: { value: "메모가 있는 줄" } } }));
+/** 메모가 있는 줄에 표시를 달고, 마우스를 올리면 본문을 보인다 */
+const noteDeco = (notes: Array<{ line: number; body: string }>, start: number) => {
+  const byLine = new Map<number, string[]>();
+  for (const n of notes) byLine.set(n.line, [...(byLine.get(n.line) ?? []), n.body]);
+  return [...byLine].map(([l, bodies]) => ({
+    range: new monaco.Range(l - start + 1, 1, l - start + 1, 1),
+    options: { isWholeLine: false, glyphMarginClassName: "memo-glyph", glyphMarginHoverMessage: bodies.map((b) => ({ value: `**메모** ${b}` })) },
+  }));
+};
 
 /** head 쪽 편집기에 현재 줄 알림과 메모 메뉴를 붙인다 */
 function attachNoteHooks(ed: monaco.editor.IStandaloneCodeEditor, start: () => number, onCursor: () => ((l: number) => void) | undefined, onNote: () => ((l: number) => void) | undefined) {
@@ -74,6 +81,8 @@ export function DiffView(props: Props) {
 function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce }: Props) {
   const startRef = useRef(input.modifiedStart);
   startRef.current = input.modifiedStart;
+  const baseStartRef = useRef(input.originalStart);
+  baseStartRef.current = input.originalStart;
   const cbs = useRef({ onCursorLine, onNoteRequest });
   cbs.current = { onCursorLine, onNoteRequest };
   const noteDecos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
@@ -102,7 +111,9 @@ function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteReques
     decorations.current = e.getModifiedEditor().createDecorationsCollection();
     baseDecorations.current = e.getOriginalEditor().createDecorationsCollection();
     noteDecos.current = e.getModifiedEditor().createDecorationsCollection();
-    const detach = attachNoteHooks(e.getModifiedEditor(), () => startRef.current, () => cbs.current.onCursorLine, () => cbs.current.onNoteRequest);
+    const detach = attachNoteHooks(e.getModifiedEditor(), () => startRef.current, () => (l) => cbs.current.onCursorLine?.(l, "head"), () => cbs.current.onNoteRequest);
+    // 기준 쪽 줄을 골랐다는 것도 알려, 그 줄에는 메모를 남길 수 없다고 안내하게 한다
+    const baseCursor = e.getOriginalEditor().onDidChangeCursorPosition((ev) => cbs.current.onCursorLine?.(ev.position.lineNumber + baseStartRef.current - 1, "base"));
     // 한 열 diff에서는 삭제된 줄이 줄바꿈되면 들여쓰기 없이 이어져 읽기 어렵다. 좁을 때는 이전 쪽만 줄바꿈을 끈다
     // 보기가 바뀌며 요소가 사라진 뒤에도 콜백이 한 번 더 올 수 있어 ref 대신 요소를 직접 잡는다
     const el = host.current!;
@@ -116,6 +127,7 @@ function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteReques
     return () => {
       disposed = true;
       detach();
+      baseCursor.dispose();
       ro.disconnect();
       e.dispose();
       original.dispose();
@@ -180,7 +192,7 @@ function SingleView({ input, highlight, label, notes, onCursorLine, onNoteReques
     mark.current = e.createDecorationsCollection();
     noteDecos.current = e.createDecorationsCollection();
     // 삭제된 코드에는 메모를 남기지 않는다(메모는 head 쪽 줄에 묶인다)
-    const detach = attachNoteHooks(e, () => startRef.current, () => (input.kind === "removed" ? undefined : cbs.current.onCursorLine), () => (input.kind === "removed" ? undefined : cbs.current.onNoteRequest));
+    const detach = attachNoteHooks(e, () => startRef.current, () => (input.kind === "removed" ? undefined : (l) => cbs.current.onCursorLine?.(l, "head")), () => (input.kind === "removed" ? undefined : cbs.current.onNoteRequest));
     return () => {
       detach();
       const model = e.getModel();

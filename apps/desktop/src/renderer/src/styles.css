@@ -180,6 +180,7 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 
 .detail-head { padding: 10px 14px 6px; border-bottom: 1px solid var(--border); }
 .note-open { white-space: nowrap; }
+.memo-chip { cursor: pointer; color: var(--accent-ink); border-color: var(--accent-ink); background: var(--bg); white-space: nowrap; }
 /* 좁은 창에서는 상단 바 앞쪽 이름을 줄여 버튼이 한 줄에 더 들어가게 한다 */
 @media (max-width: 760px) {
   .toolbar .brand { display: none; }
@@ -231,7 +232,11 @@ kbd { font: var(--fs-small) var(--mono); border: 1px solid var(--border); border
 .memo-glyph { display: flex !important; align-items: center; justify-content: center; }
 .memo-glyph::before { content: "✎"; color: var(--accent-ink); font-size: 15px; font-weight: 700; line-height: 1; }
 .panes { position: relative; }
-.drawer-slot { position: absolute; top: 8px; right: 12px; bottom: 8px; width: min(360px, calc(100% - 24px)); z-index: 20; display: flex; }
+/* 넓은 창에서는 서랍이 오른쪽 호출 스택 자리에 들어가 코드를 덮지 않는다 */
+.panes.with-drawer { grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(280px, 340px); }
+.drawer-slot { min-width: 0; min-height: 0; display: flex; padding: 8px; border-left: 1px solid var(--border); background: var(--bg-pane); }
+.drawer-slot .drawer { box-shadow: none; }
+.drawer-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.2); z-index: 19; }
 .drawer { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
 .drawer:focus { outline: none; }
 .drawer-head { display: flex; align-items: center; gap: 6px; }
@@ -250,8 +255,11 @@ dialog.modal[open] { display: flex; }
 dialog.modal::backdrop { background: rgba(0, 0, 0, 0.35); }
 .confirm { display: inline-flex; gap: 8px; }
 .block { display: block; }
+.spinner.small { width: 16px; height: 16px; border-width: 2px; }
+h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
 button.danger { color: var(--del); }
-.plans { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.plans { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 60px; overflow: auto; }
+dialog.modal > :not(.plans) { flex: none; }
 .plan { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; display: flex; flex-direction: column; gap: 4px; }
 .plan > .chip { align-self: flex-start; }
 .plan-body { font-family: var(--font) !important; }
@@ -287,13 +295,17 @@ code { font: 12px var(--mono); }
 
 @media (max-width: 1100px) {
   .panes { grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) minmax(170px, 210px); }
+  .panes.with-drawer { grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) minmax(260px, 300px); }
   .keys-long { display: none; }
 }
 
 /* 좁은 창이나 크게 확대했을 때는 호출 스택을 가운데 아래로 내려 코드 폭을 지킨다 */
 @media (max-width: 820px) {
-  .panes { grid-template-columns: minmax(170px, 210px) minmax(0, 1fr); }
+  .panes, .panes.with-drawer { grid-template-columns: minmax(170px, 210px) minmax(0, 1fr); }
   .pane.right { display: none; }
+  /* 좁은 창에서는 서랍을 가운데 위에 띄운다. 뒤 영역은 inert로 막는다 */
+  .drawer-slot { position: absolute; top: 8px; right: 8px; bottom: 8px; width: min(340px, calc(100% - 16px)); z-index: 20; padding: 0; border: none; background: none; }
+  .drawer-slot .drawer { box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); }
   .crumbs { display: block; }
   .stats { display: none; }
   .name .cls { display: none; }

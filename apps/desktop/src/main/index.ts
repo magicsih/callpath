@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
 import { ProviderError } from "@callpath/providers";
-import { deleteConnection, listConnections, saveConnection } from "./connections";
+import { cancelConnectionCheck, deleteConnection, listConnections, saveConnection } from "./connections";
 import { InvalidPrUrl, listPullRequests, NeedsConnection, openPullRequest } from "./pullRequests";
 import { addNote, deleteNote, listNotes, planPost, postNotes } from "./notes";
 import { fileURLToPath } from "node:url";
@@ -21,7 +21,7 @@ function friendly(e: unknown): { error: string; kind: ErrorKind } {
   if (e instanceof PathError) return { error: msg, kind: "path" };
   if (e instanceof NeedsConnection) return { error: msg, kind: "connection" };
   if (e instanceof InvalidPrUrl) return { error: msg, kind: "input" };
-  if (e instanceof ProviderError) return { error: msg, kind: e.code === "auth" ? "auth" : e.code === "network" ? "network" : "other" };
+  if (e instanceof ProviderError) return { error: msg, kind: e.code === "auth" ? "auth" : e.code === "network" ? "network" : e.code === "cancelled" ? "cancelled" : "other" };
   if (/merge-base|unknown revision|bad revision|Not a valid object name|no merge base/i.test(msg)) {
     const ref = /Not a valid object name ([^\s]+)/.exec(msg)?.[1] ?? /bad revision '([^']+)'/.exec(msg)?.[1] ?? /unknown revision[^']*'([^']+)'/.exec(msg)?.[1];
     // merge-base는 공통 조상이 없으면 오류 문구 없이 종료 코드 1로 끝난다
@@ -111,7 +111,8 @@ ipcMain.handle("inspectRepo", (_e, path: string) => wrap(() => inspectRepo(path)
 ipcMain.handle("analyze", (e, req: CompareRequest) => analyzeInWorker(req, e.sender));
 ipcMain.handle("readFile", (_e, req: FileRequest) => wrap(() => readAt(req.repo, req.ref, req.path)));
 ipcMain.handle("listConnections", () => listConnections());
-ipcMain.handle("saveConnection", (_e, input: ConnectionInput) => wrap(() => saveConnection(input)));
+ipcMain.handle("saveConnection", (_e, input: ConnectionInput, requestId?: string) => wrap(() => saveConnection(input, requestId)));
+ipcMain.handle("cancelConnectionCheck", (_e, requestId: string) => cancelConnectionCheck(requestId));
 ipcMain.handle("deleteConnection", (_e, id: string) => deleteConnection(id));
 ipcMain.handle("openPullRequest", (e, url: string) => wrap(() => openPullRequest(url, (p) => !e.sender.isDestroyed() && e.sender.send("pr-progress", p))));
 ipcMain.handle("listPullRequests", (_e, repoPath: string) => wrap(() => listPullRequests(repoPath)));
@@ -119,9 +120,9 @@ ipcMain.handle("listPullRequests", (_e, repoPath: string) => wrap(() => listPull
 ipcMain.handle("openExternal", (_e, url: string) => {
   if (/^https?:\/\//.test(url)) void shell.openExternal(url);
 });
-ipcMain.handle("listNotes", (_e, s: NoteScope) => listNotes(s));
+ipcMain.handle("listNotes", (_e, s: NoteScope) => wrap(async () => listNotes(s)));
 ipcMain.handle("addNote", (_e, s: NoteScope, n: { path: string; line: number; body: string }) => wrap(async () => addNote(s, n)));
-ipcMain.handle("deleteNote", (_e, id: number) => deleteNote(id));
+ipcMain.handle("deleteNote", (_e, id: number) => wrap(async () => deleteNote(id)));
 ipcMain.handle("planPost", (_e, pr: PrMeta, ids: number[]) => wrap(() => planPost(pr, ids)));
 ipcMain.handle("postNotes", (_e, pr: PrMeta, plans: PostPlan[]) => wrap(() => postNotes(pr, plans)));
 ipcMain.handle("loadState", () => loadState());

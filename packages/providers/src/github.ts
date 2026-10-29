@@ -25,11 +25,11 @@ export class GitHubProvider implements Provider {
     return new GitHubProvider(host, host === "github.com" ? "https://api.github.com" : `https://${host}/api/v3`, token);
   }
 
-  private async call<T>(method: string, path: string, body?: unknown): Promise<{ data: T; headers: Headers }> {
+  private async call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<{ data: T; headers: Headers }> {
     const token = await this.token();
     const headers: Record<string, string> = { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
     if (token) headers.authorization = `Bearer ${token}`;
-    return request<T>(method, `${this.apiBase}${path}`, headers, token, body);
+    return request<T>(method, `${this.apiBase}${path}`, headers, token, body, signal);
   }
 
   private async all<T>(path: string): Promise<T[]> {
@@ -43,8 +43,8 @@ export class GitHubProvider implements Provider {
     return out;
   }
 
-  async whoami(): Promise<string> {
-    return (await this.call<{ login: string }>("GET", "/user")).data.login;
+  async whoami(signal?: AbortSignal): Promise<string> {
+    return (await this.call<{ login: string }>("GET", "/user", undefined, signal)).data.login;
   }
 
   async listPullRequests(repo: string): Promise<PullRequestSummary[]> {

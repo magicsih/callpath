@@ -135,3 +135,38 @@ describe("리뷰 지적 회귀", () => {
     expect(await mergeBase(gitDir, pr.baseSha, pr.headSha)).toBe(pr.baseSha);
   });
 });
+
+describe("연결 실패 이유", () => {
+  it("연결을 거부한 호스트는 network 오류이고 이유를 한국어로 알린다", async () => {
+    // 잠깐 열었다 닫은 포트는 연결을 거부한다
+    const { createServer } = await import("node:http");
+    const s = createServer();
+    await new Promise<void>((r) => s.listen(0, "127.0.0.1", () => r()));
+    const port = (s.address() as { port: number }).port;
+    await new Promise((r) => s.close(r));
+    const p = new GitHubProvider(`127.0.0.1:${port}`, `http://127.0.0.1:${port}/api/v3`, async () => "t");
+    const err = (await p.whoami().catch((e: unknown) => e)) as ProviderError;
+    expect(err.code).toBe("network");
+    expect(err.message).toContain("호스트가 연결을 거부했습니다");
+  });
+
+  it("응답을 기다리는 중에 멈추면 cancelled로 끝난다", async () => {
+    const { createServer } = await import("node:http");
+    // 요청을 받고 답하지 않는 서버
+    const server = createServer(() => undefined);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const p = new GitLabProvider(`127.0.0.1:${port}`, `http://127.0.0.1:${port}/api/v4`, async () => "t");
+      const ctl = new AbortController();
+      setTimeout(() => ctl.abort(), 200);
+      const started = Date.now();
+      const err = (await p.whoami(ctl.signal).catch((e: unknown) => e)) as ProviderError;
+      expect(err.code).toBe("cancelled");
+      expect(Date.now() - started).toBeLessThan(5000);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+});

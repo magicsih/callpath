@@ -61,6 +61,8 @@ export interface ConnectionsState {
   connections: ConnectionView[];
   /** 로그인된 gh CLI가 있어 GitHub.com에 쓸 수 있는지 */
   ghCli: boolean;
+  /** gh CLI에 로그인된 GitHub.com 계정 이름 */
+  ghCliUser: string | null;
   /** Linux에 암호 저장소가 없어 토큰을 약하게 보관하게 되는지 */
   weakStorage: boolean;
 }
@@ -140,7 +142,7 @@ export interface UiState {
 }
 
 /** ref: 비교할 브랜치나 커밋을 못 찾음(비교를 바꿔야 함), path: 경로 문제, auth: 토큰 거부, connection: 연결 설정이 없음, network: 호스트에 닿지 않음 */
-export type ErrorKind = "ref" | "path" | "auth" | "connection" | "network" | "input" | "other";
+export type ErrorKind = "ref" | "path" | "auth" | "connection" | "network" | "input" | "cancelled" | "other";
 
 /** 연결 설정을 열 때 미리 채울 값. PR 주소나 저장소 원격에서 알아낸다 */
 export interface ConnectionHint {
@@ -165,7 +167,9 @@ export interface CallpathApi {
   /** 그 커밋에 파일이 없으면 null */
   readFile(req: FileRequest): Promise<Result<string | null>>;
   listConnections(): Promise<ConnectionsState>;
-  saveConnection(input: ConnectionInput): Promise<Result<ConnectionView>>;
+  /** requestId를 주면 cancelConnectionCheck로 기다리던 확인을 멈출 수 있다 */
+  saveConnection(input: ConnectionInput, requestId?: string): Promise<Result<ConnectionView>>;
+  cancelConnectionCheck(requestId: string): Promise<void>;
   deleteConnection(id: string): Promise<void>;
   /** PR 주소로 PR 정보와 코드를 받는다. 진행은 onPrProgress로 온다 */
   openPullRequest(url: string): Promise<Result<PrMeta>>;
@@ -173,9 +177,9 @@ export interface CallpathApi {
   /** 로컬 저장소의 원격 주소로 연결을 찾아 열린 PR 목록을 준다 */
   listPullRequests(repoPath: string): Promise<Result<PrList>>;
   openExternal(url: string): Promise<void>;
-  listNotes(scope: NoteScope): Promise<Note[]>;
+  listNotes(scope: NoteScope): Promise<Result<Note[]>>;
   addNote(scope: NoteScope, note: { path: string; line: number; body: string }): Promise<Result<Note>>;
-  deleteNote(id: number): Promise<void>;
+  deleteNote(id: number): Promise<Result<void>>;
   /** PR에 올릴 메모를 줄 코멘트와 일반 코멘트로 나눈다 */
   planPost(pr: PrMeta, noteIds: number[]): Promise<Result<PostPlan[]>>;
   /** 미리보기에서 확인한 메모를 올린다 */

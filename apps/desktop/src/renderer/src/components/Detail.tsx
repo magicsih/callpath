@@ -121,6 +121,10 @@ interface Props {
   noteRequest: number;
   /** 메모 목록에서 고른 줄. 값이 바뀌면 그 줄로 가서 강조한다 */
   reveal: { line: number; nonce: number } | null;
+  /** 작성 칸을 열 때(서랍이 작성 칸을 가리지 않게 닫는다) */
+  onComposeStart: () => void;
+  /** 이 코드의 메모 목록을 연다 */
+  onShowNotes: () => void;
 }
 
 /** 메모를 남길 수 있는 head 쪽 파일과 처음 고른 줄. 삭제된 코드에는 남기지 않는다 */
@@ -134,11 +138,12 @@ export function noteTarget(item: NavItem): { path: string; line: number } | null
   return s ? { path: s.path, line: s.range.startLine + 1 } : null;
 }
 
-export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddNote, noteRequest, reveal }: Props) {
+export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddNote, noteRequest, reveal, onComposeStart, onShowNotes }: Props) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [chip, setChip] = useState<Highlight | null>(null);
   const target = noteTarget(item);
-  const cursor = useRef<number | null>(null);
+  const cursor = useRef<{ line: number; side: "head" | "base" } | null>(null);
+  const [baseNotice, setBaseNotice] = useState(false);
   const [composer, setComposer] = useState<{ line: number } | null>(null);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -146,7 +151,14 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
   const [focusNonce, setFocusNonce] = useState(0);
   const openComposer = (line?: number) => {
     if (!target) return;
-    const l = line ?? cursor.current ?? target.line;
+    // 기준(왼쪽) 쪽 줄을 고른 채 m을 누르면 그 줄에는 남길 수 없다고 알린다. 메서드 첫 줄로 조용히 옮기지 않는다
+    if (line === undefined && cursor.current?.side === "base") {
+      setBaseNotice(true);
+      return;
+    }
+    setBaseNotice(false);
+    onComposeStart();
+    const l = line ?? cursor.current?.line ?? target.line;
     setComposer({ line: l });
     // 어느 줄에 남기는지 보이게 그 줄을 강조한다
     setChip({ original: [], modified: [l] });
@@ -160,6 +172,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
     setComposer(null);
     setDraft("");
     setSaveError(null);
+    setBaseNotice(false);
   }, [item.key]);
   // 다시 분석하면 이 영역이 새로 그려진다. 그때 이미 처리한 요청을 다시 열지 않도록 처리한 값을 기억한다
   const handledNote = useRef(noteRequest);
@@ -211,6 +224,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
   }, [reveal?.nonce]);
 
   const sym = item.kind === "file" ? null : item.kind === "test" ? item.test.symbol : item.step.symbol;
+  const shownNotes = target && load.status === "ready" ? notes.filter((n) => n.path === target.path && inShown(load.input, n.line)).map((n) => ({ line: n.line, body: n.body })) : [];
   const title = item.kind === "file" ? item.file.path.split("/").pop()! : item.kind === "test" ? item.test.symbol.name.replace(/`/g, "") : shortName(item.step.symbol);
   const path = item.kind === "file" ? item.file.path : sym!.path;
   const line = sym ? sym.range.startLine + 1 : null;
@@ -241,6 +255,16 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
           {step && <span className={`chip change-${step.change}`}>{CHANGE_LABEL[step.change]}</span>}
           {step?.signatureChanged && step.change === "body" && <span className="chip change-signature">시그니처</span>}
           <span className="spacer" />
+          {shownNotes.length > 0 && (
+            <button
+              className="chip memo-chip"
+              onClick={onShowNotes}
+              aria-label={`이 코드의 메모 ${shownNotes.length}개(${[...new Set(shownNotes.map((n) => n.line))].join(", ")}줄) 목록 열기`}
+              data-testid="memo-chip"
+            >
+              ✎ 메모 {shownNotes.length}
+            </button>
+          )}
           {target && (
             <button className="note-open" onClick={() => openComposer()} aria-keyshortcuts="m" data-testid="note-open">
               메모 남기기 <kbd aria-hidden="true">m</kbd>
@@ -325,6 +349,11 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
         </div>
       )}
 
+      {baseNotice && (
+        <p className="banner small" role="status" data-testid="base-notice">
+          왼쪽은 바뀌기 전 코드라 메모를 남길 수 없습니다. 오른쪽(변경 후) 코드에서 줄을 고른 뒤 m을 누르세요.
+        </p>
+      )}
       {composer && target && (
         <form
           className="composer"
@@ -357,7 +386,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
           <div className="row">
             <button type="submit" className="primary" disabled={!draft.trim() || saving}>메모 저장</button>
             <button type="button" onClick={closeComposer}>취소</button>
-            <span className="muted small" id="note-hint">⌘ Enter 저장, Esc 취소. 코드에서 다른 줄을 누른 뒤 m을 누르면 그 줄에 남깁니다</span>
+            <span className="muted small" id="note-hint">⌘ Enter 저장, Esc 취소. 오른쪽(변경 후) 코드에서 다른 줄을 누른 뒤 m을 누르면 그 줄로 바꿉니다</span>
           </div>
           {saveError && <p className="error-text small" role="alert">{saveError}</p>}
         </form>
@@ -377,8 +406,11 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
             input={load.input}
             highlight={chip ?? load.highlight}
             label={`${title} 비교`}
-            notes={target ? notes.filter((n) => n.path === target.path && inShown(load.input, n.line)).map((n) => n.line) : []}
-            onCursorLine={(l) => (cursor.current = l)}
+            notes={shownNotes}
+            onCursorLine={(line, side) => {
+              cursor.current = { line, side };
+              if (side === "head") setBaseNotice(false);
+            }}
             onNoteRequest={(l) => openComposer(l)}
             focusNonce={focusNonce}
           />

@@ -19,6 +19,22 @@ test("A15 연결 저장: 잘못된 토큰은 원인과 함께 실패, 맞는 토
   try {
     await page.getByRole("button", { name: "연결 설정" }).click();
     await expect(page.getByText("연결된 계정이 없습니다.")).toBeVisible();
+    // 들어오면 제목에 초점이 있다
+    await expect(page.getByRole("heading", { name: "연결 설정" })).toBeFocused();
+    // 답하지 않는 호스트는 경과 시간과 함께 기다리고, 멈추면 저장하지 않는다
+    const { createServer } = await import("node:http");
+    const silent = createServer(() => undefined);
+    await new Promise<void>((r) => silent.listen(0, "127.0.0.1", () => r()));
+    try {
+      await addGhe(page, `http://127.0.0.1:${(silent.address() as { port: number }).port}`, "hang-token");
+      await expect(page.getByTestId("conn-checking")).toContainText("최대 30초");
+      await page.getByRole("button", { name: "확인 멈추기" }).click();
+      await expect(page.getByText("확인을 멈췄습니다. 저장하지 않았습니다")).toBeVisible();
+      await expect(page.getByText("연결된 계정이 없습니다.")).toBeVisible();
+    } finally {
+      silent.closeAllConnections();
+      silent.close();
+    }
     // CI의 Linux에는 암호 저장소가 없어(--password-store=basic) 저장 전에 약한 보관을 알린다
     await page.getByRole("radio", { name: "GitHub Enterprise" }).check();
     if (process.platform === "linux") await expect(page.getByTestId("weak-storage")).toBeVisible();
@@ -74,8 +90,8 @@ test("PR 열기: 연결이 없으면 연결 설정으로 안내하고, 연결하
     await page.getByLabel("토큰").fill(GOOD_TOKEN);
     await page.getByRole("button", { name: "연결 저장" }).click();
     await expect(page.getByTestId("conn-saved")).toBeVisible();
-    // 연결 설정에서 돌아오면 같은 PR을 다시 연다
-    await page.getByRole("button", { name: "돌아가기" }).click();
+    // 연결 설정에서 돌아오면 같은 PR을 다시 연다. 버튼 이름이 그렇게 알린다
+    await page.getByRole("button", { name: "돌아가서 PR 다시 열기" }).click();
     await expect(page.getByTestId("pr-chip")).toHaveText("#1 쿠폰 할인", { timeout: 60_000 });
     await expect(page.getByTestId("detail-title")).toHaveText("OrderController.place");
     await expect(page.locator(".group-title").first()).toContainText("POST /orders");

@@ -106,7 +106,10 @@ export function App() {
   }, [open]);
 
   if (screen.name === "boot") return <div className="state" role="status">불러오는 중</div>;
-  if (screen.name === "connections") return <Connections onBack={() => setScreen(screen.back)} {...(screen.hint ? { hint: screen.hint } : {})} />;
+  if (screen.name === "connections") {
+    // PR 열기에서 왔으면 돌아갈 때 그 PR을 이어서 연다는 것을 버튼에 적는다
+    return <Connections onBack={() => setScreen(screen.back)} backLabel={screen.back.name === "pr" ? "돌아가서 PR 다시 열기" : "돌아가기"} {...(screen.hint ? { hint: screen.hint } : {})} />;
+  }
   if (screen.name === "pr") {
     return (
       <PrOpening

@@ -12,7 +12,8 @@ const api: CallpathApi = {
     return () => ipcRenderer.removeListener("analysis-event", handler);
   },
   listConnections: () => ipcRenderer.invoke("listConnections"),
-  saveConnection: (input) => ipcRenderer.invoke("saveConnection", input),
+  saveConnection: (input, requestId) => ipcRenderer.invoke("saveConnection", input, requestId),
+  cancelConnectionCheck: (requestId) => ipcRenderer.invoke("cancelConnectionCheck", requestId),
   deleteConnection: (id) => ipcRenderer.invoke("deleteConnection", id),
   openPullRequest: (url) => ipcRenderer.invoke("openPullRequest", url),
   onPrProgress: (cb) => {

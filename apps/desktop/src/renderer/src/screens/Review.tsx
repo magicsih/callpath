@@ -56,6 +56,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
 
   const [precise, setPrecise] = useState<PreciseView>({ running: false, message: null, error: null });
   const [notes, setNotes] = useState<Note[]>([]);
+  const [notesError, setNotesError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
   const [posting, setPosting] = useState<number[] | null>(null);
   const [noteRequest, setNoteRequest] = useState(0);
@@ -95,14 +96,41 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
   // 같은 비교의 이전 커밋 메모도 찾으려고 비교 키(PR 주소나 브랜치 이름)를 함께 둔다
   const scope = session ? { repo: req.repo, base: session.base, head: session.head, subject: pr ? pr.url : `${req.base}...${req.head}` } : null;
   const reloadNotes = useCallback(() => {
-    if (scope) void window.callpath.listNotes(scope).then(setNotes);
+    if (!scope) return;
+    void window.callpath.listNotes(scope).then((r) => {
+      if (r.ok) {
+        setNotes(r.value);
+        setNotesError(null);
+      } else setNotesError(`메모를 읽지 못했습니다: ${r.error}`);
+    });
   }, [scope?.repo, scope?.base, scope?.head, scope?.subject]);
   const currentNotes = notes.filter((n) => !n.stale);
+  const staleCount = notes.length - currentNotes.length;
   const notesToggle = useRef<HTMLButtonElement>(null);
   const closeDrawer = () => {
     setDrawer(false);
     notesToggle.current?.focus();
   };
+  // 키 처리 효과가 최신 서랍 상태를 읽게 한다
+  const drawerRef = useRef(drawer);
+  drawerRef.current = drawer;
+  const closeDrawerRef = useRef(closeDrawer);
+  closeDrawerRef.current = closeDrawer;
+  // 좁은 창에서는 서랍이 가운데를 덮으므로, 열린 동안 뒤 영역에는 초점이 가지 않게 한다
+  const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 820px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 820px)");
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  useEffect(() => {
+    const panes = [...document.querySelectorAll<HTMLElement>(".panes > .pane")];
+    for (const p of panes) p.inert = drawer && narrow;
+    return () => {
+      for (const p of panes) p.inert = false;
+    };
+  }, [drawer, narrow, analysis.status]);
   useEffect(() => reloadNotes(), [reloadNotes]);
   const nav = useMemo(() => (session ? buildNav(session, showTests) : null), [session, showTests]);
   const current = nav ? resolveSelection(nav, selectedKey) : null;
@@ -183,6 +211,13 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
       if (document.querySelector("dialog[open]")) return;
       const target = e.target as HTMLElement;
       if (target.closest("textarea, select, input:not([type=checkbox])")) return;
+      if (e.key === "Escape" && drawerRef.current) {
+        e.preventDefault();
+        closeDrawerRef.current();
+        return;
+      }
+      // 서랍 안에서는 단계 이동 키를 쓰지 않는다(초점이 서랍에 남는다)
+      if (target.closest(".drawer")) return;
       const inEditor = target.closest(".monaco-editor") != null;
       switch (e.key) {
         case "j":
@@ -204,6 +239,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
         case "m":
           if (noteTarget(current)) {
             e.preventDefault();
+            setDrawer(false);
             setNoteRequest((n) => n + 1);
           }
           break;
@@ -251,8 +287,16 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
       )}
       <span className="spacer" />
       {session && (
-        <button ref={notesToggle} onClick={() => setDrawer((v) => !v)} aria-expanded={drawer} aria-controls="notes-drawer" data-testid="notes-toggle">
+        <button
+          ref={notesToggle}
+          onClick={() => setDrawer((v) => !v)}
+          aria-expanded={drawer}
+          aria-controls="notes-drawer"
+          aria-label={`메모 ${currentNotes.length}개${staleCount ? `, 이전 커밋 메모 ${staleCount}개` : ""}`}
+          data-testid="notes-toggle"
+        >
           메모 {currentNotes.length}
+          {staleCount > 0 && <span className="muted small" data-testid="stale-count"> 이전 {staleCount}</span>}
         </button>
       )}
       {pr && <button onClick={() => window.callpath.openExternal(pr.url)} aria-label="PR 페이지를 브라우저로 열기">PR 페이지</button>}
@@ -350,7 +394,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
     <div className="review">
       {head}
       {!bannerClosed && <PreciseBanner session={session!} view={precise} onDismiss={() => setBannerClosed(true)} />}
-      <div className="panes">
+      <div className={`panes${drawer ? " with-drawer" : ""}`}>
         <FlowList
           nav={nav}
           session={session!}
@@ -369,29 +413,36 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           notes={currentNotes}
           noteRequest={noteRequest}
           reveal={reveal}
+          onComposeStart={() => setDrawer(false)}
+          onShowNotes={() => setDrawer(true)}
           onAddNote={async (path, line, body) => {
             const r = await window.callpath.addNote(scope!, { path, line, body });
             reloadNotes();
             return r.ok ? null : r.error;
           }}
         />
-        <StackPane item={current} nav={nav} onSelect={(i) => select(i)} />
+        {!drawer && <StackPane item={current} nav={nav} onSelect={(i) => select(i)} />}
+        {drawer && narrow && <div className="drawer-backdrop" onClick={() => setDrawer(false)} aria-hidden="true" />}
         {drawer && (
           <div id="notes-drawer" className="drawer-slot">
             <NotesDrawer
               notes={sortByFlow(nav, notes)}
               pr={pr}
+              error={notesError}
               onClose={closeDrawer}
-              onDelete={(n) => void window.callpath.deleteNote(n.id).then(reloadNotes)}
+              onDelete={(n) =>
+                void window.callpath.deleteNote(n.id).then((r) => (r.ok ? reloadNotes() : setNotesError(`메모를 지우지 못했습니다: ${r.error}`)))
+              }
               onPost={(ids) => setPosting(ids)}
               onGo={(n) => {
                 const hit = findItemFor(nav, n.path, n.line);
                 if (!hit) return;
                 if (hit.kind === "test" && !showTests) toggleTests();
-                // 서랍이 코드를 덮지 않게 닫고, 그 줄을 강조한다
+                // 서랍이 코드를 덮지 않게 닫고, 그 줄을 강조한다. 초점은 목록의 그 항목으로 옮겨 j, k로 이어 읽게 한다
                 setDrawer(false);
                 select(hit);
                 setReveal({ line: n.line, nonce: Date.now() });
+                requestAnimationFrame(() => requestAnimationFrame(() => (rows.current.get(hit.key) ?? notesToggle.current)?.focus()));
               }}
             />
           </div>
