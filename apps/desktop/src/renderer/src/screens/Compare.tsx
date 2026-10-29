@@ -1,9 +1,26 @@
-import { useState } from "react";
-import type { RepoInfo } from "../../../shared/api";
+import { useEffect, useState } from "react";
+import type { PrList, RepoInfo } from "../../../shared/api";
 import { Icon } from "../components/Icon";
 
-export function Compare(props: { repo: RepoInfo; initialBase?: string; initialHead?: string; onBack: () => void; onReload: () => void; onAnalyze: (base: string, head: string) => void }) {
+export function Compare(props: {
+  repo: RepoInfo;
+  initialBase?: string;
+  initialHead?: string;
+  onBack: () => void;
+  onReload: () => void;
+  onAnalyze: (base: string, head: string) => void;
+  onOpenPr: (url: string) => void;
+  onConnections: () => void;
+}) {
   const { repo } = props;
+  const [prs, setPrs] = useState<PrList | { status: "loading" } | { status: "error"; message: string }>({ status: "loading" });
+  useEffect(() => {
+    let alive = true;
+    window.callpath.listPullRequests(repo.path).then((r) => alive && setPrs(r.ok ? r.value : { status: "error", message: r.error }));
+    return () => {
+      alive = false;
+    };
+  }, [repo.path]);
   if (repo.branches.length === 0 && !repo.hasCommits) {
     return (
       <main className="compare" aria-labelledby="compare-title">
@@ -88,6 +105,31 @@ export function Compare(props: { repo: RepoInfo; initialBase?: string; initialHe
             흐름 분석
           </button>
         </form>
+        {prs.status !== "no-remote" && (
+          <section aria-labelledby="open-prs-title" className="recent" data-testid="open-prs">
+            <h2 id="open-prs-title">이 저장소의 열린 PR</h2>
+            {prs.status === "loading" && <p className="muted" role="status">불러오는 중</p>}
+            {prs.status === "error" && <p className="error-text"><Icon name="warn" /> {prs.message}</p>}
+            {prs.status === "needs-connection" && (
+              <p className="muted">
+                {prs.host} PR을 보려면 연결이 필요합니다. <button className="link" onClick={props.onConnections}>연결 설정</button>
+              </p>
+            )}
+            {prs.status === "ok" && prs.prs.length === 0 && <p className="muted">열린 PR이 없습니다.</p>}
+            {prs.status === "ok" && prs.prs.length > 0 && (
+              <ul>
+                {prs.prs.map((p) => (
+                  <li key={p.number}>
+                    <button className="recent-item" onClick={() => props.onOpenPr(p.url)}>
+                      <span className="recent-name">#{p.number} {p.title}</span>
+                      <span className="recent-path">{p.author}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
       </div>
     </main>
   );

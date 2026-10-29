@@ -1,10 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
+import { ProviderError } from "@callpath/providers";
+import { deleteConnection, listConnections, saveConnection } from "./connections";
+import { listPullRequests, NeedsConnection, openPullRequest } from "./pullRequests";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import workerPath from "./analyzeWorker?modulePath";
 import { inspectRepo, PathError, readAt } from "./repo";
 import { loadState, saveState } from "./state";
-import type { AnalysisEvent, CompareRequest, ErrorKind, FileRequest, Result, UiState } from "../shared/api";
+import type { AnalysisEvent, CompareRequest, ConnectionInput, ErrorKind, FileRequest, Result, UiState } from "../shared/api";
 import type { WorkerEvent } from "./analyzeWorker";
 import type { ReviewSession } from "@callpath/core";
 
@@ -15,6 +18,8 @@ app.setName("Callpath");
 function friendly(e: unknown): { error: string; kind: ErrorKind } {
   const msg = e instanceof Error ? e.message : String(e);
   if (e instanceof PathError) return { error: msg, kind: "path" };
+  if (e instanceof NeedsConnection) return { error: msg, kind: "connection" };
+  if (e instanceof ProviderError) return { error: msg, kind: e.code === "auth" ? "auth" : e.code === "network" ? "network" : "other" };
   if (/merge-base|unknown revision|bad revision|Not a valid object name|no merge base/i.test(msg)) {
     const ref = /Not a valid object name ([^\s]+)/.exec(msg)?.[1] ?? /bad revision '([^']+)'/.exec(msg)?.[1] ?? /unknown revision[^']*'([^']+)'/.exec(msg)?.[1];
     // merge-base는 공통 조상이 없으면 오류 문구 없이 종료 코드 1로 끝난다
@@ -103,6 +108,15 @@ ipcMain.handle("pickFolder", async (e) => {
 ipcMain.handle("inspectRepo", (_e, path: string) => wrap(() => inspectRepo(path)));
 ipcMain.handle("analyze", (e, req: CompareRequest) => analyzeInWorker(req, e.sender));
 ipcMain.handle("readFile", (_e, req: FileRequest) => wrap(() => readAt(req.repo, req.ref, req.path)));
+ipcMain.handle("listConnections", () => listConnections());
+ipcMain.handle("saveConnection", (_e, input: ConnectionInput) => wrap(() => saveConnection(input)));
+ipcMain.handle("deleteConnection", (_e, id: string) => deleteConnection(id));
+ipcMain.handle("openPullRequest", (e, url: string) => wrap(() => openPullRequest(url, (p) => !e.sender.isDestroyed() && e.sender.send("pr-progress", p))));
+ipcMain.handle("listPullRequests", (_e, repoPath: string) => wrap(() => listPullRequests(repoPath)));
+// 앱 밖 브라우저로는 https 주소만 연다
+ipcMain.handle("openExternal", (_e, url: string) => {
+  if (/^https:\/\//.test(url)) void shell.openExternal(url);
+});
 ipcMain.handle("loadState", () => loadState());
 ipcMain.handle("saveState", (_e, s: UiState) => saveState(s));
 

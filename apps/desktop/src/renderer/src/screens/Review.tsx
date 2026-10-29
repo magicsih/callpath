@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReviewSession } from "@callpath/core";
-import type { CompareRequest, ErrorKind } from "../../../shared/api";
+import type { CompareRequest, ErrorKind, PrMeta } from "../../../shared/api";
 import { childSteps, neighbor, refTarget, resolveSelection, shortName, buildNav, CHANGE_LABEL, type NavItem, type StepItem } from "../nav";
 import { FlowList } from "../components/FlowList";
 import { Detail } from "../components/Detail";
@@ -14,13 +14,17 @@ type Analysis = { status: "loading" } | { status: "error"; message: string; kind
 interface Props {
   req: CompareRequest;
   repoName: string;
+  /** PR 리뷰면 그 PR */
+  pr: PrMeta | null;
+  /** PR을 새로 받는다(새 커밋 확인) */
+  onRefreshPr: () => void;
   initialSelection: string | null;
   initialShowTests: boolean;
   onChangeCompare: () => void;
   onPersist: (selection: string | null, showTests: boolean) => void;
 }
 
-export function Review({ req, repoName, initialSelection, initialShowTests, onChangeCompare, onPersist }: Props) {
+export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initialShowTests, onChangeCompare, onPersist }: Props) {
   const [analysis, setAnalysis] = useState<Analysis>({ status: "loading" });
   const [run, setRun] = useState(0);
   const [showTests, setShowTests] = useState(initialShowTests);
@@ -182,9 +186,15 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     <header className="toolbar">
       <span className="brand">Callpath</span>
       <span className="repo">{repoName}</span>
-      <span className="refs" title={`기준 ${req.base}, 리뷰할 변경 ${req.head}`} aria-label={`기준 ${req.base}, 리뷰할 변경 ${req.head}`}>
-        <span aria-hidden="true">{req.base} ← {req.head}</span>
-      </span>
+      {pr ? (
+        <span className="refs pr-chip" title={`${pr.title}, ${pr.baseRef} ← ${pr.headRef}`} data-testid="pr-chip">
+          #{pr.number} {pr.title}
+        </span>
+      ) : (
+        <span className="refs" title={`기준 ${req.base}, 리뷰할 변경 ${req.head}`} aria-label={`기준 ${req.base}, 리뷰할 변경 ${req.head}`}>
+          <span aria-hidden="true">{req.base} ← {req.head}</span>
+        </span>
+      )}
       {session && <PreciseChip session={session} view={precise} />}
       {session && (
         <span className="stats muted" aria-label="분석 요약">
@@ -192,7 +202,9 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
         </span>
       )}
       <span className="spacer" />
-      <button onClick={onChangeCompare}>비교 바꾸기</button>
+      {pr && <button onClick={() => window.callpath.openExternal(pr.url)} aria-label="PR 페이지를 브라우저로 열기">PR 페이지</button>}
+      {pr && <button onClick={onRefreshPr} aria-label="PR을 새로 받기">새로 받기</button>}
+      <button onClick={onChangeCompare}>{pr ? "다른 저장소나 PR" : "비교 바꾸기"}</button>
       <button onClick={rerun} disabled={analysis.status === "loading"} aria-label="다시 분석">
         <Icon name="refresh" /> 다시 분석
       </button>

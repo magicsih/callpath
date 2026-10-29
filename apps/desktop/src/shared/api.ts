@@ -34,16 +34,78 @@ export interface LastReview extends CompareRequest {
   showTests: boolean;
 }
 
+export type ProviderKindName = "github" | "gitlab";
+
+/** 화면에 보이는 연결. 토큰은 들어 있지 않다 */
+export interface ConnectionView {
+  id: string;
+  kind: ProviderKindName;
+  /** 예: github.com, ghe.corp.io, gitlab.com */
+  host: string;
+  auth: "gh-cli" | "token";
+  /** 저장할 때 확인한 사용자 이름 */
+  user: string | null;
+  /** 이 컴퓨터에 암호 저장소가 없어 토큰을 약하게 보관함(Linux 등) */
+  weakStorage: boolean;
+}
+
+export interface ConnectionInput {
+  kind: ProviderKindName;
+  /** 호스트나 주소. 예: github.com, https://ghe.corp.io */
+  host: string;
+  auth: "gh-cli" | "token";
+  token?: string;
+}
+
+export interface ConnectionsState {
+  connections: ConnectionView[];
+  /** 로그인된 gh CLI가 있어 GitHub.com에 쓸 수 있는지 */
+  ghCli: boolean;
+}
+
+/** 리뷰 중인 PR. 분석 요청의 repo는 앱 캐시의 bare 저장소이고 base, head는 PR의 커밋이다 */
+export interface PrMeta {
+  url: string;
+  kind: ProviderKindName;
+  host: string;
+  repo: string;
+  number: number;
+  title: string;
+  author: string;
+  baseRef: string;
+  headRef: string;
+  baseSha: string;
+  headSha: string;
+  startSha?: string;
+  /** 앱 캐시의 bare 저장소 */
+  gitDir: string;
+}
+
+export interface PrProgress {
+  url: string;
+  step: "info" | "code";
+  message: string;
+}
+
+export type PrList =
+  | { status: "ok"; host: string; prs: Array<{ number: number; title: string; author: string; url: string; updatedAt: string }> }
+  | { status: "no-remote" }
+  | { status: "needs-connection"; host: string; kind: ProviderKindName | null };
+
 export interface UiState {
   recent: string[];
   /** 마지막으로 리뷰 화면에 있던 저장소. 시작 화면으로 나가면 null */
   lastRepo: string | null;
   /** 저장소 경로별 마지막 비교, 위치, 테스트 표시 */
   repos: Record<string, LastReview>;
+  /** bare 저장소 경로별 PR 정보. lastRepo가 여기 있으면 PR 리뷰로 복원한다 */
+  prs: Record<string, PrMeta>;
+  /** 최근 연 PR 주소 */
+  recentPrs: Array<{ url: string; title: string }>;
 }
 
-/** ref: 비교할 브랜치나 커밋을 못 찾음(비교를 바꿔야 함), path: 경로 문제 */
-export type ErrorKind = "ref" | "path" | "other";
+/** ref: 비교할 브랜치나 커밋을 못 찾음(비교를 바꿔야 함), path: 경로 문제, auth: 토큰 거부, connection: 연결 설정이 없음, network: 호스트에 닿지 않음 */
+export type ErrorKind = "ref" | "path" | "auth" | "connection" | "network" | "other";
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string; kind: ErrorKind };
 
@@ -60,10 +122,19 @@ export interface CallpathApi {
   analyze(req: CompareRequest): Promise<Result<ReviewSession>>;
   /** 그 커밋에 파일이 없으면 null */
   readFile(req: FileRequest): Promise<Result<string | null>>;
+  listConnections(): Promise<ConnectionsState>;
+  saveConnection(input: ConnectionInput): Promise<Result<ConnectionView>>;
+  deleteConnection(id: string): Promise<void>;
+  /** PR 주소로 PR 정보와 코드를 받는다. 진행은 onPrProgress로 온다 */
+  openPullRequest(url: string): Promise<Result<PrMeta>>;
+  onPrProgress(cb: (p: PrProgress) => void): () => void;
+  /** 로컬 저장소의 원격 주소로 연결을 찾아 열린 PR 목록을 준다 */
+  listPullRequests(repoPath: string): Promise<Result<PrList>>;
+  openExternal(url: string): Promise<void>;
   /** 정밀 분석 소식을 받는다. 돌려준 함수를 부르면 그만 받는다 */
   onAnalysisEvent(cb: (e: AnalysisEvent) => void): () => void;
   loadState(): Promise<UiState>;
   saveState(state: UiState): Promise<void>;
 }
 
-export const EMPTY_STATE: UiState = { recent: [], lastRepo: null, repos: {} };
+export const EMPTY_STATE: UiState = { recent: [], lastRepo: null, repos: {}, prs: {}, recentPrs: [] };

@@ -1,8 +1,18 @@
 import { useState } from "react";
 import { Icon } from "../components/Icon";
 
-export function Start(props: { recent: string[]; error: string | null; busy: boolean; onOpen: (path: string) => void; onPick: () => void }) {
+export function Start(props: {
+  recent: string[];
+  recentPrs: Array<{ url: string; title: string }>;
+  error: string | null;
+  busy: boolean;
+  onOpen: (path: string) => void;
+  onPick: () => void;
+  onOpenPr: (url: string) => void;
+  onConnections: () => void;
+}) {
   const [path, setPath] = useState("");
+  const [prUrl, setPrUrl] = useState("");
   // 입력을 고치기 시작하면 이전 시도의 오류는 숨긴다
   const [edited, setEdited] = useState(false);
   const error = edited ? null : props.error;
@@ -46,6 +56,35 @@ export function Start(props: { recent: string[]; error: string | null; busy: boo
             </p>
           )}
         </form>
+        <form
+          className="path-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (prUrl.trim()) props.onOpenPr(prUrl.trim());
+          }}
+        >
+          <label htmlFor="pr-url">PR 주소</label>
+          <div className="row">
+            <input id="pr-url" value={prUrl} onChange={(e) => setPrUrl(e.target.value)} placeholder="https://github.com/owner/repo/pull/123" />
+            <button type="submit" disabled={props.busy || !prUrl.trim()}>PR 열기</button>
+          </div>
+          <span className="hint">GitHub, GitHub Enterprise, GitLab. <button type="button" className="link" onClick={props.onConnections}>연결 설정</button></span>
+        </form>
+        {props.recentPrs.length > 0 && (
+          <section aria-labelledby="recent-pr-title" className="recent">
+            <h2 id="recent-pr-title">최근 PR</h2>
+            <ul>
+              {props.recentPrs.map((p) => (
+                <li key={p.url}>
+                  <button className="recent-item" onClick={() => props.onOpenPr(p.url)} disabled={props.busy}>
+                    <span className="recent-name">{p.title}</span>
+                    <span className="recent-path">{p.url}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <section aria-labelledby="recent-title" className="recent">
           <h2 id="recent-title">최근 저장소</h2>
           {props.recent.length === 0 ? (

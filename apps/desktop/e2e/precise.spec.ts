@@ -50,7 +50,8 @@ test("A8 JDK가 있으면 JDT LS로 정밀 분석하고, 보던 위치를 지키
   await first.page.keyboard.press("j");
   await expect(first.page.getByTestId("detail-title")).toHaveText("OrderService.placeOrder");
   // 정밀 분석 결과가 와도 가운데 코드는 다시 읽지 않는다
-  await first.page.locator(".diff-wrap .diff").waitFor();
+  // 앞 단계의 diff가 아니라 placeOrder의 diff가 그려진 뒤에 기준 요소를 잡는다
+  await expect(first.page.locator(".diff-wrap .diff")).toContainText("OrderResult placeOrder");
   await first.page.evaluate(() => { (window as unknown as { __diff: Element | null }).__diff = document.querySelector(".diff-wrap .diff"); });
   await expect(first.page.getByTestId("precise-chip")).toHaveText("정밀 분석 완료", { timeout: 240_000 });
   expect(await first.page.evaluate(() => (window as unknown as { __diff: Element | null }).__diff === document.querySelector(".diff-wrap .diff"))).toBe(true);

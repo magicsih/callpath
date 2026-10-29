@@ -12,6 +12,8 @@ export async function loadState(): Promise<UiState> {
       recent: Array.isArray(raw.recent) ? raw.recent.slice(0, 10) : [],
       lastRepo: typeof raw.lastRepo === "string" ? raw.lastRepo : null,
       repos: raw.repos && typeof raw.repos === "object" ? raw.repos : {},
+      prs: raw.prs && typeof raw.prs === "object" ? raw.prs : {},
+      recentPrs: Array.isArray(raw.recentPrs) ? raw.recentPrs.slice(0, 10) : [],
     };
   } catch {
     return EMPTY_STATE;

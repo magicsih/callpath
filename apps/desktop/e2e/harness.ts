@@ -75,7 +75,8 @@ export function makeUserData(): string {
 
 export async function launch(userData: string, env: Record<string, string> = {}): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await electron.launch({
-    args: [APP_DIR, ...(process.platform === "linux" ? ["--no-sandbox"] : [])],
+    // Linux CI에는 암호 저장소가 없어 basic 저장소로 토큰 저장을 확인한다(화면은 약한 보관을 경고한다)
+    args: [APP_DIR, ...(process.platform === "linux" ? ["--no-sandbox", "--password-store=basic"] : [])],
     // 정밀 분석은 기본으로 끈다. JDT LS를 띄우는 시나리오만 켜서 다른 시나리오의 시간과 결과를 일정하게 둔다
     env: { ...process.env, CALLPATH_USER_DATA: userData, CALLPATH_PRECISE: "off", ...env } as Record<string, string>,
   });

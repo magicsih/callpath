@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AnalysisEvent, CallpathApi } from "../shared/api";
+import type { AnalysisEvent, CallpathApi, PrProgress } from "../shared/api";
 
 const api: CallpathApi = {
   pickFolder: () => ipcRenderer.invoke("pickFolder"),
@@ -11,6 +11,17 @@ const api: CallpathApi = {
     ipcRenderer.on("analysis-event", handler);
     return () => ipcRenderer.removeListener("analysis-event", handler);
   },
+  listConnections: () => ipcRenderer.invoke("listConnections"),
+  saveConnection: (input) => ipcRenderer.invoke("saveConnection", input),
+  deleteConnection: (id) => ipcRenderer.invoke("deleteConnection", id),
+  openPullRequest: (url) => ipcRenderer.invoke("openPullRequest", url),
+  onPrProgress: (cb) => {
+    const handler = (_e: unknown, p: PrProgress) => cb(p);
+    ipcRenderer.on("pr-progress", handler);
+    return () => ipcRenderer.removeListener("pr-progress", handler);
+  },
+  listPullRequests: (repoPath) => ipcRenderer.invoke("listPullRequests", repoPath),
+  openExternal: (url) => ipcRenderer.invoke("openExternal", url),
   loadState: () => ipcRenderer.invoke("loadState"),
   saveState: (state) => ipcRenderer.invoke("saveState", state),
 };

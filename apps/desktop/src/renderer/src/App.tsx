@@ -1,25 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CompareRequest, RepoInfo, UiState } from "../../shared/api";
+import type { CompareRequest, PrMeta, RepoInfo, UiState } from "../../shared/api";
 import { EMPTY_STATE } from "../../shared/api";
 import { Start } from "./screens/Start";
 import { Compare } from "./screens/Compare";
 import { Review } from "./screens/Review";
+import { Connections } from "./screens/Connections";
+import { PrOpening } from "./screens/PrOpening";
 
 type Screen =
   | { name: "boot" }
   | { name: "start"; error: string | null }
   | { name: "compare"; repo: RepoInfo; base?: string; head?: string }
-  | { name: "review"; repo: RepoInfo; req: CompareRequest; selection: string | null; showTests: boolean };
+  | { name: "review"; repo: RepoInfo; req: CompareRequest; selection: string | null; showTests: boolean; pr: PrMeta | null }
+  | { name: "connections"; back: Screen }
+  | { name: "pr"; url: string; back: Screen };
+
+/** PR 리뷰는 앱 캐시의 bare 저장소를 쓰므로 그 경로로 화면용 저장소 정보를 만든다 */
+function prRepo(m: PrMeta): RepoInfo {
+  return { path: m.gitDir, name: m.repo.split("/").pop() ?? m.repo, branches: [], defaultBase: null, current: null, hasCommits: true, branchError: null };
+}
 
 export function App() {
   const [screen, setScreen] = useState<Screen>({ name: "boot" });
   const [busy, setBusy] = useState(false);
   const state = useRef<UiState>(EMPTY_STATE);
   const [recent, setRecent] = useState<string[]>([]);
+  const [recentPrs, setRecentPrs] = useState<UiState["recentPrs"]>([]);
 
   const persist = useCallback((next: UiState) => {
     state.current = next;
     setRecent(next.recent);
+    setRecentPrs(next.recentPrs);
     void window.callpath.saveState(next);
   }, []);
 
@@ -29,11 +40,21 @@ export function App() {
       const s = await window.callpath.loadState();
       state.current = s;
       setRecent(s.recent);
+      setRecentPrs(s.recentPrs);
       const last = s.lastRepo ? s.repos[s.lastRepo] : undefined;
+      // PR 리뷰는 받아 둔 코드와 PR 정보로 네트워크 없이 바로 복원한다. 새 커밋은 "새로 받기"로 확인한다
+      const lastPr = s.lastRepo ? s.prs[s.lastRepo] : undefined;
+      if (lastPr) {
+        setScreen({
+          name: "review", repo: prRepo(lastPr), req: { repo: lastPr.gitDir, base: lastPr.baseSha, head: lastPr.headSha },
+          selection: last?.selection ?? null, showTests: last?.showTests ?? false, pr: lastPr,
+        });
+        return;
+      }
       if (last) {
         const r = await window.callpath.inspectRepo(last.repo);
         if (r.ok) {
-          setScreen({ name: "review", repo: r.value, req: { repo: r.value.path, base: last.base, head: last.head }, selection: last.selection, showTests: last.showTests });
+          setScreen({ name: "review", repo: r.value, req: { repo: r.value.path, base: last.base, head: last.head }, selection: last.selection, showTests: last.showTests, pr: null });
           return;
         }
         setScreen({ name: "start", error: `마지막 저장소를 열 수 없습니다: ${r.error}` });
@@ -60,13 +81,49 @@ export function App() {
     [persist],
   );
 
+  const prOpened = useCallback(
+    (m: PrMeta) => {
+      const req = { repo: m.gitDir, base: m.baseSha, head: m.headSha };
+      const remembered = state.current.repos[m.gitDir];
+      const same = remembered !== undefined && remembered.base === req.base && remembered.head === req.head;
+      const selection = same ? remembered.selection : null;
+      const showTests = remembered?.showTests ?? false;
+      persist({
+        ...state.current,
+        lastRepo: m.gitDir,
+        repos: { ...state.current.repos, [m.gitDir]: { ...req, selection, showTests } },
+        prs: { ...state.current.prs, [m.gitDir]: m },
+        recentPrs: [{ url: m.url, title: `#${m.number} ${m.title}` }, ...state.current.recentPrs.filter((p) => p.url !== m.url)].slice(0, 10),
+      });
+      setScreen({ name: "review", repo: prRepo(m), req, selection, showTests, pr: m });
+    },
+    [persist],
+  );
+
   const pick = useCallback(async () => {
     const path = await window.callpath.pickFolder();
     if (path) await open(path);
   }, [open]);
 
   if (screen.name === "boot") return <div className="state" role="status">불러오는 중</div>;
-  if (screen.name === "start") return <Start recent={recent} error={screen.error} busy={busy} onOpen={open} onPick={pick} />;
+  if (screen.name === "connections") return <Connections onBack={() => setScreen(screen.back)} />;
+  if (screen.name === "pr") {
+    return <PrOpening url={screen.url} onOpened={prOpened} onBack={() => setScreen(screen.back)} onConnections={() => setScreen({ name: "connections", back: screen })} />;
+  }
+  if (screen.name === "start") {
+    return (
+      <Start
+        recent={recent}
+        recentPrs={recentPrs}
+        error={screen.error}
+        busy={busy}
+        onOpen={open}
+        onPick={pick}
+        onOpenPr={(url) => setScreen({ name: "pr", url, back: screen })}
+        onConnections={() => setScreen({ name: "connections", back: screen })}
+      />
+    );
+  }
   if (screen.name === "compare") {
     return (
       <Compare
@@ -78,6 +135,8 @@ export function App() {
           setScreen({ name: "start", error: null });
         }}
         onReload={() => void open(screen.repo.path)}
+        onOpenPr={(url) => setScreen({ name: "pr", url, back: screen })}
+        onConnections={() => setScreen({ name: "connections", back: screen })}
         onAnalyze={(base, head) => {
           const req = { repo: screen.repo.path, base, head };
           // 같은 비교를 다시 열면 보던 위치까지, 다른 비교면 테스트 표시만 저장소별로 이어간다
@@ -86,20 +145,27 @@ export function App() {
           const selection = same ? remembered.selection : null;
           const showTests = remembered?.showTests ?? false;
           persist({ ...state.current, lastRepo: req.repo, repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } });
-          setScreen({ name: "review", repo: screen.repo, req, selection, showTests });
+          setScreen({ name: "review", repo: screen.repo, req, selection, showTests, pr: null });
         }}
       />
     );
   }
-  const { repo, req } = screen;
+  const { repo, req, pr } = screen;
   return (
     <Review
       key={`${req.repo}|${req.base}|${req.head}`}
       req={req}
       repoName={repo.name}
+      pr={pr}
+      onRefreshPr={() => pr && setScreen({ name: "pr", url: pr.url, back: screen })}
       initialSelection={screen.selection}
       initialShowTests={screen.showTests}
-      onChangeCompare={() => setScreen({ name: "compare", repo, base: req.base, head: req.head })}
+      onChangeCompare={() => {
+        if (pr) {
+          persist({ ...state.current, lastRepo: null });
+          setScreen({ name: "start", error: null });
+        } else setScreen({ name: "compare", repo, base: req.base, head: req.head });
+      }}
       onPersist={(selection, showTests) =>
         persist({ ...state.current, lastRepo: req.repo, repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } })
       }
