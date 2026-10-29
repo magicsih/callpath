@@ -31,6 +31,33 @@ interface Props {
   input: DiffInput;
   highlight: Highlight | null;
   label: string;
+  /** 메모가 있는 head 쪽 줄(원본 파일 기준, 1부터) */
+  notes?: number[];
+  /** head 쪽 커서가 놓인 줄(원본 파일 기준)이 바뀔 때 */
+  onCursorLine?: (line: number) => void;
+  /** 오른쪽 클릭 메뉴의 "이 줄에 메모" */
+  onNoteRequest?: (line: number) => void;
+}
+
+const noteDeco = (lines: number[], start: number) =>
+  lines.map((l) => ({ range: new monaco.Range(l - start + 1, 1, l - start + 1, 1), options: { isWholeLine: false, glyphMarginClassName: "memo-glyph", glyphMarginHoverMessage: { value: "메모가 있는 줄" } } }));
+
+/** head 쪽 편집기에 현재 줄 알림과 메모 메뉴를 붙인다 */
+function attachNoteHooks(ed: monaco.editor.IStandaloneCodeEditor, start: () => number, onCursor: () => ((l: number) => void) | undefined, onNote: () => ((l: number) => void) | undefined) {
+  const subs = [
+    ed.onDidChangeCursorPosition((e) => onCursor()?.(e.position.lineNumber + start() - 1)),
+    ed.addAction({
+      id: "callpath.note",
+      label: "이 줄에 메모",
+      contextMenuGroupId: "navigation",
+      contextMenuOrder: 0,
+      run: (editor) => {
+        const line = editor.getPosition()?.lineNumber ?? 1;
+        onNote()?.(line + start() - 1);
+      },
+    }),
+  ];
+  return () => subs.forEach((s) => s.dispose());
 }
 
 const deco = (lines: number[], start: number) =>
@@ -42,7 +69,12 @@ export function DiffView(props: Props) {
   return props.input.kind === "diff" ? <SideBySide {...props} /> : <SingleView {...props} />;
 }
 
-function SideBySide({ input, highlight, label }: Props) {
+function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest }: Props) {
+  const startRef = useRef(input.modifiedStart);
+  startRef.current = input.modifiedStart;
+  const cbs = useRef({ onCursorLine, onNoteRequest });
+  cbs.current = { onCursorLine, onNoteRequest };
+  const noteDecos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const models = useRef<{ original: monaco.editor.ITextModel; modified: monaco.editor.ITextModel } | null>(null);
@@ -57,6 +89,7 @@ function SideBySide({ input, highlight, label }: Props) {
       useInlineViewWhenSpaceIsLimited: true,
       renderSideBySideInlineBreakpoint: INLINE_BREAKPOINT,
       diffWordWrap: "on",
+      glyphMargin: true,
     });
     // 모델을 매번 만들고 버리면 계산 중인 diff가 버려진 모델을 찾다 오류가 난다. 한 쌍을 두고 내용만 바꾼다
     const original = monaco.editor.createModel("", "plaintext");
@@ -66,6 +99,8 @@ function SideBySide({ input, highlight, label }: Props) {
     models.current = { original, modified };
     decorations.current = e.getModifiedEditor().createDecorationsCollection();
     baseDecorations.current = e.getOriginalEditor().createDecorationsCollection();
+    noteDecos.current = e.getModifiedEditor().createDecorationsCollection();
+    const detach = attachNoteHooks(e.getModifiedEditor(), () => startRef.current, () => cbs.current.onCursorLine, () => cbs.current.onNoteRequest);
     // 한 열 diff에서는 삭제된 줄이 줄바꿈되면 들여쓰기 없이 이어져 읽기 어렵다. 좁을 때는 이전 쪽만 줄바꿈을 끈다
     // 보기가 바뀌며 요소가 사라진 뒤에도 콜백이 한 번 더 올 수 있어 ref 대신 요소를 직접 잡는다
     const el = host.current!;
@@ -78,6 +113,7 @@ function SideBySide({ input, highlight, label }: Props) {
     fit();
     return () => {
       disposed = true;
+      detach();
       ro.disconnect();
       e.dispose();
       original.dispose();
@@ -111,10 +147,17 @@ function SideBySide({ input, highlight, label }: Props) {
     if (o !== undefined) editor.current!.getOriginalEditor().revealLineInCenterIfOutsideViewport(o - input.originalStart + 1);
   }, [highlight, input]);
 
+  useEffect(() => {
+    noteDecos.current?.set(noteDeco(notes ?? [], input.modifiedStart));
+  }, [notes, input]);
+
   return <div className="diff" ref={host} data-testid="diff" data-view="diff" />;
 }
 
-function SingleView({ input, highlight, label }: Props) {
+function SingleView({ input, highlight, label, notes, onCursorLine, onNoteRequest }: Props) {
+  const cbs = useRef({ onCursorLine, onNoteRequest });
+  cbs.current = { onCursorLine, onNoteRequest };
+  const noteDecos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const tint = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
@@ -122,13 +165,19 @@ function SingleView({ input, highlight, label }: Props) {
   const removed = input.kind === "removed";
   const text = removed ? input.original : input.modified;
   const start = removed ? input.originalStart : input.modifiedStart;
+  const startRef = useRef(start);
+  startRef.current = start;
 
   useEffect(() => {
-    const e = monaco.editor.create(host.current!, { ...EDITOR_OPTIONS, model: monaco.editor.createModel("", "plaintext") });
+    const e = monaco.editor.create(host.current!, { ...EDITOR_OPTIONS, glyphMargin: true, model: monaco.editor.createModel("", "plaintext") });
     editor.current = e;
     tint.current = e.createDecorationsCollection();
     mark.current = e.createDecorationsCollection();
+    noteDecos.current = e.createDecorationsCollection();
+    // 삭제된 코드에는 메모를 남기지 않는다(메모는 head 쪽 줄에 묶인다)
+    const detach = attachNoteHooks(e, () => startRef.current, () => (input.kind === "removed" ? undefined : cbs.current.onCursorLine), () => (input.kind === "removed" ? undefined : cbs.current.onNoteRequest));
     return () => {
+      detach();
       const model = e.getModel();
       e.dispose();
       model?.dispose();
@@ -152,6 +201,10 @@ function SingleView({ input, highlight, label }: Props) {
     mark.current?.set(deco(lines, start));
     if (lines[0] !== undefined) editor.current!.revealLineInCenterIfOutsideViewport(lines[0] - start + 1);
   }, [highlight, input, removed, start]);
+
+  useEffect(() => {
+    noteDecos.current?.set(removed ? [] : noteDeco(notes ?? [], start));
+  }, [notes, input, removed, start]);
 
   return <div className="diff" ref={host} data-testid="diff" data-view={input.kind} />;
 }

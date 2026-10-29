@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReviewSession } from "@callpath/core";
-import type { CompareRequest, ErrorKind, PrMeta } from "../../../shared/api";
+import type { CompareRequest, ErrorKind, Note, PrMeta } from "../../../shared/api";
+import { NotesDrawer, PostDialog } from "../components/Notes";
+import { noteTarget } from "../components/Detail";
 import { childSteps, neighbor, refTarget, resolveSelection, shortName, buildNav, CHANGE_LABEL, type NavItem, type StepItem } from "../nav";
 import { FlowList } from "../components/FlowList";
 import { Detail } from "../components/Detail";
@@ -9,6 +11,16 @@ import { Icon } from "../components/Icon";
 import { PreciseBanner, PreciseChip, type PreciseView } from "../components/PreciseStatus";
 
 /** run은 이 결과를 받은 분석 실행 번호. 정밀 분석 결과로 세션이 바뀌어도 그대로다 */
+/** 메모 위치가 들어 있는 항목. 단계, 테스트, 파일 순으로 찾는다 */
+function findItemFor(nav: NonNullable<ReturnType<typeof buildNav>>, path: string, line: number): NavItem | null {
+  const row = line - 1;
+  const inRange = (r: { startLine: number; endLine: number }) => row >= r.startLine && row <= r.endLine;
+  for (const g of nav.groups) for (const i of g.items) if (i.kind === "step" && !i.step.refOf && i.step.change !== "removed" && i.step.symbol.path === path && inRange(i.step.symbol.range)) return i;
+  for (const tests of nav.testsOf.values()) for (const t of tests) if (t.test.symbol.path === path && inRange(t.test.symbol.range)) return t;
+  for (const g of nav.groups) for (const i of g.items) if (i.kind === "file" && i.file.path === path) return i;
+  return null;
+}
+
 type Analysis = { status: "loading" } | { status: "error"; message: string; kind: ErrorKind } | { status: "ready"; session: ReviewSession; run: number };
 
 interface Props {
@@ -33,6 +45,11 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
   const rows = useRef(new Map<string, HTMLButtonElement>());
 
   const [precise, setPrecise] = useState<PreciseView>({ running: false, message: null, error: null });
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [drawer, setDrawer] = useState(false);
+  const [posting, setPosting] = useState<number[] | null>(null);
+  const [noteRequest, setNoteRequest] = useState(0);
+  const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(null);
   const [bannerClosed, setBannerClosed] = useState(false);
 
   useEffect(() => {
@@ -64,6 +81,12 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
   }, [req, run]);
 
   const session = analysis.status === "ready" ? analysis.session : null;
+  // 메모는 분석에 쓴 커밋(SHA)에 묶는다. 브랜치 이름은 움직이므로 쓰지 않는다
+  const scope = session ? { repo: req.repo, base: session.base, head: session.head } : null;
+  const reloadNotes = useCallback(() => {
+    if (scope) void window.callpath.listNotes(scope).then(setNotes);
+  }, [scope?.repo, scope?.base, scope?.head]);
+  useEffect(() => reloadNotes(), [reloadNotes]);
   const nav = useMemo(() => (session ? buildNav(session, showTests) : null), [session, showTests]);
   const current = nav ? resolveSelection(nav, selectedKey) : null;
 
@@ -159,6 +182,12 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           e.preventDefault();
           toggleTests();
           break;
+        case "m":
+          if (noteTarget(current)) {
+            e.preventDefault();
+            setNoteRequest((n) => n + 1);
+          }
+          break;
         case "Enter": {
           // 이미 선택된 목록 줄에서 누른 Enter는 다음 단계로, 다른 버튼에서 누른 Enter는 그 버튼을 누른다
           const row = target.closest<HTMLElement>(".pane.left button.row");
@@ -202,6 +231,11 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
         </span>
       )}
       <span className="spacer" />
+      {session && (
+        <button onClick={() => setDrawer((v) => !v)} aria-expanded={drawer} aria-controls="notes-drawer" data-testid="notes-toggle">
+          메모 {notes.length}
+        </button>
+      )}
       {pr && <button onClick={() => window.callpath.openExternal(pr.url)} aria-label="PR 페이지를 브라우저로 열기">PR 페이지</button>}
       {pr && <button onClick={onRefreshPr} aria-label="PR을 새로 받기">새로 받기</button>}
       <button onClick={onChangeCompare}>{pr ? "다른 저장소나 PR" : "비교 바꾸기"}</button>
@@ -313,9 +347,35 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           onGoRef={target ? () => select(target) : null}
           refLabel={refFlow && current.kind === "step" ? `${refFlow.label} ${current.step.refOf!.n}단계` : null}
           crumbs={crumbs}
+          notes={notes}
+          noteRequest={noteRequest}
+          reveal={reveal}
+          onAddNote={async (path, line, body) => {
+            await window.callpath.addNote(scope!, { path, line, body });
+            reloadNotes();
+          }}
         />
         <StackPane item={current} nav={nav} onSelect={(i) => select(i)} />
       </div>
+      {drawer && (
+        <div id="notes-drawer">
+          <NotesDrawer
+            notes={notes}
+            pr={pr}
+            onClose={() => setDrawer(false)}
+            onDelete={(n) => void window.callpath.deleteNote(n.id).then(reloadNotes)}
+            onPost={(ids) => setPosting(ids)}
+            onGo={(n) => {
+              const hit = findItemFor(nav, n.path, n.line);
+              if (!hit) return;
+              if (hit.kind === "test" && !showTests) toggleTests();
+              select(hit);
+              setReveal({ line: n.line, nonce: Date.now() });
+            }}
+          />
+        </div>
+      )}
+      {posting && pr && <PostDialog pr={pr} ids={posting} notes={notes} onClose={() => setPosting(null)} onPosted={reloadNotes} />}
       <footer className="bottombar">
         <button
           onClick={() => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CallOrderDiff, ReviewSession, Range, Step, SymbolRef } from "@callpath/core";
+import type { Note } from "../../../shared/api";
 import { CHANGE_LABEL, describeMoves, shortName, type NavItem } from "../nav";
 import { languageFor } from "../monaco";
 import { DiffView, type DiffInput, type Highlight } from "./DiffView";
@@ -95,6 +96,13 @@ function chipHighlight(d: CallOrderDiff, side: "base" | "head", i: number): High
   return side === "head" ? { modified: own, original: pair } : { original: own, modified: pair };
 }
 
+/** 이 보기가 보여 주는 head 쪽 줄 범위 안인지 */
+function inShown(input: DiffInput, line: number): boolean {
+  const text = input.kind === "removed" ? input.original : input.modified;
+  const start = input.kind === "removed" ? input.originalStart : input.modifiedStart;
+  return line >= start && line < start + text.split("\n").length;
+}
+
 export interface Crumbs {
   path: string[];
   next: string | null;
@@ -106,11 +114,56 @@ interface Props {
   onGoRef: (() => void) | null;
   refLabel: string | null;
   crumbs: Crumbs | null;
+  notes: Note[];
+  onAddNote: (path: string, line: number, body: string) => Promise<void>;
+  /** 값이 바뀌면 현재 줄에 메모 작성 칸을 연다(m 키) */
+  noteRequest: number;
+  /** 메모 목록에서 고른 줄. 값이 바뀌면 그 줄로 가서 강조한다 */
+  reveal: { line: number; nonce: number } | null;
 }
 
-export function Detail({ item, session, onGoRef, refLabel, crumbs }: Props) {
+/** 메모를 남길 수 있는 head 쪽 파일과 처음 고른 줄. 삭제된 코드에는 남기지 않는다 */
+export function noteTarget(item: NavItem): { path: string; line: number } | null {
+  if (item.kind === "file") {
+    if (item.file.status === "removed") return null;
+    const first = item.file.hunks.find((h) => h.head)?.head;
+    return { path: item.file.path, line: (first?.startLine ?? 0) + 1 };
+  }
+  const s = item.kind === "test" ? item.test.symbol : item.step.change === "removed" ? null : item.step.symbol;
+  return s ? { path: s.path, line: s.range.startLine + 1 } : null;
+}
+
+export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddNote, noteRequest, reveal }: Props) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [chip, setChip] = useState<Highlight | null>(null);
+  const target = noteTarget(item);
+  const cursor = useRef<number | null>(null);
+  const [composer, setComposer] = useState<{ line: number } | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const openComposer = (line?: number) => {
+    if (!target) return;
+    setComposer({ line: line ?? cursor.current ?? target.line });
+  };
+  useEffect(() => {
+    cursor.current = null;
+    setComposer(null);
+    setDraft("");
+  }, [item.key]);
+  useEffect(() => {
+    if (noteRequest > 0) openComposer();
+  }, [noteRequest]);
+  useEffect(() => {
+    if (reveal) setChip({ original: [], modified: [reveal.line] });
+  }, [reveal?.nonce]);
+  const save = async () => {
+    if (!target || !composer || !draft.trim()) return;
+    setSaving(true);
+    await onAddNote(target.path, composer.line, draft);
+    setSaving(false);
+    setComposer(null);
+    setDraft("");
+  };
   // 창 높이가 낮으면 호출 순서 띠를 요약 한 줄로 접어 diff 자리를 남긴다
   const [orderOpen, setOrderOpen] = useState(() => window.innerHeight >= 560);
   const orderToggled = useRef(false);
@@ -166,6 +219,12 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs }: Props) {
           <h2 data-testid="detail-title" title={sym?.qualifiedName ?? path}>{title}</h2>
           {step && <span className={`chip change-${step.change}`}>{CHANGE_LABEL[step.change]}</span>}
           {step?.signatureChanged && step.change === "body" && <span className="chip change-signature">시그니처</span>}
+          <span className="spacer" />
+          {target && (
+            <button onClick={() => openComposer()} aria-keyshortcuts="m" data-testid="note-open">
+              메모 남기기 <kbd aria-hidden="true">m</kbd>
+            </button>
+          )}
         </div>
         <p className="muted path">{path}{line ? `:${line}` : ""}</p>
         {crumbs && crumbs.path.length > 0 && (
@@ -245,6 +304,42 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs }: Props) {
         </div>
       )}
 
+      {composer && target && (
+        <form
+          className="composer"
+          data-testid="composer"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <label htmlFor="note-body">
+            <strong>{target.path.split("/").pop()}:{composer.line}</strong>에 메모
+          </label>
+          <textarea
+            id="note-body"
+            rows={3}
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setComposer(null);
+              } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void save();
+              }
+            }}
+          />
+          <div className="row">
+            <button type="submit" className="primary" disabled={!draft.trim() || saving}>메모 저장</button>
+            <button type="button" onClick={() => setComposer(null)}>취소</button>
+            <span className="muted small">⌘ Enter 저장, Esc 취소. 코드에서 다른 줄을 누른 뒤 m을 누르면 그 줄에 남깁니다</span>
+          </div>
+        </form>
+      )}
+
       {note && (
         <div className="banner" role="note" data-testid="view-note">
           <span>{note}</span>
@@ -254,7 +349,16 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs }: Props) {
       <div className="diff-wrap">
         {load.status === "loading" && <div className="placeholder" role="status">코드를 읽는 중</div>}
         {load.status === "error" && <div className="placeholder error-text" role="alert"><Icon name="warn" /> 코드를 읽지 못했습니다: {load.message}</div>}
-        {load.status === "ready" && <DiffView input={load.input} highlight={chip ?? load.highlight} label={`${title} 비교`} />}
+        {load.status === "ready" && (
+          <DiffView
+            input={load.input}
+            highlight={chip ?? load.highlight}
+            label={`${title} 비교`}
+            notes={target ? notes.filter((n) => n.path === target.path && inShown(load.input, n.line)).map((n) => n.line) : []}
+            onCursorLine={(l) => (cursor.current = l)}
+            onNoteRequest={(l) => openComposer(l)}
+          />
+        )}
       </div>
     </section>
   );

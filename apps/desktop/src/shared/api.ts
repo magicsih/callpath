@@ -92,6 +92,35 @@ export type PrList =
   | { status: "no-remote" }
   | { status: "needs-connection"; host: string; kind: ProviderKindName | null };
 
+/** 읽으면서 남긴 메모. head 쪽 파일의 줄(1부터)에 묶인다 */
+export interface Note {
+  id: number;
+  path: string;
+  line: number;
+  body: string;
+  createdAt: number;
+  posted: { url: string; mode: "line" | "general" } | null;
+}
+
+export interface NoteScope {
+  /** 분석 요청의 repo(로컬 저장소 경로나 PR의 bare 저장소) */
+  repo: string;
+  base: string;
+  head: string;
+}
+
+/** 게시 미리보기의 한 줄. line은 PR diff 안의 줄이라 줄 코멘트로, general은 diff 밖이라 위치를 적은 일반 코멘트로 올라간다 */
+export interface PostPlan {
+  noteId: number;
+  mode: "line" | "general";
+  path: string;
+  line: number;
+  /** 실제로 올라갈 본문 */
+  body: string;
+}
+
+export type PostResult = { noteId: number; ok: true; url: string } | { noteId: number; ok: false; error: string };
+
 export interface UiState {
   recent: string[];
   /** 마지막으로 리뷰 화면에 있던 저장소. 시작 화면으로 나가면 null */
@@ -131,6 +160,13 @@ export interface CallpathApi {
   /** 로컬 저장소의 원격 주소로 연결을 찾아 열린 PR 목록을 준다 */
   listPullRequests(repoPath: string): Promise<Result<PrList>>;
   openExternal(url: string): Promise<void>;
+  listNotes(scope: NoteScope): Promise<Note[]>;
+  addNote(scope: NoteScope, note: { path: string; line: number; body: string }): Promise<Note>;
+  deleteNote(id: number): Promise<void>;
+  /** PR에 올릴 메모를 줄 코멘트와 일반 코멘트로 나눈다 */
+  planPost(pr: PrMeta, noteIds: number[]): Promise<Result<PostPlan[]>>;
+  /** 미리보기에서 확인한 메모를 올린다 */
+  postNotes(pr: PrMeta, plans: PostPlan[]): Promise<PostResult[]>;
   /** 정밀 분석 소식을 받는다. 돌려준 함수를 부르면 그만 받는다 */
   onAnalysisEvent(cb: (e: AnalysisEvent) => void): () => void;
   loadState(): Promise<UiState>;

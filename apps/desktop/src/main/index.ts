@@ -2,12 +2,13 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } fr
 import { ProviderError } from "@callpath/providers";
 import { deleteConnection, listConnections, saveConnection } from "./connections";
 import { listPullRequests, NeedsConnection, openPullRequest } from "./pullRequests";
+import { addNote, deleteNote, listNotes, planPost, postNotes } from "./notes";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import workerPath from "./analyzeWorker?modulePath";
 import { inspectRepo, PathError, readAt } from "./repo";
 import { loadState, saveState } from "./state";
-import type { AnalysisEvent, CompareRequest, ConnectionInput, ErrorKind, FileRequest, Result, UiState } from "../shared/api";
+import type { AnalysisEvent, CompareRequest, ConnectionInput, ErrorKind, FileRequest, NoteScope, PostPlan, PrMeta, Result, UiState } from "../shared/api";
 import type { WorkerEvent } from "./analyzeWorker";
 import type { ReviewSession } from "@callpath/core";
 
@@ -117,6 +118,11 @@ ipcMain.handle("listPullRequests", (_e, repoPath: string) => wrap(() => listPull
 ipcMain.handle("openExternal", (_e, url: string) => {
   if (/^https:\/\//.test(url)) void shell.openExternal(url);
 });
+ipcMain.handle("listNotes", (_e, s: NoteScope) => listNotes(s));
+ipcMain.handle("addNote", (_e, s: NoteScope, n: { path: string; line: number; body: string }) => addNote(s, n));
+ipcMain.handle("deleteNote", (_e, id: number) => deleteNote(id));
+ipcMain.handle("planPost", (_e, pr: PrMeta, ids: number[]) => wrap(() => planPost(pr, ids)));
+ipcMain.handle("postNotes", (_e, pr: PrMeta, plans: PostPlan[]) => postNotes(pr, plans));
 ipcMain.handle("loadState", () => loadState());
 ipcMain.handle("saveState", (_e, s: UiState) => saveState(s));
 

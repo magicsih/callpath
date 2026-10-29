@@ -22,6 +22,11 @@ const api: CallpathApi = {
   },
   listPullRequests: (repoPath) => ipcRenderer.invoke("listPullRequests", repoPath),
   openExternal: (url) => ipcRenderer.invoke("openExternal", url),
+  listNotes: (scope) => ipcRenderer.invoke("listNotes", scope),
+  addNote: (scope, note) => ipcRenderer.invoke("addNote", scope, note),
+  deleteNote: (id) => ipcRenderer.invoke("deleteNote", id),
+  planPost: (pr, ids) => ipcRenderer.invoke("planPost", pr, ids),
+  postNotes: (pr, plans) => ipcRenderer.invoke("postNotes", pr, plans),
   loadState: () => ipcRenderer.invoke("loadState"),
   saveState: (state) => ipcRenderer.invoke("saveState", state),
 };

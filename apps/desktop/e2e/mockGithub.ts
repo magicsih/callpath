@@ -8,8 +8,16 @@ import { join, resolve } from "node:path";
 export const GOOD_TOKEN = "ghe-good-token-0123456789";
 const FIX = resolve(__dirname, "../../../fixtures/java");
 
+export interface Posted {
+  kind: "line" | "general";
+  body: string;
+  path?: string;
+  line?: number;
+}
+
 export interface MockGithub {
   url: string;
+  posted: Posted[];
   /** PR 1의 주소 */
   prUrl: string;
   bare: string;
@@ -40,8 +48,22 @@ export async function startMockGithub(): Promise<MockGithub> {
     return { filename, patch: full.slice(full.indexOf("@@")) };
   });
 
+  const posted: Posted[] = [];
+  let nextId = 500;
+  const inDiff = (path: string, line: number) =>
+    [...(files.find((f) => f.filename === path)?.patch ?? "").matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)].some((m) => {
+      const start = Number(m[1]);
+      const count = m[2] === undefined ? 1 : Number(m[2]);
+      return line >= start && line < start + count;
+    });
+  const readBody = (req: import("node:http").IncomingMessage) =>
+    new Promise<Record<string, unknown>>((r) => {
+      let s = "";
+      req.on("data", (d) => (s += d));
+      req.on("end", () => r(s ? JSON.parse(s) : {}));
+    });
   let base = "";
-  const server: Server = createServer((req, res) => {
+  const server: Server = createServer(async (req, res) => {
     const u = new URL(req.url!, "http://x");
     const json = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
@@ -62,6 +84,19 @@ export async function startMockGithub(): Promise<MockGithub> {
         return json(200, pull);
       case "GET /api/v3/repos/shop/order/pulls/1/files":
         return json(200, page > 1 ? [] : files);
+      case "POST /api/v3/repos/shop/order/pulls/1/comments": {
+        const b = await readBody(req);
+        if (b.commit_id !== headSha || !inDiff(String(b.path), Number(b.line))) return json(422, { message: "Validation Failed: line must be part of the diff" });
+        const id = nextId++;
+        posted.push({ kind: "line", body: String(b.body), path: String(b.path), line: Number(b.line) });
+        return json(201, { id, html_url: `${base}/shop/order/pull/1#discussion_r${id}` });
+      }
+      case "POST /api/v3/repos/shop/order/issues/1/comments": {
+        const b = await readBody(req);
+        const id = nextId++;
+        posted.push({ kind: "general", body: String(b.body) });
+        return json(201, { id, html_url: `${base}/shop/order/pull/1#issuecomment-${id}` });
+      }
       default:
         return json(404, { message: "Not Found" });
     }
@@ -70,6 +105,7 @@ export async function startMockGithub(): Promise<MockGithub> {
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
     url: base,
+    posted,
     prUrl: `${base}/shop/order/pull/1`,
     bare,
     close: () =>
