@@ -50,6 +50,21 @@ export function makeTransitRepo(): string {
   return dir;
 }
 
+/** base 표본에서 head 쪽 파일 하나만 고친 저장소 */
+export function makeRepoWithHeadEdit(file: string, edit: (text: string) => string): string {
+  const dir = temp("callpath-e2e-edit-");
+  const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  cpSync(join(FIXTURES, "java", "base"), dir, { recursive: true });
+  git("add", "-A");
+  git("commit", "-qm", "base");
+  git("checkout", "-q", "-b", "feature/edit");
+  const path = join(dir, file);
+  writeFileSync(path, edit(readFileSync(path, "utf8")));
+  git("commit", "-qam", "edit");
+  return dir;
+}
+
 export function makeTempDir(prefix: string): string {
   return temp(prefix);
 }
@@ -61,7 +76,8 @@ export function makeUserData(): string {
 export async function launch(userData: string, env: Record<string, string> = {}): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await electron.launch({
     args: [APP_DIR, ...(process.platform === "linux" ? ["--no-sandbox"] : [])],
-    env: { ...process.env, CALLPATH_USER_DATA: userData, ...env } as Record<string, string>,
+    // 정밀 분석은 기본으로 끈다. JDT LS를 띄우는 시나리오만 켜서 다른 시나리오의 시간과 결과를 일정하게 둔다
+    env: { ...process.env, CALLPATH_USER_DATA: userData, CALLPATH_PRECISE: "off", ...env } as Record<string, string>,
   });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");

@@ -6,8 +6,10 @@ import { FlowList } from "../components/FlowList";
 import { Detail } from "../components/Detail";
 import { StackPane } from "../components/StackPane";
 import { Icon } from "../components/Icon";
+import { PreciseBanner, PreciseChip, type PreciseView } from "../components/PreciseStatus";
 
-type Analysis = { status: "loading" } | { status: "error"; message: string; kind: ErrorKind } | { status: "ready"; session: ReviewSession };
+/** run은 이 결과를 받은 분석 실행 번호. 정밀 분석 결과로 세션이 바뀌어도 그대로다 */
+type Analysis = { status: "loading" } | { status: "error"; message: string; kind: ErrorKind } | { status: "ready"; session: ReviewSession; run: number };
 
 interface Props {
   req: CompareRequest;
@@ -26,15 +28,34 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
   const history = useRef<string[]>([]);
   const rows = useRef(new Map<string, HTMLButtonElement>());
 
+  const [precise, setPrecise] = useState<PreciseView>({ running: false, message: null, error: null });
+  const [bannerClosed, setBannerClosed] = useState(false);
+
   useEffect(() => {
     let alive = true;
     setAnalysis({ status: "loading" });
+    setPrecise({ running: true, message: null, error: null });
+    setBannerClosed(false);
+    const same = (r: CompareRequest) => r.repo === req.repo && r.base === req.base && r.head === req.head;
+    // 빠른 분석 결과를 먼저 보이고, 정밀 분석 결과가 오면 보던 위치를 유지한 채 세션만 바꾼다
+    const off = window.callpath.onAnalysisEvent((ev) => {
+      if (!alive || !same(ev.req)) return;
+      if (ev.kind === "status") setPrecise((p) => ({ ...p, message: ev.message }));
+      else if (ev.kind === "precise") {
+        setPrecise({ running: false, message: null, error: null });
+        setAnalysis((a) => (a.status === "ready" && a.session.head === ev.session.head ? { ...a, session: ev.session } : a));
+      } else {
+        setPrecise({ running: false, message: null, error: ev.error });
+      }
+    });
     window.callpath.analyze(req).then((r) => {
       if (!alive) return;
-      setAnalysis(r.ok ? { status: "ready", session: r.value } : { status: "error", message: r.error, kind: r.kind });
+      setAnalysis(r.ok ? { status: "ready", session: r.value, run } : { status: "error", message: r.error, kind: r.kind });
+      if (!r.ok) setPrecise({ running: false, message: null, error: null });
     });
     return () => {
       alive = false;
+      off();
     };
   }, [req, run]);
 
@@ -70,8 +91,9 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
   }, [current?.key]);
 
   // 분석 결과를 새로 받으면 선택된 줄로 초점을 옮겨 화면 읽기가 현재 위치부터 읽게 한다.
-  // 실행 번호가 아니라 결과를 기준으로 삼아, 다시 분석을 누른 직후 이전 결과 위에서 먼저 돌지 않게 한다
-  const focusedSession = useRef<ReviewSession | null>(null);
+  // 결과를 받은 실행 번호를 기준으로 삼아, 다시 분석 직후 이전 결과 위에서 먼저 돌지 않고
+  // 정밀 분석 결과로 세션만 바뀔 때는 초점을 다시 옮기지 않는다
+  const focusedRun = useRef(-1);
   // 다시 분석을 누를 때 초점이 있던 요소. 끝났을 때 초점이 아직 거기 있으면 목록 줄로 옮긴다
   const rerunFrom = useRef<Element | null>(null);
   const rerun = () => {
@@ -79,8 +101,8 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     setRun((n) => n + 1);
   };
   useEffect(() => {
-    if (analysis.status !== "ready" || !current || focusedSession.current === analysis.session) return;
-    focusedSession.current = analysis.session;
+    if (analysis.status !== "ready" || !current || focusedRun.current === analysis.run) return;
+    focusedRun.current = analysis.run;
     // 그사이 사용자가 다른 곳에 초점을 두었으면 빼앗지 않는다. 다시 분석을 누른 자리에 초점이 남아 있으면 옮긴다
     const from = rerunFrom.current;
     rerunFrom.current = null;
@@ -88,7 +110,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
       const active = document.activeElement as HTMLButtonElement | null;
       if (!active || active === document.body || active.disabled || (from !== null && active === from)) rows.current.get(current.key)?.focus();
     });
-  }, [analysis, current?.key]);
+  }, [analysis.status === "ready" ? analysis.run : -1, current?.key]);
 
   const select = useCallback(
     (item: NavItem | null, remember = true) => {
@@ -163,6 +185,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
       <span className="refs" title={`기준 ${req.base}, 리뷰할 변경 ${req.head}`} aria-label={`기준 ${req.base}, 리뷰할 변경 ${req.head}`}>
         <span aria-hidden="true">{req.base} ← {req.head}</span>
       </span>
+      {session && <PreciseChip session={session} view={precise} />}
       {session && (
         <span className="stats muted" aria-label="분석 요약">
           흐름 {session.flows.length} · 바뀐 메서드 {session.flows.flatMap((f) => f.steps).filter((s) => s.change !== "unchanged" && !s.refOf).length + session.orphans.length} · {session.stats.ms}ms
@@ -211,6 +234,20 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
       </div>
     );
   }
+  // 테스트 코드만 바뀌었는데 테스트를 숨겨 둔 경우: 바뀐 것이 없다고 하지 않고 테스트 표시를 안내한다
+  if (!current && session && !showTests && session.otherTests.length > 0) {
+    return (
+      <div className="review">
+        {head}
+        <div className="state" data-testid="state-tests-only" role="status">
+          <Icon name="test" size={28} />
+          <h2 className="state-title">테스트 코드만 바뀌었습니다</h2>
+          <p className="muted">숨겨 둔 테스트 파일 {session.otherTests.length}개가 바뀌었습니다.</p>
+          <button className="primary" onClick={toggleTests} autoFocus>테스트 표시 켜기</button>
+        </div>
+      </div>
+    );
+  }
   if (!nav || !current) {
     return (
       <div className="review">
@@ -247,6 +284,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
   return (
     <div className="review">
       {head}
+      {!bannerClosed && <PreciseBanner session={session!} view={precise} onDismiss={() => setBannerClosed(true)} />}
       <div className="panes">
         <FlowList
           nav={nav}
@@ -300,6 +338,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
         </span>
       </footer>
       <div className="sr-only" aria-live="polite" data-testid="announce">{announce}{atEdge}</div>
+      <div className="sr-only" aria-live="polite">{session!.analysis.precise === "done" ? "정밀 분석이 끝났습니다" : ""}</div>
     </div>
   );
 }

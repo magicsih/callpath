@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { resolve } from "node:path";
 import { analyze, DirectorySource } from "@callpath/core";
 import { buildNav, childSteps, describeMoves, neighbor, resolveSelection, type StepItem } from "../src/renderer/src/nav";
@@ -58,6 +58,8 @@ describe("경유 메서드를 건너뛴 다음 단계", async () => {
   const file = join(dir, "head/src/main/java/shop/order/OrderRepository.java");
   writeFileSync(file, readFileSync(file, "utf8").replace("return new OrderResult(", "return OrderResult.of("));
   const s = await analyze(new DirectorySource(join(dir, "base")), new DirectorySource(join(dir, "head")), { repo: dir, baseLabel: "base", headLabel: "head" });
+  const { rmSync } = await import("node:fs");
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   it("진입점 다음 placeOrder가 바뀌지 않았으면 confirm이 다음 단계이고 placeOrder를 경유로 보인다", async () => {
     const { nextSteps } = await import("../src/renderer/src/nav");

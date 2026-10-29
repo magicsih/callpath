@@ -16,8 +16,19 @@ jobs:
         # 비공개 저장소의 macOS 러너는 분당 10배 과금이라 PR에서는 ubuntu만, main 반영 때 macOS를 함께 돌린다
         os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest","macos-latest"]') }}
     runs-on: ${{ matrix.os }}
+    env:
+      # JDT LS를 한 번 내려받아 단위, 통합, E2E 테스트가 함께 쓴다
+      CALLPATH_LSP_CACHE: ${{ github.workspace }}/.lsp-cache
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v6
+        with:
+          path: .lsp-cache/tools
+          key: jdtls-1.61.0-${{ runner.os }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:

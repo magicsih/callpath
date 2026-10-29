@@ -2,7 +2,7 @@
 
 - 앱 이름: Callpath (2026-10-28 결정, [D8](decisions.md#d8-앱-이름-callpath))
 
-- 상태: 승인 (v0.1, 2026-10-28 승인). v0.1.1에서 2단계 구현 중 확정한 규칙을 반영 (5.2, 5.4, 5.6, 6.1)
+- 상태: 승인 (v0.1, 2026-10-28 승인). v0.1.1에서 2단계 구현 중 확정한 규칙을 반영 (5.2, 5.4, 5.6, 6.1). v0.1.2에서 4단계 정밀 분석 구현 사항을 반영 (4.3, 4.4, 5.2, 6.1, 6.4)
 - 범위: 1차(PR 리뷰 흐름 3종), 2차(새 저장소 안내자)는 구조만 예약
 - 함께 읽기: [테스트 계획](test-plan.md), [결정 기록](decisions.md)
 
@@ -222,8 +222,8 @@ core는 어느 패키지에도 의존하지 않는다. lsp는 core의 그래프 
 |---|---|
 | Electron main | 저장소 clone/fetch(`git` CLI), 분석 워커 기동, LSP 자식 프로세스 관리, SQLite 캐시, 토큰 저장(safeStorage), IPC |
 | 분석 워커 (Node worker_threads) | core 실행. tree-sitter는 web-tree-sitter(wasm) 사용으로 Electron 네이티브 재빌드가 없음. UI를 막지 않음 |
-| JDT LS (java) | Java 21 이상으로 기동. 첫 실행 때 Eclipse 스냅샷을 앱 데이터 폴더에 내려받음 |
-| kotlin-lsp | 사용자가 설치한 실행 파일(PATH 또는 설정 경로)이 있을 때만 기동. 앱이 번들하지 않음 |
+| JDT LS (java) | 분석 워커가 Java 21 이상으로 기동. 1.61.0 마일스톤으로 고정하고, 첫 실행 때 앱 데이터 폴더에 내려받아 SHA-256을 확인한다(D10) |
+| kotlin-lsp | 사용자가 설치한 실행 파일(PATH 또는 `CALLPATH_KOTLIN_LSP`)이 있을 때만 기동. 앱이 번들하지 않음 |
 | renderer | React + Monaco. 분석 결과 JSON과 파일 내용만 받음. git, 네트워크 접근 없음 |
 
 ### 4.4 캐시
@@ -239,6 +239,8 @@ core는 어느 패키지에도 의존하지 않는다. lsp는 core의 그래프 
 | notes | path, line | 사용자 메모 |
 
 파일 blob 해시 단위로 캐시하므로 PR에 새 커밋이 와도 바뀐 파일만 다시 인덱싱한다.
+
+4단계 구현에서는 이 중 `sessions`만 만들었다(D11). 빠른 분석은 실제 저장소(spring-petclinic, 파일 50개)에서도 100ms 안팎이라 파일, 심볼, 간선 단위 캐시가 얻는 것이 없고, 비싼 것은 LSP 정밀 분석이다. 정밀 분석까지 끝난 세션을 base, head SHA와 분석기 버전을 키로 Node 내장 `node:sqlite`에 저장한다(네이티브 모듈 없음). 같은 비교를 다시 열면 LSP를 띄우지 않는다.
 
 3단계에서는 화면 상태(최근 저장소, 마지막 비교, 선택 위치, 테스트 표시)만 앱 데이터 폴더의 `state.json`에 저장한다. 위 SQLite 캐시는 정밀 분석과 함께 4단계에서, 메모 표는 PR 코멘트 게시와 함께 5단계에서 만든다.
 
@@ -266,6 +268,14 @@ core는 어느 패키지에도 의존하지 않는다. lsp는 core의 그래프 
 3. 타입이 저장소 안 클래스면 그 클래스와 상위 클래스에서 찾는다. 인터페이스나 추상 메서드면 구현 클래스로 잇고 `low`로 둔다. 저장소 밖 타입(`List`, `String` 등)이면 잇지 않는다.
 4. 수신자가 복잡한 식이라 타입을 모르면 이름과 인자 수로 저장소 전체에서 찾는다. 후보가 8개를 넘으면 흔한 이름으로 보고 잇지 않는다.
 5. 인자 수가 맞는 후보가 없으면 Kotlin 기본 인자를 고려해 이름만 맞는 후보를 `low`로 남긴다.
+
+2계층 실행 방식(4단계 구현):
+
+- LSP는 디스크의 파일을 읽어야 한다. 사용자 작업 트리를 체크아웃하거나 `git worktree`를 만들지 않도록 head 커밋을 `git archive`로 캐시 폴더에 푼다.
+- 빌드 파일(Gradle, Maven)을 가져오지 않는다. 각 Java 파일의 패키지 선언으로 소스 루트를 추론해 JDT LS에 알려준다. 의존성 다운로드와 빌드 실패 없이 수 초 안에 준비되고, 저장소 안의 호출만 필요하므로 충분하다.
+- 바뀐 메서드마다 이름 위치에서 `prepareCallHierarchy`를 부르고 `outgoingCalls`, `incomingCalls`로 간선을 고친다. 호출 위치(줄)를 코어의 호출문과 맞춰 호출 순서를 유지한다.
+- LSP가 인터페이스나 추상 메서드를 답하면 1계층이 찾은 구현 클래스 간선을 `medium`으로 남긴다. 리뷰어가 구현까지 따라가도록 하기 위해서다.
+- 빠른 분석 결과를 먼저 보이고, 정밀 분석이 끝나면 보던 위치를 유지한 채 세션만 바꾼다. 언어 하나에 180초 제한이 있고, 바뀐 메서드 300개까지만 질의한다.
 
 병합 규칙: LSP가 확인한 간선은 `high`로 올리고, LSP가 질의한 메서드에서 1계층이 만든 간선 중 LSP 결과에 없는 것은 제거한다. LSP가 질의하지 않은 메서드의 간선은 그대로 둔다. 전체 그래프를 LSP로 만들지 않고 변경 메서드 주변만 질의하는 것이 속도의 전제다.
 
@@ -345,7 +355,12 @@ flowchart TD
 interface ReviewSession {
   repo: string;                 // 로컬 경로
   base: string; head: string;   // SHA
-  analysis: { fast: "done"; precise: "pending" | "done" | "failed"; failReason?: string };
+  analysis: {
+    fast: "done";
+    precise: "pending" | "done" | "failed" | "skipped";
+    // 언어별 결과. code: disabled(꺼짐), no-tool(JDK나 kotlin-lsp 없음), error, timeout
+    languages: { java?: LanguageAnalysis; kotlin?: LanguageAnalysis };
+  };
   flows: Flow[];
   orphans: Step[];              // 진입점 미확정
   outsideMethods: FileChange[]; // 메서드 밖 변경 (필드, import, 애노테이션)
@@ -399,7 +414,7 @@ type ExplainRequest =
 
 | 상황 | 동작 |
 |---|---|
-| JDK 없음, JDT LS 내려받기 실패, import 실패 | 빠른 결과로 계속. 상단 띠에 원인과 설정 링크 |
+| JDK 없음, JDT LS 내려받기 실패, 실행 오류, 시간 초과 | 빠른 결과로 계속. 상단 바에 "정밀 분석 없음", 띠에 언어별 원인과 설치 안내. 설정 화면은 아직 없어 JDK, JDT LS, kotlin-lsp 경로와 끄기는 환경 변수(`CALLPATH_JAVA_HOME`, `CALLPATH_JDTLS_DIR`, `CALLPATH_KOTLIN_LSP`, `CALLPATH_PRECISE=off`)로 정한다 |
 | kotlin-lsp 없음 | Kotlin은 1계층만. 설정에 설치 안내 |
 | 진입점 하나도 못 찾음 | 모든 변경이 "미확정" 묶음에 들어감. 흐름 기능은 비활성이 아니라 묶음을 그대로 순서대로 넘김 |
 | 제공자 인증 실패, 권한 없음 | 오류 그대로 표시. 토큰 재입력 유도 |

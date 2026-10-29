@@ -38,14 +38,37 @@ export class CallGraph {
     push(this.inc, e.callee, e);
   }
 
-  /** 정밀 분석(LSP)이 질의한 caller의 간선을 교체한다. 설계 5.2 병합 규칙. */
+  private remove(e: Edge): void {
+    const o = this.out.get(e.caller);
+    if (o) this.out.set(e.caller, o.filter((x) => x !== e));
+    const i = this.inc.get(e.callee);
+    if (i) this.inc.set(e.callee, i.filter((x) => x !== e));
+  }
+
+  /** 정밀 분석(LSP)이 질의한 caller의 나가는 간선을 교체한다. 설계 5.2 병합 규칙 */
   replaceOutgoing(caller: string, edges: Edge[]): void {
-    for (const e of this.outgoing(caller)) {
-      const list = this.inc.get(e.callee);
-      if (list) this.inc.set(e.callee, list.filter((x) => x !== e));
-    }
-    this.out.delete(caller);
+    for (const e of [...this.outgoing(caller)]) this.remove(e);
     for (const e of edges) this.addEdge(e);
+  }
+
+  /** 정밀 분석이 질의한 callee의 들어오는 간선을 교체한다. 같은 caller와 호출 순서의 간선이 이미 있으면 하나만 남긴다 */
+  replaceIncoming(callee: string, edges: Edge[]): void {
+    for (const e of [...this.incoming(callee)]) this.remove(e);
+    for (const e of edges) {
+      const dup = this.outgoing(e.caller).find((x) => x.callee === e.callee && x.callIndex === e.callIndex);
+      if (dup) this.remove(dup);
+      this.addEdge(e);
+    }
+  }
+
+  /** 파일 경로와 줄(0부터)로 그 줄을 포함하는 가장 안쪽 메서드를 찾는다 */
+  methodAt(path: string, line: number): MethodSymbol | null {
+    let best: MethodSymbol | null = null;
+    for (const m of this.methods.values()) {
+      if (m.path !== path || m.synthetic || line < m.range.startLine || line > m.range.endLine) continue;
+      if (!best || m.range.endLine - m.range.startLine < best.range.endLine - best.range.startLine) best = m;
+    }
+    return best;
   }
 }
 
