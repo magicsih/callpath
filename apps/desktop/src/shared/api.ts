@@ -135,6 +135,11 @@ export interface LlmSettingsView {
   endpoint: string;
   model: string;
   hasKey: boolean;
+  /** 키를 어디서 읽는지. stored는 앱에 암호화해 둔 키, file은 이 컴퓨터의 키 파일 */
+  keySource: "stored" | "file";
+  keyFile: { path: string; name: string } | null;
+  /** 키 파일에서 값을 찾았는지(값은 보이지 않는다) */
+  keyFileStatus: "found" | "missing-file" | "missing-name" | null;
   headerNames: string[];
   /** Linux에 암호 저장소가 없어 키를 약하게 보관하게 되는지 */
   weakStorage: boolean;
@@ -148,6 +153,9 @@ export interface LlmSettingsInput {
   model: string;
   /** 넣으면 바꾸고, null이면 지우고, 빼면 그대로 둔다 */
   apiKey?: string | null;
+  /** 빼면 지금 방식을 그대로 둔다 */
+  keySource?: "stored" | "file";
+  keyFile?: { path: string; name: string };
   /** "이름: 값" 줄. 넣으면 바꾸고, null이면 지우고, 빼면 그대로 둔다 */
   headers?: string | null;
 }
@@ -171,7 +179,7 @@ export interface ExplainPreview {
   model: string;
 }
 
-export type LlmEvent = { id: string; type: "chunk"; text: string } | { id: string; type: "done" } | { id: string; type: "error"; error: string; kind: string };
+export type LlmEvent = { id: string; type: "chunk"; text: string } | { id: string; type: "thinking" } | { id: string; type: "done" } | { id: string; type: "error"; error: string; kind: string };
 
 export interface UiState {
   recent: string[];

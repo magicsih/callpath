@@ -11,14 +11,15 @@ export function Markdown({ text }: { text: string }) {
   const lines = text.split("\n");
   let i = 0;
   let key = 0;
-  const inline = (s: string) =>
+  // 굵게와 기울임 안의 줄 안 코드도 보이도록 안쪽을 다시 읽는다
+  const inline = (s: string): React.ReactNode[] =>
     s.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/g).map((part, j) =>
       part.startsWith("`") && part.endsWith("`") && part.length > 1 ? (
         <code key={j}>{part.slice(1, -1)}</code>
       ) : part.startsWith("**") && part.endsWith("**") && part.length > 3 ? (
-        <strong key={j}>{part.slice(2, -2)}</strong>
+        <strong key={j}>{inline(part.slice(2, -2))}</strong>
       ) : part.startsWith("*") && part.endsWith("*") && part.length > 2 ? (
-        <em key={j}>{part.slice(1, -1)}</em>
+        <em key={j}>{inline(part.slice(1, -1))}</em>
       ) : (
         part
       ),
@@ -81,7 +82,8 @@ export interface SavedAnswer {
 type Phase =
   | { s: "preparing" }
   | { s: "preview"; p: ExplainPreview }
-  | { s: "streaming"; p: ExplainPreview; text: string; started: number }
+  /** thinking: 모델이 답 전에 생각 과정을 보내는 중(MiniMax 등). 내용은 보이지 않는다 */
+  | { s: "streaming"; p: ExplainPreview; text: string; started: number; thinking?: boolean }
   /** fromSaved: 지난번에 받아 둔 답을 다시 보이는 것 */
   | { s: "done"; title: string; text: string; stopped?: boolean; fromSaved?: boolean }
   | { s: "error"; message: string; kind: string; text?: string };
@@ -163,7 +165,8 @@ export function ExplainDialog(props: {
       const cur = phaseRef.current;
       if (e.id !== runId.current || cur.s !== "streaming") return;
       let next: Phase;
-      if (e.type === "chunk") next = { ...cur, text: cur.text + e.text };
+      if (e.type === "chunk") next = { ...cur, text: cur.text + e.text, thinking: false };
+      else if (e.type === "thinking") next = { ...cur, thinking: true };
       else {
         runId.current = null;
         if (e.type === "done") {
@@ -292,7 +295,7 @@ export function ExplainDialog(props: {
         >
           {phase.s === "streaming" && !phase.text ? (
             <p className="muted">
-              답을 기다리는 중 {Math.round((now - phase.started) / 1000)}초. 60초 동안 아무것도 오지 않으면 멈춥니다
+              {phase.thinking ? "모델이 답을 생각하는 중" : "답을 기다리는 중"} {Math.round((now - phase.started) / 1000)}초. 60초 동안 아무것도 오지 않으면 멈춥니다
             </p>
           ) : <div className="answer-text">
               <Markdown text={phase.text ?? ""} />

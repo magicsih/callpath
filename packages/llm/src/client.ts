@@ -123,7 +123,85 @@ export async function listModels(cfg: LlmConfig, signal?: AbortSignal): Promise<
  * 미리보기에서 확인한 내용을 그대로 보내고 답을 조각으로 돌려준다(설계 6.3 explain).
  * 스트리밍(SSE)을 요청하고, 끝점이 한 번에 답하면 그 답을 한 조각으로 돌려준다
  */
-export async function* explain(cfg: LlmConfig, payload: Pick<ExplainPayload, "messages">, signal?: AbortSignal, opts: { idleMs?: number } = {}): AsyncGenerator<string> {
+/**
+ * 생각 과정을 답 본문에 <think>…</think>로 섞어 보내는 모델이 있다. 조각 경계에서 태그가 갈려도 걸러 낸다
+ */
+export class ThinkFilter {
+  private inThink = false;
+  private carry = "";
+  private started = false;
+
+  /** 걸러 낸 본문과, 이번 조각에 생각 과정이 있었는지 */
+  push(piece: string): { text: string; thinking: boolean } {
+    let input = this.carry + piece;
+    this.carry = "";
+    let out = "";
+    let thinking = false;
+    while (input) {
+      if (this.inThink) {
+        const end = input.indexOf("</think>");
+        thinking = true;
+        if (end < 0) {
+          this.carry = partialTail(input, "</think>");
+          break;
+        }
+        input = input.slice(end + "</think>".length);
+        this.inThink = false;
+      } else {
+        const start = input.indexOf("<think>");
+        if (start < 0) {
+          this.carry = partialTail(input, "<think>");
+          out += input.slice(0, input.length - this.carry.length);
+          break;
+        }
+        out += input.slice(0, start);
+        input = input.slice(start + "<think>".length);
+        this.inThink = true;
+        thinking = true;
+      }
+    }
+    // 생각 과정 뒤에 붙은 첫 줄바꿈은 답 앞에 남기지 않는다
+    if (!this.started) {
+      out = out.replace(/^\s+/, "");
+      if (out) this.started = true;
+    }
+    return { text: out, thinking };
+  }
+
+  flush(): string {
+    const rest = this.inThink ? "" : this.carry;
+    this.carry = "";
+    return rest;
+  }
+}
+
+function partialTail(s: string, tag: string): string {
+  for (let k = Math.min(tag.length - 1, s.length); k > 0; k--) if (s.endsWith(tag.slice(0, k))) return s.slice(-k);
+  return "";
+}
+
+/** "export NAME=값" 또는 "NAME=값" 줄로 된 파일에서 값을 읽는다. 따옴표와 주석을 정리하고, 없으면 null */
+export function readEnvValue(text: string, name: string): string | null {
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!m || m[1] !== name) continue;
+    let v = m[2]!.trim();
+    // 따옴표로 감싼 값은 그 안만, 아니면 뒤에 붙은 주석을 뺀다
+    const quoted = /^"([^"]*)"/.exec(v) ?? /^'([^']*)'/.exec(v);
+    v = quoted ? quoted[1]! : v.replace(/\s+#.*$/, "");
+    return v || null;
+  }
+  return null;
+}
+
+export async function* explain(
+  cfg: LlmConfig,
+  payload: Pick<ExplainPayload, "messages">,
+  signal?: AbortSignal,
+  opts: { idleMs?: number; /** 모델이 생각 과정을 보내는 동안 불린다(답 본문은 아직 없다) */ onThinking?: () => void } = {},
+): AsyncGenerator<string> {
   const idleMs = opts.idleMs ?? IDLE_TIMEOUT_MS;
   const idle = idleSignal(signal, idleMs);
   const body = { model: cfg.model, messages: payload.messages satisfies ChatMessage[], stream: true };
@@ -146,7 +224,7 @@ export async function* explain(cfg: LlmConfig, payload: Pick<ExplainPayload, "me
     const type = res.headers.get("content-type") ?? "";
     if (!type.includes("text/event-stream")) {
       const j = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-      const text = j.choices?.[0]?.message?.content ?? "";
+      const text = (j.choices?.[0]?.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
       if (!text) throw new LlmError("답에 내용이 없습니다", "other", res.status);
       yield text;
       return;
@@ -155,7 +233,8 @@ export async function* explain(cfg: LlmConfig, payload: Pick<ExplainPayload, "me
     const decoder = new TextDecoder();
     let buf = "";
     let any = false;
-    for (;;) {
+    const think = new ThinkFilter();
+    read: for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       idle.touch();
@@ -166,20 +245,30 @@ export async function* explain(cfg: LlmConfig, payload: Pick<ExplainPayload, "me
         buf = buf.slice(nl + 1);
         if (!line.startsWith("data:")) continue;
         const data = line.slice(5).trim();
-        if (data === "[DONE]") return;
-        let j: { choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>; error?: { message?: string } };
+        if (data === "[DONE]") break read;
+        let j: { choices?: Array<{ delta?: { content?: string; reasoning_content?: string }; message?: { content?: string } }>; error?: { message?: string } };
         try {
           j = JSON.parse(data);
         } catch {
           continue;
         }
         if (j.error) throw new LlmError(redact(`끝점이 오류를 보냈습니다. 서버 응답: ${j.error.message ?? ""}`, cfg), "other");
-        const piece = j.choices?.[0]?.delta?.content ?? j.choices?.[0]?.message?.content ?? "";
+        // 생각 과정은 reasoning_content로 따로 오거나(MiniMax 등) 본문에 <think>로 섞여 온다. 둘 다 답에 넣지 않는다
+        if (j.choices?.[0]?.delta?.reasoning_content) opts.onThinking?.();
+        const raw = j.choices?.[0]?.delta?.content ?? j.choices?.[0]?.message?.content ?? "";
+        if (!raw) continue;
+        const { text: piece, thinking } = think.push(raw);
+        if (thinking) opts.onThinking?.();
         if (piece) {
           any = true;
           yield piece;
         }
       }
+    }
+    const rest = think.flush();
+    if (rest) {
+      any = true;
+      yield rest;
     }
     if (!any) throw new LlmError("답에 내용이 없습니다", "other", res.status);
   } catch (e) {

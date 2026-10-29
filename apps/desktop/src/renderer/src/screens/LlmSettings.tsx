@@ -13,6 +13,10 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
   const [clearKey, setClearKey] = useState(false);
   const [headers, setHeaders] = useState("");
   const [clearHeaders, setClearHeaders] = useState(false);
+  // 키를 앱에 넣어 둘지, 이 컴퓨터의 키 파일에서 읽을지
+  const [keySource, setKeySource] = useState<"stored" | "file">("stored");
+  const [keyPath, setKeyPath] = useState("");
+  const [keyName, setKeyName] = useState("");
   const [status, setStatus] = useState<Status>({ s: "idle" });
   const [now, setNow] = useState(Date.now());
   const title = useRef<HTMLHeadingElement>(null);
@@ -20,6 +24,7 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
   const saveBtn = useRef<HTMLButtonElement>(null);
   const endpointInput = useRef<HTMLInputElement>(null);
   const keyInput = useRef<HTMLInputElement>(null);
+  const keyPathInput = useRef<HTMLInputElement>(null);
 
   const apply = (v: LlmSettingsView) => {
     setView(v);
@@ -30,6 +35,9 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
     setClearKey(false);
     setHeaders("");
     setClearHeaders(false);
+    setKeySource(v.keySource);
+    setKeyPath(v.keyFile?.path ?? "");
+    setKeyName(v.keyFile?.name ?? "");
   };
   useEffect(() => {
     void window.callpath.getLlmSettings().then(apply);
@@ -45,17 +53,35 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
     if (status.s === "saved") savedMsg.current?.focus();
     else if (status.s === "idle" && status.note) saveBtn.current?.focus();
     // 키가 거부되면 키 칸으로, 그 밖의 실패는 주소 칸으로
-    else if (status.s === "error") (status.kind === "auth" ? keyInput : endpointInput).current?.focus();
+    else if (status.s === "error") (status.kind === "auth" ? (keySource === "file" ? keyPathInput : keyInput) : endpointInput).current?.focus();
   }, [status]);
 
-  const ready = !enabled || (endpoint.trim() !== "" && model.trim() !== "");
+  const noKeyFile = keySource === "file" && (!keyPath.trim() || !keyName.trim());
+  const ready = !noKeyFile && (!enabled || (endpoint.trim() !== "" && model.trim() !== ""));
   const noEndpoint = enabled && !endpoint.trim();
   const noModel = enabled && !model.trim();
-  const missing = noEndpoint && noModel ? "저장하려면 끝점 주소와 모델을 넣으세요." : noEndpoint ? "저장하려면 끝점 주소를 넣으세요." : noModel ? "저장하려면 모델을 넣으세요." : "";
+  const missing =
+    noEndpoint && noModel
+      ? "저장하려면 끝점 주소와 모델을 넣으세요."
+      : noEndpoint
+        ? "저장하려면 끝점 주소를 넣으세요."
+        : noModel
+          ? "저장하려면 모델을 넣으세요."
+          : noKeyFile
+            ? "저장하려면 키 파일 경로와 변수 이름을 넣으세요."
+            : "";
   // 저장하지 않은 변경이 있는지. 돌아갈 때 버릴지 묻는다
   const dirty =
     view !== null &&
-    (enabled !== view.enabled || endpoint.trim() !== view.endpoint || model.trim() !== view.model || key.trim() !== "" || headers.trim() !== "" || clearKey || clearHeaders);
+    (enabled !== view.enabled ||
+      endpoint.trim() !== view.endpoint ||
+      model.trim() !== view.model ||
+      key.trim() !== "" ||
+      headers.trim() !== "" ||
+      clearKey ||
+      clearHeaders ||
+      keySource !== view.keySource ||
+      (keySource === "file" && (keyPath.trim() !== (view.keyFile?.path ?? "") || keyName.trim() !== (view.keyFile?.name ?? ""))));
   const [leaving, setLeaving] = useState(false);
   const backBtn = useRef<HTMLButtonElement>(null);
   const stay = () => {
@@ -72,7 +98,8 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
       enabled,
       endpoint,
       model,
-      ...(clearKey ? { apiKey: null } : key.trim() ? { apiKey: key } : {}),
+      keySource,
+      ...(keySource === "file" ? { keyFile: { path: keyPath, name: keyName } } : clearKey ? { apiKey: null } : key.trim() ? { apiKey: key } : {}),
       ...(clearHeaders ? { headers: null } : headers.trim() ? { headers } : {}),
     };
     const r = await window.callpath.saveLlmSettings(input, id);
@@ -152,11 +179,55 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
             <span className="hint" id="llm-endpoint-hint">
               /chat/completions 앞까지의 주소입니다. 사내 게이트웨이나 로컬 모델(예: http://localhost:11434/v1)도 됩니다
             </span>
+            <span className="row presets">
+              <span className="muted small">자주 쓰는 끝점</span>
+              <button
+                type="button"
+                className="small"
+                data-testid="preset-minimax"
+                onClick={() => {
+                  setEndpoint("https://api.minimax.io/v1");
+                  setModel("MiniMax-M3.1-Flash");
+                  if (!keyName.trim()) setKeyName("MINIMAX_API_KEY");
+                }}
+              >
+                MiniMax로 채우기
+              </button>
+            </span>
           </div>
           <div className="ref">
             <label htmlFor="llm-model">모델</label>
             <input id="llm-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="끝점에서 쓰는 모델 이름" spellCheck={false} />
           </div>
+          <fieldset className="choices">
+            <legend>API 키를 어디서 읽을지</legend>
+            <label className="choice">
+              <input type="radio" name="key-source" checked={keySource === "stored"} onChange={() => setKeySource("stored")} />
+              앱에 넣어 두기
+            </label>
+            <label className="choice">
+              <input type="radio" name="key-source" checked={keySource === "file"} onChange={() => setKeySource("file")} />
+              이 컴퓨터의 키 파일에서 읽기
+            </label>
+          </fieldset>
+          {keySource === "file" && (
+            <div className="ref" data-testid="llm-keyfile">
+              <label htmlFor="llm-key-path">키 파일 경로</label>
+              <input id="llm-key-path" ref={keyPathInput} value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="~/.config/…/api-key.env" spellCheck={false} aria-describedby="llm-key-path-hint" />
+              <label htmlFor="llm-key-name">변수 이름</label>
+              <input id="llm-key-name" value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="MINIMAX_API_KEY" spellCheck={false} />
+              <span className="hint" id="llm-key-path-hint">
+                "export 이름=값" 또는 "이름=값" 줄이 있는 파일입니다. 앱에는 경로와 이름만 저장하고, 쓸 때마다 이 파일을 읽습니다. 키는 화면에 보이지 않습니다.
+              </span>
+              {view?.keySource === "file" && view.keyFileStatus && keyPath.trim() === view.keyFile?.path && keyName.trim() === view.keyFile?.name && (
+                <span className={view.keyFileStatus === "found" ? "ok-text small" : "warn-text small"} data-testid="llm-keyfile-status">
+                  <Icon name={view.keyFileStatus === "found" ? "check" : "warn"} size={12} />{" "}
+                  {view.keyFileStatus === "found" ? "파일에서 키를 찾았습니다" : view.keyFileStatus === "missing-file" ? "파일을 읽지 못했습니다" : `파일에 ${view.keyFile?.name} 값이 없습니다`}
+                </span>
+              )}
+            </div>
+          )}
+          {keySource === "stored" && (
           <div className="ref">
             <label htmlFor="llm-key">API 키</label>
             <input
@@ -185,6 +256,7 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
               </span>
             )}
           </div>
+          )}
           <div className="ref">
             <label htmlFor="llm-headers">추가 헤더 (선택)</label>
             <textarea
