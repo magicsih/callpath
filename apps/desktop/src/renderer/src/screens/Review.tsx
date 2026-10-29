@@ -82,10 +82,12 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
 
   const session = analysis.status === "ready" ? analysis.session : null;
   // 메모는 분석에 쓴 커밋(SHA)에 묶는다. 브랜치 이름은 움직이므로 쓰지 않는다
-  const scope = session ? { repo: req.repo, base: session.base, head: session.head } : null;
+  // 같은 비교의 이전 커밋 메모도 찾으려고 비교 키(PR 주소나 브랜치 이름)를 함께 둔다
+  const scope = session ? { repo: req.repo, base: session.base, head: session.head, subject: pr ? pr.url : `${req.base}...${req.head}` } : null;
   const reloadNotes = useCallback(() => {
     if (scope) void window.callpath.listNotes(scope).then(setNotes);
-  }, [scope?.repo, scope?.base, scope?.head]);
+  }, [scope?.repo, scope?.base, scope?.head, scope?.subject]);
+  const currentNotes = notes.filter((n) => !n.stale);
   useEffect(() => reloadNotes(), [reloadNotes]);
   const nav = useMemo(() => (session ? buildNav(session, showTests) : null), [session, showTests]);
   const current = nav ? resolveSelection(nav, selectedKey) : null;
@@ -233,7 +235,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
       <span className="spacer" />
       {session && (
         <button onClick={() => setDrawer((v) => !v)} aria-expanded={drawer} aria-controls="notes-drawer" data-testid="notes-toggle">
-          메모 {notes.length}
+          메모 {currentNotes.length}
         </button>
       )}
       {pr && <button onClick={() => window.callpath.openExternal(pr.url)} aria-label="PR 페이지를 브라우저로 열기">PR 페이지</button>}
@@ -347,7 +349,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           onGoRef={target ? () => select(target) : null}
           refLabel={refFlow && current.kind === "step" ? `${refFlow.label} ${current.step.refOf!.n}단계` : null}
           crumbs={crumbs}
-          notes={notes}
+          notes={currentNotes}
           noteRequest={noteRequest}
           reveal={reveal}
           onAddNote={async (path, line, body) => {
@@ -375,7 +377,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           />
         </div>
       )}
-      {posting && pr && <PostDialog pr={pr} ids={posting} notes={notes} onClose={() => setPosting(null)} onPosted={reloadNotes} />}
+      {posting && pr && <PostDialog pr={pr} ids={posting} onClose={() => setPosting(null)} onPosted={reloadNotes} />}
       <footer className="bottombar">
         <button
           onClick={() => {

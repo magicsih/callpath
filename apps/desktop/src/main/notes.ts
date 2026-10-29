@@ -16,17 +16,19 @@ function open(): DatabaseSync {
   db.exec(`
     create table if not exists notes (
       id integer primary key autoincrement,
-      repo text not null, base text not null, head text not null,
+      repo text not null, subject text not null, base text not null, head text not null,
       path text not null, line integer not null, body text not null,
       created_at integer not null,
       posted_url text, posted_mode text
     );
-    create index if not exists notes_scope on notes (repo, base, head);`);
+    create index if not exists notes_subject on notes (repo, subject);`);
   return db;
 }
 
 interface Row {
   id: number;
+  base: string;
+  head: string;
   path: string;
   line: number;
   body: string;
@@ -35,20 +37,22 @@ interface Row {
   posted_mode: "line" | "general" | null;
 }
 
-const toNote = (r: Row): Note => ({
+const toNote = (r: Row, s?: NoteScope): Note => ({
   id: r.id, path: r.path, line: r.line, body: r.body, createdAt: r.created_at,
   posted: r.posted_url && r.posted_mode ? { url: r.posted_url, mode: r.posted_mode } : null,
+  stale: s ? r.base !== s.base || r.head !== s.head : false,
 });
 
+/** 지금 커밋의 메모와, 같은 비교의 이전 커밋 메모(stale)를 함께 돌려준다 */
 export function listNotes(s: NoteScope): Note[] {
-  const rows = open().prepare("select * from notes where repo = ? and base = ? and head = ? order by path, line, id").all(s.repo, s.base, s.head) as unknown as Row[];
-  return rows.map(toNote);
+  const rows = open().prepare("select * from notes where repo = ? and (subject = ? or (base = ? and head = ?)) order by path, line, id").all(s.repo, s.subject, s.base, s.head) as unknown as Row[];
+  return rows.map((r) => toNote(r, s));
 }
 
 export function addNote(s: NoteScope, n: { path: string; line: number; body: string }): Note {
   const body = n.body.trim();
   if (!body) throw new Error("메모 내용을 넣으세요");
-  const r = open().prepare("insert into notes (repo, base, head, path, line, body, created_at) values (?, ?, ?, ?, ?, ?, ?)").run(s.repo, s.base, s.head, n.path, n.line, body, Date.now());
+  const r = open().prepare("insert into notes (repo, subject, base, head, path, line, body, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)").run(s.repo, s.subject, s.base, s.head, n.path, n.line, body, Date.now());
   return toNote(open().prepare("select * from notes where id = ?").get(Number(r.lastInsertRowid)) as unknown as Row);
 }
 
@@ -76,6 +80,7 @@ export async function planPost(pr: PrMeta, ids: number[]): Promise<PostPlan[]> {
   return ids.map((id) => {
     const n = noteById(id);
     if (!n) throw new Error("메모를 찾지 못했습니다");
+    if (n.head !== pr.headSha) throw new Error(`${n.path}:${n.line} 메모는 이전 커밋에 남긴 것이라 올리지 않습니다`);
     const inside = canComment(ranges, n.path, n.line);
     return inside
       ? { noteId: id, mode: "line", path: n.path, line: n.line, body: n.body }

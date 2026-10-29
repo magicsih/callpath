@@ -11,7 +11,34 @@ export function NotesDrawer(props: {
   onDelete: (n: Note) => void;
   onPost: (ids: number[]) => void;
 }) {
-  const unposted = props.notes.filter((n) => !n.posted);
+  const current = props.notes.filter((n) => !n.stale);
+  const stale = props.notes.filter((n) => n.stale);
+  const unposted = current.filter((n) => !n.posted);
+  const row = (n: Note) => (
+    <li key={n.id} className={`note${n.stale ? " stale" : ""}`} data-testid={n.stale ? "note-stale" : "note-row"}>
+      {n.stale ? (
+        <span className="note-go" title={`${n.path}:${n.line}`}>
+          <span className="note-where">{n.path.split("/").pop()}:{n.line}</span>
+          <span className="note-body">{n.body}</span>
+        </span>
+      ) : (
+        <button className="note-go" onClick={() => props.onGo(n)} title={`${n.path}:${n.line}`}>
+          <span className="note-where">{n.path.split("/").pop()}:{n.line}</span>
+          <span className="note-body">{n.body}</span>
+        </button>
+      )}
+      <span className="note-meta">
+        {n.posted ? (
+          <button className="link small" onClick={() => window.callpath.openExternal(n.posted!.url)} data-testid="note-posted">
+            <Icon name="check" size={11} /> 게시됨({n.posted.mode === "line" ? "줄 코멘트" : "일반 코멘트"})
+          </button>
+        ) : (
+          <span className="muted small">로컬 메모</span>
+        )}
+        <button className="link small" onClick={() => props.onDelete(n)} aria-label={`${n.path}:${n.line} 메모 지우기`}>지우기</button>
+      </span>
+    </li>
+  );
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     ref.current?.focus();
@@ -28,40 +55,28 @@ export function NotesDrawer(props: {
       }}
     >
       <div className="drawer-head">
-        <h2 id="notes-title" className="pane-title">메모 {props.notes.length}</h2>
+        <h2 id="notes-title" className="pane-title">메모 {current.length}</h2>
         <span className="spacer" />
         <button className="link" onClick={props.onClose}>닫기</button>
       </div>
-      {props.notes.length === 0 ? (
+      {current.length === 0 ? (
         <p className="muted small">아직 메모가 없습니다. 코드에서 줄을 고르고 m을 누르면 남깁니다.</p>
       ) : (
-        <ul className="notes">
-          {props.notes.map((n) => (
-            <li key={n.id} className="note" data-testid="note-row">
-              <button className="note-go" onClick={() => props.onGo(n)} title={`${n.path}:${n.line}`}>
-                <span className="note-where">{n.path.split("/").pop()}:{n.line}</span>
-                <span className="note-body">{n.body}</span>
-              </button>
-              <span className="note-meta">
-                {n.posted ? (
-                  <button className="link small" onClick={() => window.callpath.openExternal(n.posted!.url)} data-testid="note-posted">
-                    <Icon name="check" size={11} /> 게시됨({n.posted.mode === "line" ? "줄 코멘트" : "일반 코멘트"})
-                  </button>
-                ) : (
-                  <span className="muted small">로컬 메모</span>
-                )}
-                <button className="link small" onClick={() => props.onDelete(n)} aria-label={`${n.path}:${n.line} 메모 지우기`}>지우기</button>
-              </span>
-            </li>
-          ))}
-        </ul>
+        <ul className="notes">{current.map(row)}</ul>
       )}
       {props.pr && unposted.length > 0 && (
         <button className="primary" onClick={() => props.onPost(unposted.map((n) => n.id))} data-testid="post-open">
           PR에 게시 ({unposted.length})
         </button>
       )}
-      {!props.pr && props.notes.length > 0 && <p className="muted small">로컬 비교의 메모는 이 컴퓨터에만 남습니다. PR로 열면 PR에 게시할 수 있습니다.</p>}
+      {!props.pr && current.length > 0 && <p className="muted small">로컬 비교의 메모는 이 컴퓨터에만 남습니다. PR로 열면 PR에 게시할 수 있습니다.</p>}
+      {stale.length > 0 && (
+        <section aria-labelledby="stale-title" className="stale-notes">
+          <h3 id="stale-title" className="pane-title">이전 커밋에 남긴 메모 {stale.length}</h3>
+          <p className="muted small">코드가 바뀌어 줄이 달라졌을 수 있어 게시하지 않습니다. 필요하면 지금 코드에서 다시 남기세요.</p>
+          <ul className="notes">{stale.map(row)}</ul>
+        </section>
+      )}
     </aside>
   );
 }
@@ -69,7 +84,7 @@ export function NotesDrawer(props: {
 type Phase = { s: "planning" } | { s: "ready"; plans: PostPlan[] } | { s: "posting"; plans: PostPlan[] } | { s: "done"; plans: PostPlan[]; results: PostResult[] } | { s: "error"; message: string };
 
 /** 게시 미리보기. 확인해야 올라가고, 줄 코멘트와 일반 코멘트를 구분해 보인다 */
-export function PostDialog({ pr, ids, notes, onClose, onPosted }: { pr: PrMeta; ids: number[]; notes: Note[]; onClose: () => void; onPosted: () => void }) {
+export function PostDialog({ pr, ids, onClose, onPosted }: { pr: PrMeta; ids: number[]; onClose: () => void; onPosted: () => void }) {
   const [phase, setPhase] = useState<Phase>({ s: "planning" });
   const where = (p: PostPlan) => `${p.path.split("/").pop()}:${p.line}`;
   useEffect(() => {
@@ -126,7 +141,6 @@ export function PostDialog({ pr, ids, notes, onClose, onPosted }: { pr: PrMeta; 
           </button>
         </div>
         {phase.s === "done" && failed.length === 0 && <p className="ok-text" role="status" data-testid="post-done">{phase.plans.length}개를 올렸습니다.</p>}
-        {notes.length === 0 && null}
       </div>
     </div>
   );

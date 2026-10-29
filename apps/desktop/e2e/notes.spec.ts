@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
+import { join } from "node:path";
 import { launch, makeFixtureRepo, makeUserData, openAndAnalyze, shot } from "./harness";
 import { GOOD_TOKEN, startMockGithub } from "./mockGithub";
 
@@ -10,7 +13,7 @@ async function addNote(page: Page, text: string) {
   await expect(page.getByTestId("composer")).toHaveCount(0);
 }
 
-test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서 그 단계로 가며, 다시 열어도 남는다", async () => {
+test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서 그 단계로 가며, 다시 열어도 남고, 새 커밋 뒤에는 이전 커밋 메모로 보인다", async () => {
   const data = makeUserData();
   const repo = makeFixtureRepo("java");
   const first = await launch(data);
@@ -37,6 +40,15 @@ test("A16 메모: m으로 남기면 줄 옆과 목록에 보이고, 목록에서
 
   const second = await launch(data);
   await expect(second.page.getByTestId("notes-toggle")).toHaveText("메모 1");
+  // 변경 브랜치에 커밋이 더해지면 그 메모는 줄이 달라졌을 수 있어 이전 커밋 메모로 따로 보인다
+  appendFileSync(join(repo, "src/main/java/shop/order/OrderService.java"), "\n// 후속 커밋\n");
+  execFileSync("git", ["-C", repo, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", "commit", "-qam", "후속"]);
+  await second.page.getByRole("button", { name: "다시 분석" }).click();
+  await expect(second.page.getByTestId("notes-toggle")).toHaveText("메모 0");
+  await second.page.getByTestId("notes-toggle").click();
+  await expect(second.page.getByTestId("note-row")).toHaveCount(0);
+  await expect(second.page.getByTestId("note-stale")).toContainText("결제 실패 시 재고 복구가 없습니다");
+  await expect(second.page.getByTestId("notes-drawer")).toContainText("이전 커밋에 남긴 메모 1");
   await second.app.close();
 });
 

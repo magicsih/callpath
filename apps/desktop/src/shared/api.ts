@@ -100,6 +100,8 @@ export interface Note {
   body: string;
   createdAt: number;
   posted: { url: string; mode: "line" | "general" } | null;
+  /** 같은 비교의 이전 커밋에 남긴 메모. 줄이 달라졌을 수 있어 보기와 지우기만 한다 */
+  stale: boolean;
 }
 
 export interface NoteScope {
@@ -107,6 +109,8 @@ export interface NoteScope {
   repo: string;
   base: string;
   head: string;
+  /** 같은 비교를 알아보는 키. PR이면 PR 주소, 로컬이면 "기준...변경" 브랜치 이름 */
+  subject: string;
 }
 
 /** 게시 미리보기의 한 줄. line은 PR diff 안의 줄이라 줄 코멘트로, general은 diff 밖이라 위치를 적은 일반 코멘트로 올라간다 */
