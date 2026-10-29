@@ -27,18 +27,18 @@ export class GitLabProvider implements Provider {
     return new GitLabProvider(host, `https://${host}/api/v4`, token);
   }
 
-  private async call<T>(method: string, path: string, body?: unknown): Promise<{ data: T; headers: Headers }> {
+  private async call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<{ data: T; headers: Headers }> {
     const token = await this.token();
     const headers: Record<string, string> = token ? { "private-token": token } : {};
-    return request<T>(method, `${this.apiBase}${path}`, headers, token, body);
+    return request<T>(method, `${this.apiBase}${path}`, headers, token, body, signal);
   }
 
   private project(repo: string): string {
     return `/projects/${encodeURIComponent(repo)}`;
   }
 
-  async whoami(): Promise<string> {
-    return (await this.call<{ username: string }>("GET", "/user")).data.username;
+  async whoami(signal?: AbortSignal): Promise<string> {
+    return (await this.call<{ username: string }>("GET", "/user", undefined, signal)).data.username;
   }
 
   async listPullRequests(repo: string): Promise<PullRequestSummary[]> {

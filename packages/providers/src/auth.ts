@@ -17,6 +17,16 @@ export async function ghCliToken(host = "github.com"): Promise<string | null> {
   }
 }
 
+/** gh CLI에 로그인된 계정 이름. 네트워크 없이 gh 설정 파일에서 읽는다 */
+export async function ghCliUser(host = "github.com"): Promise<string | null> {
+  try {
+    const { stdout } = await run("gh", ["config", "get", "user", "-h", host], { timeout: 15000 });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function ghCliAvailable(host = "github.com"): Promise<boolean> {
   return (await ghCliToken(host)) !== null;
 }

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReviewSession } from "@callpath/core";
-import type { CompareRequest, ErrorKind } from "../../../shared/api";
+import type { CompareRequest, ErrorKind, Note, PrMeta } from "../../../shared/api";
+import { NotesDrawer, PostDialog } from "../components/Notes";
+import { noteTarget } from "../components/Detail";
 import { childSteps, neighbor, refTarget, resolveSelection, shortName, buildNav, CHANGE_LABEL, type NavItem, type StepItem } from "../nav";
 import { FlowList } from "../components/FlowList";
 import { Detail } from "../components/Detail";
@@ -9,18 +11,42 @@ import { Icon } from "../components/Icon";
 import { PreciseBanner, PreciseChip, type PreciseView } from "../components/PreciseStatus";
 
 /** run은 이 결과를 받은 분석 실행 번호. 정밀 분석 결과로 세션이 바뀌어도 그대로다 */
+/** 메모를 흐름 순서(목록에 보이는 순서), 같은 항목 안에서는 줄 순서로 놓는다 */
+function sortByFlow(nav: NonNullable<ReturnType<typeof buildNav>>, notes: Note[]): Note[] {
+  const rank = (n: Note) => {
+    const hit = findItemFor(nav, n.path, n.line);
+    const i = hit ? nav.order.findIndex((x) => x.key === hit.key) : -1;
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  return [...notes].sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path) || a.line - b.line || a.id - b.id);
+}
+
+/** 메모 위치가 들어 있는 항목. 단계, 테스트, 파일 순으로 찾는다 */
+function findItemFor(nav: NonNullable<ReturnType<typeof buildNav>>, path: string, line: number): NavItem | null {
+  const row = line - 1;
+  const inRange = (r: { startLine: number; endLine: number }) => row >= r.startLine && row <= r.endLine;
+  for (const g of nav.groups) for (const i of g.items) if (i.kind === "step" && !i.step.refOf && i.step.change !== "removed" && i.step.symbol.path === path && inRange(i.step.symbol.range)) return i;
+  for (const tests of nav.testsOf.values()) for (const t of tests) if (t.test.symbol.path === path && inRange(t.test.symbol.range)) return t;
+  for (const g of nav.groups) for (const i of g.items) if (i.kind === "file" && i.file.path === path) return i;
+  return null;
+}
+
 type Analysis = { status: "loading" } | { status: "error"; message: string; kind: ErrorKind } | { status: "ready"; session: ReviewSession; run: number };
 
 interface Props {
   req: CompareRequest;
   repoName: string;
+  /** PR 리뷰면 그 PR */
+  pr: PrMeta | null;
+  /** PR을 새로 받는다(새 커밋 확인) */
+  onRefreshPr: () => void;
   initialSelection: string | null;
   initialShowTests: boolean;
   onChangeCompare: () => void;
   onPersist: (selection: string | null, showTests: boolean) => void;
 }
 
-export function Review({ req, repoName, initialSelection, initialShowTests, onChangeCompare, onPersist }: Props) {
+export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initialShowTests, onChangeCompare, onPersist }: Props) {
   const [analysis, setAnalysis] = useState<Analysis>({ status: "loading" });
   const [run, setRun] = useState(0);
   const [showTests, setShowTests] = useState(initialShowTests);
@@ -29,6 +55,12 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
   const rows = useRef(new Map<string, HTMLButtonElement>());
 
   const [precise, setPrecise] = useState<PreciseView>({ running: false, message: null, error: null });
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState(false);
+  const [posting, setPosting] = useState<number[] | null>(null);
+  const [noteRequest, setNoteRequest] = useState(0);
+  const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(null);
   const [bannerClosed, setBannerClosed] = useState(false);
 
   useEffect(() => {
@@ -60,6 +92,46 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
   }, [req, run]);
 
   const session = analysis.status === "ready" ? analysis.session : null;
+  // 메모는 분석에 쓴 커밋(SHA)에 묶는다. 브랜치 이름은 움직이므로 쓰지 않는다
+  // 같은 비교의 이전 커밋 메모도 찾으려고 비교 키(PR 주소나 브랜치 이름)를 함께 둔다
+  const scope = session ? { repo: req.repo, base: session.base, head: session.head, subject: pr ? pr.url : `${req.base}...${req.head}` } : null;
+  const reloadNotes = useCallback(() => {
+    if (!scope) return;
+    void window.callpath.listNotes(scope).then((r) => {
+      if (r.ok) {
+        setNotes(r.value);
+        setNotesError(null);
+      } else setNotesError(`메모를 읽지 못했습니다: ${r.error}`);
+    });
+  }, [scope?.repo, scope?.base, scope?.head, scope?.subject]);
+  const currentNotes = notes.filter((n) => !n.stale);
+  const staleCount = notes.length - currentNotes.length;
+  const notesToggle = useRef<HTMLButtonElement>(null);
+  const closeDrawer = () => {
+    setDrawer(false);
+    notesToggle.current?.focus();
+  };
+  // 키 처리 효과가 최신 서랍 상태를 읽게 한다
+  const drawerRef = useRef(drawer);
+  drawerRef.current = drawer;
+  const closeDrawerRef = useRef(closeDrawer);
+  closeDrawerRef.current = closeDrawer;
+  // 좁은 창에서는 서랍이 가운데를 덮으므로, 열린 동안 뒤 영역에는 초점이 가지 않게 한다
+  const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 820px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 820px)");
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  useEffect(() => {
+    const panes = [...document.querySelectorAll<HTMLElement>(".panes > .pane")];
+    for (const p of panes) p.inert = drawer && narrow;
+    return () => {
+      for (const p of panes) p.inert = false;
+    };
+  }, [drawer, narrow, analysis.status]);
+  useEffect(() => reloadNotes(), [reloadNotes]);
   const nav = useMemo(() => (session ? buildNav(session, showTests) : null), [session, showTests]);
   const current = nav ? resolveSelection(nav, selectedKey) : null;
 
@@ -135,8 +207,17 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     if (!nav || !current) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // 게시 미리보기가 열려 있으면 뒤 화면을 움직이지 않는다
+      if (document.querySelector("dialog[open]")) return;
       const target = e.target as HTMLElement;
       if (target.closest("textarea, select, input:not([type=checkbox])")) return;
+      if (e.key === "Escape" && drawerRef.current) {
+        e.preventDefault();
+        closeDrawerRef.current();
+        return;
+      }
+      // 서랍 안에서는 단계 이동 키를 쓰지 않는다(초점이 서랍에 남는다)
+      if (target.closest(".drawer")) return;
       const inEditor = target.closest(".monaco-editor") != null;
       switch (e.key) {
         case "j":
@@ -154,6 +235,13 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
         case "t":
           e.preventDefault();
           toggleTests();
+          break;
+        case "m":
+          if (noteTarget(current)) {
+            e.preventDefault();
+            setDrawer(false);
+            setNoteRequest((n) => n + 1);
+          }
           break;
         case "Enter": {
           // 이미 선택된 목록 줄에서 누른 Enter는 다음 단계로, 다른 버튼에서 누른 Enter는 그 버튼을 누른다
@@ -182,9 +270,15 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     <header className="toolbar">
       <span className="brand">Callpath</span>
       <span className="repo">{repoName}</span>
-      <span className="refs" title={`기준 ${req.base}, 리뷰할 변경 ${req.head}`} aria-label={`기준 ${req.base}, 리뷰할 변경 ${req.head}`}>
-        <span aria-hidden="true">{req.base} ← {req.head}</span>
-      </span>
+      {pr ? (
+        <span className="refs pr-chip" title={`${pr.title}, ${pr.baseRef} ← ${pr.headRef}`} data-testid="pr-chip">
+          #{pr.number} {pr.title}
+        </span>
+      ) : (
+        <span className="refs" title={`기준 ${req.base}, 리뷰할 변경 ${req.head}`} aria-label={`기준 ${req.base}, 리뷰할 변경 ${req.head}`}>
+          <span aria-hidden="true">{req.base} ← {req.head}</span>
+        </span>
+      )}
       {session && <PreciseChip session={session} view={precise} />}
       {session && (
         <span className="stats muted" aria-label="분석 요약">
@@ -192,7 +286,22 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
         </span>
       )}
       <span className="spacer" />
-      <button onClick={onChangeCompare}>비교 바꾸기</button>
+      {session && (
+        <button
+          ref={notesToggle}
+          onClick={() => setDrawer((v) => !v)}
+          aria-expanded={drawer}
+          aria-controls="notes-drawer"
+          aria-label={`메모 ${currentNotes.length}개${staleCount ? `, 이전 커밋 메모 ${staleCount}개` : ""}`}
+          data-testid="notes-toggle"
+        >
+          메모 {currentNotes.length}
+          {staleCount > 0 && <span className="muted small" data-testid="stale-count"> 이전 {staleCount}</span>}
+        </button>
+      )}
+      {pr && <button onClick={() => window.callpath.openExternal(pr.url)} aria-label="PR 페이지를 브라우저로 열기">PR 페이지</button>}
+      {pr && <button onClick={onRefreshPr} aria-label="PR을 새로 받기">새로 받기</button>}
+      <button onClick={onChangeCompare}>{pr ? "다른 저장소나 PR" : "비교 바꾸기"}</button>
       <button onClick={rerun} disabled={analysis.status === "loading"} aria-label="다시 분석">
         <Icon name="refresh" /> 다시 분석
       </button>
@@ -285,7 +394,7 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
     <div className="review">
       {head}
       {!bannerClosed && <PreciseBanner session={session!} view={precise} onDismiss={() => setBannerClosed(true)} />}
-      <div className="panes">
+      <div className={`panes${drawer ? " with-drawer" : ""}`}>
         <FlowList
           nav={nav}
           session={session!}
@@ -301,9 +410,48 @@ export function Review({ req, repoName, initialSelection, initialShowTests, onCh
           onGoRef={target ? () => select(target) : null}
           refLabel={refFlow && current.kind === "step" ? `${refFlow.label} ${current.step.refOf!.n}단계` : null}
           crumbs={crumbs}
+          notes={currentNotes}
+          noteRequest={noteRequest}
+          reveal={reveal}
+          onComposeStart={() => setDrawer(false)}
+          onShowNotes={() => setDrawer(true)}
+          onAddNote={async (path, line, body) => {
+            const r = await window.callpath.addNote(scope!, { path, line, body });
+            reloadNotes();
+            return r.ok ? null : r.error;
+          }}
         />
-        <StackPane item={current} nav={nav} onSelect={(i) => select(i)} />
+        {!drawer && <StackPane item={current} nav={nav} onSelect={(i) => select(i)} />}
+        {drawer && narrow && <div className="drawer-backdrop" onClick={() => setDrawer(false)} aria-hidden="true" />}
+        {drawer && (
+          <div id="notes-drawer" className="drawer-slot">
+            <NotesDrawer
+              notes={sortByFlow(nav, notes)}
+              pr={pr}
+              error={notesError}
+              onClose={closeDrawer}
+              onDelete={(n) =>
+                void window.callpath.deleteNote(n.id).then((r) => (r.ok ? reloadNotes() : setNotesError(`메모를 지우지 못했습니다: ${r.error}`)))
+              }
+              onPost={(ids) => setPosting(ids)}
+              onGo={(n) => {
+                const hit = findItemFor(nav, n.path, n.line);
+                if (!hit) return;
+                if (hit.kind === "test" && !showTests) toggleTests();
+                select(hit);
+                setReveal({ line: n.line, nonce: Date.now() });
+                // 넓은 창에서는 서랍이 코드를 덮지 않으므로 열어 두어 메모를 차례로 본다.
+                // 좁은 창에서는 코드를 덮으므로 닫고, 초점을 목록의 그 항목으로 옮겨 j, k로 이어 읽게 한다
+                if (narrow) {
+                  setDrawer(false);
+                  requestAnimationFrame(() => requestAnimationFrame(() => (rows.current.get(hit.key) ?? notesToggle.current)?.focus()));
+                }
+              }}
+            />
+          </div>
+        )}
       </div>
+      {posting && pr && <PostDialog pr={pr} ids={posting} onClose={() => setPosting(null)} onPosted={reloadNotes} />}
       <footer className="bottombar">
         <button
           onClick={() => {

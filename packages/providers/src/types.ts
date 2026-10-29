@@ -53,7 +53,8 @@ export interface Provider {
   readonly kind: ProviderKind;
   readonly host: string;
   /** 연결 확인. 토큰 주인의 사용자 이름 */
-  whoami(): Promise<string>;
+  /** 연결 확인. signal로 기다리던 확인을 멈출 수 있다 */
+  whoami(signal?: AbortSignal): Promise<string>;
   listPullRequests(repo: string): Promise<PullRequestSummary[]>;
   fetchPullRequest(repo: string, number: number): Promise<PullRequestInfo>;
   diffRanges(pr: PullRequestInfo): Promise<DiffRanges>;
@@ -68,7 +69,7 @@ export class ProviderError extends Error {
   constructor(
     message: string,
     readonly status: number | null,
-    readonly code: "auth" | "not-found" | "network" | "rejected" | "other",
+    readonly code: "auth" | "not-found" | "network" | "rejected" | "cancelled" | "other",
   ) {
     super(message);
   }

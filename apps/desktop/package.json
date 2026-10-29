@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@callpath/core": "workspace:*",
-    "@callpath/lsp": "workspace:*"
+    "@callpath/lsp": "workspace:*",
+    "@callpath/providers": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",
