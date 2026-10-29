@@ -1,4 +1,5 @@
 import type { EntryKind, FileChange, Flow, ReviewSession, Step, SymbolRef, TestRef } from "@callpath/core";
+import { displayName as shortName, methodLabel } from "@callpath/core/names";
 
 export type GroupKind = EntryKind | "orphans" | "outside" | "otherTests" | "nonCode";
 
@@ -191,18 +192,5 @@ export function describeMoves(step: Step): string[] {
   });
 }
 
-/** 생성자와 초기화 블록은 이름 대신 종류로 보인다 */
-export function methodLabel(s: SymbolRef): string {
-  const cls = s.container?.split(".").pop();
-  if (s.name === "constructor" || (cls && s.name === cls)) return "생성자";
-  if (s.name === "init") return "init 블록";
-  if (s.name === "<spec>") return "스펙 본문";
-  return s.name;
-}
-
-export function shortName(s: SymbolRef): string {
-  const cls = s.container?.split(".").pop();
-  const label = methodLabel(s);
-  if (!cls) return label;
-  return label === s.name ? `${cls}.${label}` : `${cls} ${label}`;
-}
+// 이름 표기 규칙은 LLM에 보내는 내용과 같아야 해서 코어에 둔다. 화면에는 Node 모듈이 없는 가벼운 입구(names)로 불러온다
+export { methodLabel, shortName };

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { explain, listModels, LlmError, parseHeaders, preview, type ExplainPayload, type LlmConfig, type Snippet } from "@callpath/llm";
-import type { Step, SymbolRef } from "@callpath/core";
+import { displayName, type Step, type SymbolRef } from "@callpath/core";
 import type { ExplainPreview, ExplainTarget, LlmSaved, LlmSettingsInput, LlmSettingsView } from "../shared/api";
 import { readAt } from "./repo";
 import { decryptSecret, encryptSecret, isWeakStorage } from "./secrets";
@@ -119,7 +119,7 @@ async function snippetOf(repo: string, ref: string, sym: SymbolRef, side: "base"
   if (text === null) return null;
   const lines = text.split("\n");
   const { startLine, endLine } = sym.range;
-  return { path: sym.path, side, startLine: startLine + 1, endLine: endLine + 1, text: lines.slice(startLine, endLine + 1).join("\n") };
+  return { name: displayName(sym), path: sym.path, side, startLine: startLine + 1, endLine: endLine + 1, text: lines.slice(startLine, endLine + 1).join("\n") };
 }
 
 /** 단계의 코드. 지워진 메서드는 변경 전, 나머지는 변경 후 */

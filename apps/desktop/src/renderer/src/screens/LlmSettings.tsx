@@ -49,6 +49,16 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
   }, [status]);
 
   const ready = !enabled || (endpoint.trim() !== "" && model.trim() !== "");
+  const noEndpoint = enabled && !endpoint.trim();
+  const noModel = enabled && !model.trim();
+  const missing = noEndpoint && noModel ? "저장하려면 끝점 주소와 모델을 넣으세요." : noEndpoint ? "저장하려면 끝점 주소를 넣으세요." : noModel ? "저장하려면 모델을 넣으세요." : "";
+  // 저장하지 않은 변경이 있는지. 돌아갈 때 버릴지 묻는다
+  const dirty =
+    view !== null &&
+    (enabled !== view.enabled || endpoint.trim() !== view.endpoint || model.trim() !== view.model || key.trim() !== "" || headers.trim() !== "" || clearKey || clearHeaders);
+  const [leaving, setLeaving] = useState(false);
+  // 저장하면 입력을 저장된 값으로 되돌리므로, 저장 뒤 다시 고친 것도 변경으로 본다
+  const back = () => (dirty ? setLeaving(true) : onBack());
   const save = async () => {
     const id = crypto.randomUUID();
     setStatus({ s: "saving", id, started: Date.now() });
@@ -71,9 +81,16 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
   return (
     <main className="compare" aria-labelledby="llm-title">
       <div className="start-card">
-        <button className="link" onClick={onBack}>
+        <button className="link" onClick={back}>
           <Icon name="back" /> {backLabel}
         </button>
+        {leaving && (
+          <div className="banner" role="alertdialog" aria-labelledby="leave-title" data-testid="llm-leave">
+            <span id="leave-title">저장하지 않은 변경이 있습니다. 버리고 돌아갈까요?</span>
+            <button onClick={onBack} autoFocus>버리고 돌아가기</button>
+            <button onClick={() => setLeaving(false)}>계속 고치기</button>
+          </div>
+        )}
         <h1 id="llm-title" tabIndex={-1} ref={title}>
           LLM 설정
         </h1>
@@ -167,6 +184,11 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
               한 줄에 하나씩 "이름: 값". 값은 암호화해 보관하고 다시 보여주지 않습니다.
               {view && view.headerNames.length > 0 && ` 저장된 헤더: ${view.headerNames.join(", ")}`}
             </span>
+            {view && view.headerNames.length > 0 && headers.trim() !== "" && !clearHeaders && (
+              <span className="warn-text small" data-testid="llm-headers-replace">
+                <Icon name="warn" size={12} /> 저장하면 저장된 헤더({view.headerNames.join(", ")})를 모두 지우고 지금 넣은 헤더로 바꿉니다. 남길 헤더도 함께 넣으세요
+              </span>
+            )}
             {view && view.headerNames.length > 0 && (
               <label className="choice small">
                 <input type="checkbox" checked={clearHeaders} onChange={(e) => setClearHeaders(e.target.checked)} /> 저장된 헤더 지우기
@@ -206,6 +228,11 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
             <button type="submit" className="primary big" disabled={!ready || view === null} ref={saveBtn}>
               {enabled ? "확인하고 저장" : "저장"}
             </button>
+          )}
+          {missing && status.s !== "saving" && (
+            <p className="muted small" data-testid="llm-missing">
+              {missing}
+            </p>
           )}
           {enabled && <p className="muted small">확인할 때는 모델 목록만 묻고 코드는 보내지 않습니다.</p>}
         </form>

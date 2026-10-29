@@ -10,3 +10,4 @@ export { buildFlows, toRef, MAX_DEPTH, MAX_TRANSIT } from "./flow/flows.js";
 export { diffCallOrder } from "./flow/callOrder.js";
 export { isTestFile, isTestPath } from "./classify/test.js";
 export { CONFIG_FILE, loadConfig, parseConfig, type EntryRule, type CallpathConfig } from "./config.js";
+export { displayName, methodLabel } from "./names.js";

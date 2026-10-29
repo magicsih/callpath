@@ -42,6 +42,14 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     await expect(dialog.getByTestId("explain-scope")).toContainText("OrderService.java");
     await expect(dialog.getByTestId("explain-scope")).toContainText("변경 전");
     await expect(dialog.getByRole("button", { name: "취소" })).toBeFocused();
+    // 메시지 전체를 펼쳐도 본문만 스크롤되고 보내기 버튼은 창 안에 남는다
+    await dialog.locator("summary").click();
+    const body = dialog.locator(".explain-body");
+    await body.hover();
+    await page.mouse.wheel(0, 600);
+    await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    await expect(dialog.getByRole("button", { name: "보내기" })).toBeInViewport();
+    await dialog.locator("summary").click();
     await shot(app, "18-llm-preview");
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
@@ -89,10 +97,13 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     await expect(page.getByRole("button", { name: /POST \/orders 흐름 요약/ })).toContainText("(받음)");
     // 진입점 미확정 단계는 흐름 요약이 없다고 알리고, 호출 경로를 진입점이라고 보내지 않는다
     await page.getByRole("button", { name: /생성자/ }).first().click();
+    await expect(page.locator(".pane.right").getByRole("button", { name: /OrderService 생성자 설명/ })).toBeVisible();
     await expect(page.getByTestId("llm-reason")).toContainText("진입점 미확정 묶음이라 흐름 요약은 없습니다");
     await page.locator(".pane.right").getByRole("button", { name: /설명$/ }).click();
     await expect(dialog.getByTestId("explain-dest")).toBeVisible();
     await expect(dialog).toContainText("진입점 미확정");
+    // 제목은 미리보기 전후로 같은 이름(화면 표기)이다
+    await expect(dialog.locator("#explain-title")).toHaveText("OrderService 생성자 설명");
     await expect(dialog).not.toContainText("이 메서드가 진입점");
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: /placeOrder/ }).first().click();
@@ -117,6 +128,39 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
     await expect(dialog.getByTestId("explain-error")).toContainText("키가 거부되었습니다");
     await expect(dialog.getByRole("button", { name: "LLM 설정" })).toBeVisible();
     await page.keyboard.press("Escape");
+  } finally {
+    await app.close();
+    await mock.close();
+  }
+});
+
+test("LLM 설정: 저장 못 하는 이유, 헤더를 바꾼다는 안내, 저장하지 않은 변경은 묻고 버린다", async () => {
+  const mock = await startMockLlm();
+  const { app, page } = await launch(makeUserData());
+  try {
+    await page.getByRole("button", { name: "LLM 설정" }).click();
+    await page.getByLabel("LLM 설명 쓰기").check();
+    await expect(page.getByTestId("llm-missing")).toHaveText("저장하려면 끝점 주소와 모델을 넣으세요.");
+    await expect(page.getByRole("button", { name: "확인하고 저장" })).toBeDisabled();
+    await page.getByLabel("끝점 주소").fill(mock.endpoint);
+    await expect(page.getByTestId("llm-missing")).toHaveText("저장하려면 모델을 넣으세요.");
+    await page.getByLabel("모델").fill("test-model");
+    await page.getByLabel("추가 헤더 (선택)").fill("X-A: 1\nX-B: 2");
+    await page.getByRole("button", { name: "확인하고 저장" }).click();
+    await expect(page.getByTestId("llm-saved")).toBeVisible();
+    await expect(page.getByText("저장된 헤더: X-A, X-B")).toBeVisible();
+    // 새 헤더만 넣으면 저장된 헤더를 모두 바꾼다고 알린다
+    await page.getByLabel("추가 헤더 (선택)").fill("X-C: 3");
+    await expect(page.getByTestId("llm-headers-replace")).toContainText("X-A, X-B");
+    // 저장하지 않고 돌아가려 하면 묻는다
+    await page.getByRole("button", { name: "돌아가기" }).click();
+    await expect(page.getByTestId("llm-leave")).toBeVisible();
+    await page.getByRole("button", { name: "계속 고치기" }).click();
+    await expect(page.getByTestId("llm-leave")).toHaveCount(0);
+    await expect(page.getByLabel("추가 헤더 (선택)")).toHaveValue("X-C: 3");
+    await page.getByRole("button", { name: "돌아가기" }).click();
+    await page.getByRole("button", { name: "버리고 돌아가기" }).click();
+    await expect(page.getByRole("heading", { name: "Callpath" })).toBeVisible();
   } finally {
     await app.close();
     await mock.close();

@@ -48,6 +48,43 @@ describe("미리보기", () => {
     expect(q.omittedScope.map((s) => s.path)).toEqual(["Huge.java", "Small.java"]);
   });
 
+  it("자른 조각도 생략 안내까지 넣어 상한을 넘지 않고, 한 줄이 너무 길면 글자로 자른다", () => {
+    const flow = session.flows[0]!;
+    const codeChars = (content: string) => (content.split("## 바뀐 메서드 코드")[1] ?? "").length;
+    const many: Snippet = { path: "Many.java", side: "head", startLine: 1, endLine: 2000, text: Array.from({ length: 2000 }, (_, i) => `int v${i} = ${i};`).join("\n") };
+    const p = preview({ kind: "flow", flow, snippets: [many] });
+    expect(codeChars(p.messages[1]!.content)).toBeLessThanOrEqual(MAX_CODE_CHARS + 40);
+    const oneLine: Snippet = { path: "Min.java", side: "head", startLine: 1, endLine: 1, text: "x".repeat(50000) };
+    const q = preview({ kind: "flow", flow, snippets: [oneLine] });
+    expect(codeChars(q.messages[1]!.content)).toBeLessThanOrEqual(MAX_CODE_CHARS + 40);
+    expect(q.messages[1]!.content).toContain("이 줄의 뒷부분과 이하 생략");
+  });
+
+  it("같은 호출이 이어지면 묶고, 메서드 설명에도 시그니처 변경을 적는다", () => {
+    const step = session.flows[0]!.steps.find((s) => s.symbol.name === "approve")!;
+    const p = preview({ kind: "method", step, snippet: { path: step.symbol.path, side: "head", startLine: 1, endLine: 1, text: "x" }, baseSnippet: null, callers: [], callees: [] });
+    expect(p.graphSummary).toContain("시그니처도 바뀜");
+    const call = (name: string, line: number) => ({ name, arity: 1, receiver: "sb", depth: 0, control: null, nested: false, line });
+    const many = { ...step, callOrderDiff: { base: [], head: Array.from({ length: 460 }, (_, i) => call("append", i)), moved: [], added: Array.from({ length: 460 }, (_, i) => i), removed: [], movedAcrossBlock: [], arityChanged: [] } };
+    const q = preview({ kind: "method", step: many, snippet: { path: step.symbol.path, side: "head", startLine: 1, endLine: 1, text: "x" }, baseSnippet: null, callers: [], callees: [] });
+    expect(q.graphSummary).toContain("append ×460");
+    expect(q.graphSummary.match(/append/g)!.length).toBeLessThanOrEqual(2);
+  });
+
+  it("자른 조각은 원래 끝 줄을 남긴다", () => {
+    const flow = session.flows[0]!;
+    const many: Snippet = { path: "Many.java", side: "head", startLine: 1, endLine: 2000, text: Array.from({ length: 2000 }, (_, i) => `int v${i} = ${i};`).join("\n") };
+    const p = preview({ kind: "flow", flow, snippets: [many] });
+    expect(p.scope[0]!.truncatedFrom).toBe(2000);
+    expect(p.scope[0]!.endLine).toBeLessThan(2000);
+  });
+
+  it("생성자는 화면과 같은 이름으로 적는다", () => {
+    const step = session.orphans[0]!;
+    const p = preview({ kind: "method", step, snippet: { path: step.symbol.path, side: "head", startLine: 1, endLine: 1, text: "x" }, baseSnippet: null, callers: [], callees: [], orphan: true });
+    expect(p.title).toBe("OrderService 생성자 설명");
+  });
+
   it("글자 상한을 넘는 조각은 빼고 몇 개 뺐는지 적는다", () => {
     const flow = session.flows[0]!;
     const big = (i: number): Snippet => ({ path: `Big${i}.java`, side: "head", startLine: 1, endLine: 2, text: "x".repeat(MAX_CODE_CHARS / 2) });

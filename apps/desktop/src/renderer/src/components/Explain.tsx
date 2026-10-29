@@ -12,15 +12,18 @@ export function Markdown({ text }: { text: string }) {
   let i = 0;
   let key = 0;
   const inline = (s: string) =>
-    s.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((part, j) =>
+    s.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/g).map((part, j) =>
       part.startsWith("`") && part.endsWith("`") && part.length > 1 ? (
         <code key={j}>{part.slice(1, -1)}</code>
       ) : part.startsWith("**") && part.endsWith("**") && part.length > 3 ? (
         <strong key={j}>{part.slice(2, -2)}</strong>
+      ) : part.startsWith("*") && part.endsWith("*") && part.length > 2 ? (
+        <em key={j}>{part.slice(1, -1)}</em>
       ) : (
         part
       ),
     );
+  const special = (l: string) => l.startsWith("```") || /^(#{1,4})\s+/.test(l) || /^\s*([-*]|\d+\.)\s+/.test(l) || l.startsWith(">") || l.trimStart().startsWith("|");
   while (i < lines.length) {
     const line = lines[i]!;
     if (line.startsWith("```")) {
@@ -45,12 +48,25 @@ export function Markdown({ text }: { text: string }) {
       out.push(ordered ? <ol key={key++}>{li}</ol> : <ul key={key++}>{li}</ul>);
       continue;
     }
+    if (line.startsWith(">")) {
+      const quote: string[] = [];
+      while (i < lines.length && lines[i]!.startsWith(">")) quote.push(lines[i++]!.replace(/^>\s?/, ""));
+      out.push(<blockquote key={key++}>{inline(quote.join("\n"))}</blockquote>);
+      continue;
+    }
+    if (line.trimStart().startsWith("|")) {
+      // 표는 칸을 맞춘 고정폭 글로 보인다
+      const rows: string[] = [];
+      while (i < lines.length && lines[i]!.trimStart().startsWith("|")) rows.push(lines[i++]!.trim());
+      out.push(<pre key={key++} className="plan-body answer-table">{rows.join("\n")}</pre>);
+      continue;
+    }
     if (!line.trim()) {
       i++;
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i]!.trim() && !lines[i]!.startsWith("```") && !/^(#{1,4})\s+/.test(lines[i]!) && !/^\s*([-*]|\d+\.)\s+/.test(lines[i]!)) para.push(lines[i++]!);
+    while (i < lines.length && lines[i]!.trim() && !special(lines[i]!)) para.push(lines[i++]!);
     out.push(<p key={key++}>{inline(para.join("\n"))}</p>);
   }
   return <>{out}</>;
@@ -65,7 +81,7 @@ export interface SavedAnswer {
 type Phase =
   | { s: "preparing" }
   | { s: "preview"; p: ExplainPreview }
-  | { s: "streaming"; p: ExplainPreview; text: string }
+  | { s: "streaming"; p: ExplainPreview; text: string; started: number }
   /** fromSaved: 지난번에 받아 둔 답을 다시 보이는 것 */
   | { s: "done"; title: string; text: string; stopped?: boolean; fromSaved?: boolean }
   | { s: "error"; message: string; kind: string; text?: string };
@@ -85,6 +101,9 @@ export function ExplainDialog(props: {
 }) {
   const [phase, setPhase] = useState<Phase>(props.saved ? { s: "done", title: props.saved.title, text: props.saved.text, fromSaved: true } : { s: "preparing" });
   const [attempt, setAttempt] = useState(props.saved ? 0 : 1);
+  // 보낸 뒤에도 어디서 온 답인지 보이게 보낸 곳을 기억한다
+  const [dest, setDest] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
   const dialog = useRef<HTMLDialogElement>(null);
   const cancelBtn = useRef<HTMLButtonElement>(null);
   const answerRef = useRef<HTMLDivElement>(null);
@@ -160,6 +179,12 @@ export function ExplainDialog(props: {
   }, []);
 
   useEffect(() => {
+    if (phase.s !== "streaming") return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [phase.s]);
+
+  useEffect(() => {
     // 답이 길어지면 끝을 따라 내려간다
     if (phase.s === "streaming" && answerRef.current) answerRef.current.scrollTop = answerRef.current.scrollHeight;
   }, [phase]);
@@ -168,7 +193,8 @@ export function ExplainDialog(props: {
     // 보내면 main이 그 미리보기를 쓰고 지운다
     previewId.current = null;
     runId.current = p.id;
-    setPhase({ s: "streaming", p, text: "" });
+    setPhase({ s: "streaming", p, text: "", started: Date.now() });
+    setDest(`${p.endpointHost}의 ${p.model} 모델`);
     const r = await window.callpath.sendExplain(p.id);
     if (!r.ok) {
       runId.current = null;
@@ -178,8 +204,9 @@ export function ExplainDialog(props: {
 
   const title =
     phase.s === "preview" || phase.s === "streaming" ? phase.p.payload.title : phase.s === "done" ? phase.title : props.fallbackTitle;
-  const guide = (kind: string) =>
-    kind === "network" ? "끝점 주소와 연결, 사내망(VPN)을 확인한 뒤 다시 시도하세요." : kind === "auth" ? "LLM 설정에서 키를 확인하세요." : "잠시 뒤 다시 시도하세요.";
+  // 오류 문구에 이미 다음 행동이 있으면 덧붙이지 않는다
+  const guide = (kind: string, message: string) =>
+    kind === "network" ? "끝점 주소와 연결, 사내망(VPN)을 확인한 뒤 다시 시도하세요." : kind === "auth" ? "LLM 설정에서 키를 확인하세요." : /다시 시도/.test(message) ? "" : "잠시 뒤 다시 시도하세요.";
 
   return (
     <dialog
@@ -211,20 +238,23 @@ export function ExplainDialog(props: {
             <ul className="plain small" data-testid="explain-scope">
               {phase.p.payload.scope.map((s) => (
                 <li key={`${s.side}:${s.path}:${s.startLine}`}>
+                  {s.name && <strong>{s.name} </strong>}
                   <span className="note-where">
                     {s.path}:{s.startLine}-{s.endLine}
                   </span>{" "}
                   <span className="muted">{s.side === "head" ? "변경 후" : "변경 전"}</span>
+                  {s.truncatedFrom && <span className="warn-text inline"> 메서드는 {s.truncatedFrom}줄까지이지만 글자 상한으로 {s.endLine}줄까지만 보냅니다</span>}
                 </li>
               ))}
             </ul>
             {phase.p.payload.omitted > 0 && (
               <div className="muted small" data-testid="explain-omitted">
-                한 번에 보내는 글자 상한(2만 4천 자)을 넘어 흐름 뒤쪽 {phase.p.payload.omitted}곳은 빼고 보냅니다:
+                한 번에 보내는 코드 글자 상한(2만 4천 자)을 넘어 {phase.p.payload.kind === "flow" ? "흐름 뒤쪽 " : ""}다음 {phase.p.payload.omitted}곳은 빼고 보냅니다:
                 <ul className="plain">
                   {phase.p.payload.omittedScope.map((s) => (
                     <li key={`${s.side}:${s.path}:${s.startLine}`}>
-                      {s.path}:{s.startLine}-{s.endLine}
+                      {s.name && `${s.name} `}
+                      {s.path}:{s.startLine}-{s.endLine} {s.side === "head" ? "변경 후" : "변경 전"}
                     </li>
                   ))}
                 </ul>
@@ -247,11 +277,16 @@ export function ExplainDialog(props: {
 
       {(phase.s === "streaming" || phase.s === "done" || (phase.s === "error" && phase.text)) && (
         <div className="explain-answer" ref={answerRef} aria-live="polite" aria-busy={phase.s === "streaming"} data-testid="explain-answer">
-          {phase.s === "streaming" && !phase.text ? <p className="muted">답을 기다리는 중</p> : <div className="answer-text">
+          {phase.s === "streaming" && !phase.text ? (
+            <p className="muted">
+              답을 기다리는 중 {Math.round((now - phase.started) / 1000)}초. 60초 동안 아무것도 오지 않으면 멈춥니다
+            </p>
+          ) : <div className="answer-text">
               <Markdown text={phase.text ?? ""} />
             </div>}
         </div>
       )}
+      {(phase.s === "streaming" || (phase.s === "done" && !phase.fromSaved)) && dest && <p className="muted small" data-testid="explain-from">{dest}의 답</p>}
       {phase.s === "done" && phase.stopped && <p className="muted small">답을 받다 멈췄습니다. 받은 데까지만 보입니다.</p>}
       {phase.s === "done" && phase.fromSaved && (
         <p className="muted small">지난번에 받은 답입니다. 코드가 바뀌었으면 다시 요청하세요.</p>
@@ -263,7 +298,7 @@ export function ExplainDialog(props: {
           <Icon name="warn" />
           <span>
             {phase.message}
-            <span className="block small">{guide(phase.kind)}</span>
+            {guide(phase.kind, phase.message) && <span className="block small">{guide(phase.kind, phase.message)}</span>}
           </span>
         </div>
       )}
@@ -303,7 +338,7 @@ export function LlmActions(props: {
   /** 버튼에 적을 대상 이름. 테스트를 보고 있어도 무엇을 설명하는지 알 수 있게 한다 */
   flowName: string | null;
   methodName: string | null;
-  /** 버튼을 쓸 수 없는 이유 */
+  /** 버튼을 쓸 수 없는 이유나 대상에 대한 안내 */
   reason: string | null;
   onSettings: () => void;
   compact?: boolean;
@@ -314,7 +349,7 @@ export function LlmActions(props: {
       <div className={`llm-actions${props.compact ? " compact" : ""}`} data-testid="llm-off">
         {!props.compact && <h2 className="pane-title">LLM 설명</h2>}
         <p className="muted small">
-          꺼져 있습니다. <button className="link small" onClick={props.onSettings}>LLM 설정</button>
+          LLM 설명이 꺼져 있습니다. <button className="link small" onClick={props.onSettings}>LLM 설정</button>
         </p>
       </div>
     );
@@ -337,7 +372,11 @@ export function LlmActions(props: {
         )}
       </div>
       {props.reason && <p className="muted small" data-testid="llm-reason">{props.reason}</p>}
-      {!props.compact && (
+      {props.compact ? (
+        <button className="link small" onClick={props.onSettings}>
+          LLM 설정
+        </button>
+      ) : (
         <p className="muted small">
           {props.onFlow || props.onMethod ? "누르면 보낼 내용을 먼저 보여 줍니다. " : ""}
           <button className="link small" onClick={props.onSettings}>LLM 설정</button>

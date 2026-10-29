@@ -415,7 +415,15 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
       onMethod={methodTarget && methodKey ? () => setExplain({ key: methodKey, target: methodTarget, title: methodTitle }) : null}
       flowName={llmStep?.flow ? llmStep.flow.label : null}
       methodName={llmStep ? shortName(llmStep.step.symbol) : null}
-      reason={!llmStep ? "메서드 밖 변경이라 설명할 메서드와 흐름이 없습니다" : !llmStep.flow ? "진입점 미확정 묶음이라 흐름 요약은 없습니다" : null}
+      reason={
+        !llmStep
+          ? "메서드 밖 변경이라 설명할 메서드와 흐름이 없습니다"
+          : current.kind === "test"
+            ? "테스트를 보고 있습니다. 테스트 코드는 보내지 않고, 이 테스트가 부르는 메서드를 설명합니다"
+            : !llmStep.flow
+              ? "진입점 미확정 묶음이라 흐름 요약은 없습니다"
+              : null
+      }
       flowAnswered={!!(flowKey && answers[flowKey])}
       methodAnswered={!!(methodKey && answers[methodKey])}
       onSettings={openLlmSettings}
