@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@callpath/core": "workspace:*",
+    "@callpath/llm": "workspace:*",
     "@callpath/lsp": "workspace:*",
     "@callpath/providers": "workspace:*"
   },

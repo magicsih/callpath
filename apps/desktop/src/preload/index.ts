@@ -23,6 +23,19 @@ const api: CallpathApi = {
   },
   listPullRequests: (repoPath) => ipcRenderer.invoke("listPullRequests", repoPath),
   openExternal: (url) => ipcRenderer.invoke("openExternal", url),
+  getLlmSettings: () => ipcRenderer.invoke("getLlmSettings"),
+  saveLlmSettings: (input, requestId) => ipcRenderer.invoke("saveLlmSettings", input, requestId),
+  cancelLlmCheck: (requestId) => ipcRenderer.invoke("cancelLlmCheck", requestId),
+  previewExplain: (req) => ipcRenderer.invoke("previewExplain", req),
+  sendExplain: (id) => ipcRenderer.invoke("sendExplain", id),
+  cancelExplain: (id) => ipcRenderer.invoke("cancelExplain", id),
+  discardExplain: (id) => ipcRenderer.invoke("discardExplain", id),
+  onLlmEvent: (cb) => {
+    const h = (_e: unknown, ev: Parameters<typeof cb>[0]) => cb(ev);
+    ipcRenderer.on("llm-event", h);
+    return () => ipcRenderer.removeListener("llm-event", h);
+  },
+  showLlmLog: () => ipcRenderer.invoke("showLlmLog"),
   listNotes: (scope) => ipcRenderer.invoke("listNotes", scope),
   addNote: (scope, note) => ipcRenderer.invoke("addNote", scope, note),
   deleteNote: (id) => ipcRenderer.invoke("deleteNote", id),

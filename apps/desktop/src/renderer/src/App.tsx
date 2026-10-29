@@ -6,6 +6,8 @@ import { Compare } from "./screens/Compare";
 import { Review } from "./screens/Review";
 import { Connections } from "./screens/Connections";
 import { PrOpening } from "./screens/PrOpening";
+import { LlmSettings } from "./screens/LlmSettings";
+import type { SavedAnswer } from "./components/Explain";
 
 type Screen =
   | { name: "boot" }
@@ -13,6 +15,7 @@ type Screen =
   | { name: "compare"; repo: RepoInfo; base?: string; head?: string }
   | { name: "review"; repo: RepoInfo; req: CompareRequest; selection: string | null; showTests: boolean; pr: PrMeta | null }
   | { name: "connections"; back: Screen; hint?: ConnectionHint }
+  | { name: "llm"; back: Screen }
   | { name: "pr"; url: string; back: Screen };
 
 /** PR 리뷰는 앱 캐시의 bare 저장소를 쓰므로 그 경로로 화면용 저장소 정보를 만든다 */
@@ -21,6 +24,8 @@ function prRepo(m: PrMeta): RepoInfo {
 }
 
 export function App() {
+  // LLM 답은 리뷰 화면이 다시 그려져도(설정을 다녀와도) 남게 여기 둔다. 키에 커밋 SHA가 들어가 다른 커밋과 섞이지 않는다
+  const answers = useRef<Record<string, SavedAnswer>>({});
   const [screen, setScreen] = useState<Screen>({ name: "boot" });
   const [busy, setBusy] = useState(false);
   const state = useRef<UiState>(EMPTY_STATE);
@@ -106,6 +111,8 @@ export function App() {
   }, [open]);
 
   if (screen.name === "boot") return <div className="state" role="status">불러오는 중</div>;
+  // 리뷰에서 온 LLM 설정은 아래에서 리뷰를 숨긴 채 그대로 두고 보인다(분석, 코드 위치, 받은 답을 지킨다)
+  if (screen.name === "llm" && screen.back.name !== "review") return <LlmSettings onBack={() => setScreen(screen.back)} />;
   if (screen.name === "connections") {
     // PR 열기에서 왔으면 돌아갈 때 그 PR을 이어서 연다는 것을 버튼에 적는다
     return <Connections onBack={() => setScreen(screen.back)} backLabel={screen.back.name === "pr" ? "돌아가서 PR 다시 열기" : "돌아가기"} {...(screen.hint ? { hint: screen.hint } : {})} />;
@@ -133,6 +140,7 @@ export function App() {
         onPick={pick}
         onOpenPr={(url) => setScreen({ name: "pr", url, back: screen })}
         onConnections={() => setScreen({ name: "connections", back: screen })}
+        onLlmSettings={() => setScreen({ name: "llm", back: screen })}
       />
     );
   }
@@ -162,25 +170,35 @@ export function App() {
       />
     );
   }
-  const { repo, req, pr } = screen;
+  const onLlm = screen.name === "llm";
+  const rs = (screen.name === "llm" ? screen.back : screen) as Extract<Screen, { name: "review" }>;
+  const { repo, req, pr } = rs;
   return (
+    <>
+      <div className="screen-slot" hidden={onLlm}>
     <Review
       key={`${req.repo}|${req.base}|${req.head}`}
+      active={!onLlm}
       req={req}
       repoName={repo.name}
       pr={pr}
-      onRefreshPr={() => pr && setScreen({ name: "pr", url: pr.url, back: screen })}
-      initialSelection={screen.selection}
-      initialShowTests={screen.showTests}
+      onRefreshPr={() => pr && setScreen({ name: "pr", url: pr.url, back: rs })}
+      initialSelection={rs.selection}
+      initialShowTests={rs.showTests}
       onChangeCompare={() => {
         if (pr) {
           persist({ ...state.current, lastRepo: null });
           setScreen({ name: "start", error: null });
         } else setScreen({ name: "compare", repo, base: req.base, head: req.head });
       }}
+      onLlmSettings={(selection, showTests) => setScreen({ name: "llm", back: { ...rs, selection, showTests } })}
+      answerStore={answers.current}
       onPersist={(selection, showTests) =>
         persist({ ...state.current, lastRepo: req.repo, repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } })
       }
     />
+      </div>
+      {onLlm && <LlmSettings onBack={() => setScreen(rs)} backLabel="리뷰로 돌아가기" />}
+    </>
   );
 }

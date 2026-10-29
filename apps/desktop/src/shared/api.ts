@@ -129,6 +129,50 @@ export interface PostPlan {
 
 export type PostResult = { noteId: number; ok: true; url: string } | { noteId: number; ok: false; error: string };
 
+/** LLM 설정 화면에 보이는 값. 키와 헤더 값은 돌려주지 않는다 */
+export interface LlmSettingsView {
+  enabled: boolean;
+  endpoint: string;
+  model: string;
+  hasKey: boolean;
+  headerNames: string[];
+  /** Linux에 암호 저장소가 없어 키를 약하게 보관하게 되는지 */
+  weakStorage: boolean;
+  /** 보낸 기록 파일 경로 */
+  logPath: string;
+}
+
+export interface LlmSettingsInput {
+  enabled: boolean;
+  endpoint: string;
+  model: string;
+  /** 넣으면 바꾸고, null이면 지우고, 빼면 그대로 둔다 */
+  apiKey?: string | null;
+  /** "이름: 값" 줄. 넣으면 바꾸고, null이면 지우고, 빼면 그대로 둔다 */
+  headers?: string | null;
+}
+
+export interface LlmSaved {
+  view: LlmSettingsView;
+  /** 저장하며 확인한 결과에 대한 안내(모델 목록을 못 받음, 목록에 없는 모델 등) */
+  note: string | null;
+}
+
+/** 무엇을 설명받을지. 렌더러가 가진 분석 결과를 그대로 넘긴다 */
+export type ExplainTarget =
+  | { kind: "flow"; flow: import("@callpath/core").Flow }
+  | { kind: "method"; step: import("@callpath/core").Step; callees: string[]; /** 진입점 미확정 묶음의 단계 */ orphan: boolean };
+
+export interface ExplainPreview {
+  id: string;
+  payload: import("@callpath/llm").ExplainPayload;
+  /** 보낼 곳(호스트)과 모델 */
+  endpointHost: string;
+  model: string;
+}
+
+export type LlmEvent = { id: string; type: "chunk"; text: string } | { id: string; type: "done" } | { id: string; type: "error"; error: string; kind: string };
+
 export interface UiState {
   recent: string[];
   /** 마지막으로 리뷰 화면에 있던 저장소. 시작 화면으로 나가면 null */
@@ -179,6 +223,19 @@ export interface CallpathApi {
   /** 로컬 저장소의 원격 주소로 연결을 찾아 열린 PR 목록을 준다 */
   listPullRequests(repoPath: string): Promise<Result<PrList>>;
   openExternal(url: string): Promise<void>;
+  getLlmSettings(): Promise<LlmSettingsView>;
+  /** 켜면 모델 목록으로 끝점과 키를 확인한 뒤 저장한다(코드는 보내지 않는다) */
+  saveLlmSettings(input: LlmSettingsInput, requestId?: string): Promise<Result<LlmSaved>>;
+  cancelLlmCheck(requestId: string): Promise<void>;
+  /** 보낼 내용을 만든다. 네트워크를 쓰지 않는다 */
+  previewExplain(req: { repo: string; base: string; head: string; target: ExplainTarget }): Promise<Result<ExplainPreview>>;
+  /** 미리보기에서 확인한 그 내용을 보낸다. 답은 onLlmEvent로 조각씩 온다 */
+  sendExplain(id: string): Promise<Result<void>>;
+  cancelExplain(id: string): Promise<void>;
+  /** 보내지 않고 닫은 미리보기를 버린다 */
+  discardExplain(id: string): Promise<void>;
+  onLlmEvent(cb: (e: LlmEvent) => void): () => void;
+  showLlmLog(): Promise<void>;
   listNotes(scope: NoteScope): Promise<Result<Note[]>>;
   addNote(scope: NoteScope, note: { path: string; line: number; body: string }): Promise<Result<Note>>;
   deleteNote(id: number): Promise<Result<void>>;
