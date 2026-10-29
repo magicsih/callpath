@@ -41,7 +41,7 @@
 | A13 | 창 크기 900x600과 화면 확대 150%에서 세 영역의 핵심 정보와 버튼이 잘리거나 겹치지 않는다 | Playwright 스크린샷, 검수 에이전트 확인 | 3 |
 | A14 | 마우스 없이 키보드만으로 저장소 열기부터 마지막 단계까지 갈 수 있고, 목록과 버튼에 화면 읽기용 이름이 있다 | Playwright 키보드 시나리오, 접근성 트리 확인 | 3 |
 | A8 | JDK 21이 있으면 JDT LS 보강 뒤 진입점에서 `placeOrder`까지의 간선과 그 테스트 연결이 `high`이고, 이름만으로는 후보가 여럿이던 호출을 하나로 확정한다. 정밀 분석 결과가 와도 보던 위치와 코드가 그대로이고, 다시 열면 저장한 결과를 쓴다. JDK나 kotlin-lsp가 없으면 상단 띠에 원인과 설치 안내가 뜨고 A1~A7이 그대로 통과한다 | vitest 통합(JDK 조건부), Playwright | 4 |
-| A9 | 실제 GitHub PR(`seorilabs/lucid-chess#32`, 사용자 지정)을 주소로 열어 base/head가 PR과 같고, 줄 코멘트를 게시한 뒤 바로 지운다. GitHub Enterprise와 GitLab은 모의 서버로 같은 흐름(목록, 열기, 줄 코멘트, 일반 코멘트)을 확인한다 | vitest(모의 서버). 실제 PR 읽기는 `CALLPATH_LIVE_PR`로 작성자가 실행했다(2026-10-29, base cc23bf3, head 2bd321e, 파일 2개 일치). 게시와 삭제(`CALLPATH_LIVE_POST=1`)는 에이전트 권한에서 막혀 사용자가 직접 실행한다 | 5 |
+| A9 | 실제 GitHub PR(`seorilabs/lucid-chess#32`, 사용자 지정)을 주소로 열어 base/head가 PR과 같고, 줄 코멘트를 게시한 뒤 바로 지운다. GitHub Enterprise와 GitLab은 모의 서버로 같은 흐름(목록, 열기, 줄 코멘트, 일반 코멘트)을 확인한다 | vitest(모의 서버). 실제 PR 읽기는 `CALLPATH_LIVE_PR`로 작성자가 실행했다(2026-10-29, base cc23bf3, head 2bd321e, 파일 2개 일치). 게시와 삭제(`CALLPATH_LIVE_POST=1`)는 에이전트 권한에서 막혀 사용자가 직접 실행했다(2026-10-29 21:48, `package-lock.json` 15줄에 줄 코멘트 게시 뒤 삭제, 통과). 시험 자체는 지운 코멘트를 다시 조회해 404인지만 본다. 그래서 실행 뒤 작성자가 GitHub API의 줄 코멘트 목록(`repos/seorilabs/lucid-chess/pulls/32/comments`)과 일반 코멘트 목록(`issues/32/comments`)을 따로 읽어 둘 다 0건임을 확인했다 | 5 |
 | A15 | 연결 설정에서 저장한 토큰은 암호화되어 파일에 평문으로 남지 않고 화면에 다시 보이지 않는다. 잘못된 토큰은 원인과 함께 실패로 보인다 | Playwright(모의 서버), 파일 검사 | 5 |
 | A16 | 메모를 남기면 줄 옆과 목록에 보이고, 다시 열어도 남는다. 변경 브랜치에 커밋이 더해지면 이전 커밋 메모로 따로 보인다 | Playwright | 5 |
 | A17 | 게시 미리보기가 줄 코멘트와 일반 코멘트를 구분해 보이고, 확인해야 올라가며, 올라간 메모는 링크와 함께 게시됨으로 바뀐다 | Playwright(모의 서버) | 5 |
