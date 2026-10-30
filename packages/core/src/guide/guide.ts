@@ -181,6 +181,7 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
     .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || sortKey(a).localeCompare(sortKey(b)));
   for (const e of entries) map.byId.get(e.classId)?.entryIds.push(e.id);
   for (const node of map.nodes) node.role = roleOf(map.symbols.get(node.id) ?? fileSymbol(node), node.entryIds.length > 0, config.roles);
+  const declared = new Set(entries.map((e) => e.id));
 
   // 간선을 클래스 사이 연결, 많이 쓰이는 정도, 테스트 수로 모은다
   const links = new Map<string, ClassLink>();
@@ -215,6 +216,8 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
 
   const noEntries = entries.length === 0;
   if (noEntries) entries.push(...apiEntries(map, graph, crossCallers));
+  // 공개 API 진입점도 칩에서 투어를 시작할 수 있게 붙인다. 역할은 구조를 나타내므로 바꾸지 않는다(유틸 클래스가 진입 열로 가지 않게)
+  for (const e of entries) if (!declared.has(e.id)) map.byId.get(e.classId)?.entryIds.push(e.id);
 
   const guideData: RepoGuide = {
     ref: opts.ref,

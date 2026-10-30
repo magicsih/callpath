@@ -420,7 +420,8 @@ export function indexFile(path: string, language: Language, tree: Tree): FileInd
   const classes: ClassSymbol[] = [];
   const methods: MethodSymbol[] = [];
 
-  const visit = (node: Node, containers: string[]): void => {
+  // Java 인터페이스와 애노테이션 타입의 멤버는 수정자가 없어도 public이다
+  const visit = (node: Node, containers: string[], inInterface = false): void => {
     if (spec.containerNodes.has(node.type)) {
       const name = spec.className(node);
       const chain = [...containers, name];
@@ -431,14 +432,17 @@ export function indexFile(path: string, language: Language, tree: Tree): FileInd
         const spec = kotlinSpecLambda(node);
         if (spec) methods.push(syntheticSpec(path, spec, packageName, chain, qualifiedName));
       }
-      for (const c of node.children) visit(c, chain);
+      const iface = language === "java" && (node.type === "interface_declaration" || node.type === "annotation_type_declaration");
+      for (const c of node.children) visit(c, chain, iface);
       return;
     }
     if (spec.methodNodes.has(node.type)) {
-      methods.push(toSymbol(path, language, spec, node, packageName, containers));
+      const m = toSymbol(path, language, spec, node, packageName, containers);
+      if (inInterface && m.visibility === "package") m.visibility = "public";
+      methods.push(m);
       return; // 메서드 안의 지역 클래스와 람다 안 함수는 다루지 않는다
     }
-    for (const c of node.children) visit(c, containers);
+    for (const c of node.children) visit(c, containers, inInterface);
   };
   visit(root, []);
   return { path, language, packageName, classes, methods };

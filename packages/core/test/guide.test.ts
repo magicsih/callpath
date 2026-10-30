@@ -231,6 +231,29 @@ public class Table {
     expect(r.guide.entries.map((e) => `${e.kind} ${e.label}`)).toEqual(["api TextUtils.pad", "api TextUtils.center"]);
     const center = r.tour(r.guide.entries[1]!.id);
     expect(center.steps.map((s) => displayName(s.symbol))).toEqual(["TextUtils.center", "TextUtils.pad"]);
+    // 칩에서 투어를 시작할 수 있게 진입점을 붙이지만, 역할은 구조대로 둔다
+    const utils = r.guide.classes.find((c) => c.name === "TextUtils")!;
+    expect(utils.entryIds).toEqual(r.guide.entries.map((e) => e.id));
+    expect(utils.role).toBe("other");
+  });
+
+  it("Java 인터페이스의 default 메서드도 공개 API다", async () => {
+    const r = await guideTree({
+      "src/main/java/lib/core/Shape.java": `package lib.core;
+
+public interface Shape {
+    double area();
+
+    default String describe() {
+        String kind = getClass().getSimpleName();
+        return kind + " " + area();
+    }
+}
+`,
+      "src/main/java/lib/core/Square.java": "package lib.core;\n\npublic class Square implements Shape {\n    public double area() {\n        return 4;\n    }\n}\n",
+      "src/main/java/lib/print/Printer.java": "package lib.print;\n\nimport lib.core.Shape;\n\npublic class Printer {\n    public String print(Shape s) {\n        return s.describe();\n    }\n}\n",
+    });
+    expect(r.guide.entries.map((e) => e.label)).toEqual(["Shape.describe"]);
   });
 });
 
