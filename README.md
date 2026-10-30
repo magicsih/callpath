@@ -33,7 +33,7 @@ AI가 한 번에 고쳐 올린 PR을 파일 순서가 아니라 호출 흐름 �
 
 처음 실행할 때 두 가지를 인터넷에서 내려받는다.
 
-- Electron 실행 파일: `pnpm install`이 끝날 때 GitHub에서 받는다. 사내망에서 막히면 설치는 경고만 남기고 끝나므로, `ELECTRON_MIRROR`로 미러를 지정한 뒤 `pnpm --filter @callpath/desktop run ensure-electron`을 실행한다. `dev`도 시작하기 전에 한 번 더 확인한다.
+- Electron 실행 파일: 처음 `dev`를 띄울 때 GitHub에서 받는다. 사내망에서 막히면 `ELECTRON_MIRROR`로 미러를 지정한 뒤 다시 띄운다. 미리 받아 두려면 `pnpm --filter @callpath/desktop run ensure-electron`을 실행한다.
 - JDT LS 1.61.0(약 50MB): JDK가 있을 때 처음 분석하면서 Eclipse 배포처에서 받는다. 막히면 미리 풀어 둔 폴더를 `CALLPATH_JDTLS_DIR`로 주거나 `CALLPATH_PRECISE=off`로 끈다.
 
 ### 설치와 실행
