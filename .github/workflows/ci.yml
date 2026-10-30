@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # PR을 열기 전에 브랜치에서 두 OS를 돌려 볼 때 손으로 실행한다
+  workflow_dispatch:
 
 jobs:
   test:
