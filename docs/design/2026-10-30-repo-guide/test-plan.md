@@ -15,14 +15,14 @@
 
 ## 표본
 
-- `fixtures/shop` (새로 만든다): Java Spring 모양 저장소. 패키지 `order`, `coupon`, `payment`, `notification`, `config`. 진입점은 HTTP 3개(`POST /orders` 등), Kafka 리스너 1개, `@Scheduled` 1개, `main` 1개. 인터페이스와 구현 두 개, getter와 setter, 한 줄 위임, 테스트 클래스를 넣는다. Kotlin 파일 몇 개(데이터 클래스, 최상위 함수)도 넣는다.
+- [`fixtures/shop`](../../../fixtures/shop/README.md): Java Spring 모양 저장소. 루트 패키지(`ShopApplication`)와 기능 패키지 `order`, `coupon`, `payment`, `notification`, `config`. 진입점은 HTTP 3개(`POST /orders` 등), Kafka 리스너 1개, `@Scheduled` 1개, `main` 1개. 인터페이스와 구현 두 개, getter와 setter, 한 줄 위임, 생성 코드, 테스트 클래스를 넣는다. Kotlin 파일 몇 개(데이터 클래스, 최상위 함수)도 넣는다.
 - spring-petclinic, commons-lang: 측정과 수동 확인에만 쓴다. CI에서 내려받지 않는다.
 
 ## 인수조건
 
 | 번호 | 내용 | 방법 | 단계 |
 |---|---|---|---|
-| B1 | `guide()`가 `fixtures/shop`의 패키지 5개, 클래스마다 역할(5.1 표), 클래스 사이 연결 수를 맞게 낸다. 테스트 클래스는 지도에 없다 | vitest | 7a |
+| B1 | `guide()`가 `fixtures/shop`의 패키지 6개(루트와 기능 패키지 5개), 클래스마다 역할(5.1 표), 클래스 사이 연결 수를 맞게 낸다. 테스트 클래스는 지도에 없다 | vitest | 7a |
 | B2 | `POST /orders` 투어가 호출 순서대로 이어지고, 사소한 메서드는 접히며, 같은 메서드는 한 번만 단계가 되고, 인터페이스 호출은 구현 두 개로 갈린다 | vitest | 7a |
 | B3 | 진입점 목록이 종류 순(HTTP, 메시지, 스케줄, main)이고 투어는 처음 열 때만 계산된다 | vitest | 7a |
 | B4 | 진입점이 없는 표본(라이브러리 모양 작은 표본)에서 `noEntries`와 공개 API 투어가 나온다 | vitest | 7a |
@@ -45,4 +45,9 @@
 | spring-petclinic | 50 | 195 | 18 | 0.2초 | HTTP 투어, 기능별 패키지(owner, vet)가 역할 열에 퍼지는지 |
 | commons-lang | 630 | 11,165 | 0 | 6.2초 | 진입점 없음 안내와 공개 API 투어, 큰 패키지(function 62개 파일) 표시 |
 
-7a가 끝나면 같은 두 저장소로 `guide()` 시간을 다시 재서 이 표에 더한다.
+위 표의 파일과 메서드는 테스트를 포함한 1차 `analyze` 값이다. 7a `guide()`로 다시 잰 값(2026-10-30, 같은 맥, 커밋 spring-petclinic 500158f, commons-lang 5ebe419)은 아래와 같다. 파일과 메서드는 테스트를 뺀 수다.
+
+| 저장소 | 파일 | 클래스 칩 | 메서드 | 진입점 | `guide()` | 투어 전부 | 결과 JSON | 확인한 것 |
+|---|---|---|---|---|---|---|---|---|
+| spring-petclinic | 30 | 25 | 93 | 18 | 0.1초 | 1ms | 27KB | owner 패키지에 진입, 데이터, 모델이 함께 놓이고, `POST /owners/{ownerId}/pets/{petId}/edit` 투어가 6단계로 이어진다 |
+| commons-lang | 264 | 246 | 4,543 | 0(공개 API 36) | 2.3초 | 7ms | 240KB | 진입점 없음을 알리고 `ArrayUtils.toObject` 등 공개 API로 대신한다. 패키지 행 18개 |

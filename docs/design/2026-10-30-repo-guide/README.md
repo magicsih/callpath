@@ -32,9 +32,9 @@
 
 ### 1.4 성공 기준
 
-- 새 표본 `fixtures/shop`(2절 검증용)에서 지도가 패키지 5개를 역할 열에 맞게 놓고, 투어가 `POST /orders`에서 시작해 `OrderController → OrderService → …` 순서로 이어진다
+- 새 표본 `fixtures/shop`(2절 검증용)에서 지도가 루트와 기능 패키지 5개를 역할 열에 맞게 놓고, 투어가 `POST /orders`에서 시작해 `OrderController → OrderService → …` 순서로 이어진다
 - spring-petclinic(파일 50개, 진입점 18개)에서 HTTP 진입점 투어가 열린다
-- commons-lang(파일 630개, 메서드 1만 1천 개, 진입점 0개)에서 "진입점이 없는 저장소"로 알리고 공개 API 투어로 대신한다
+- commons-lang(테스트를 뺀 파일 264개, 메서드 4,543개, 진입점 0개)에서 "진입점이 없는 저장소"로 알리고 공개 API 투어로 대신한다
 
 ## 2. 사용자 흐름
 
@@ -105,25 +105,38 @@
 
 ### 4.1 코어에 더할 것
 
-`packages/core`에 Electron과 무관한 `guide(source, opts)`를 더한다. 1차의 `indexSource`, `buildCallGraph`, `detectEntries`, 테스트 판정을 그대로 쓴다.
+`packages/core`에 Electron과 무관한 `guide(source, opts)`를 더한다(`packages/core/src/guide/`). 1차의 `indexSource`, `buildCallGraph`, `detectEntries`, 테스트 판정을 그대로 쓴다.
 
 ```ts
+interface GuideResult {
+  guide: RepoGuide;                         // 직렬화해 화면과 캐시로 보내는 부분
+  tour(entryId: string): Tour;              // 처음 부를 때 만들고 기억한다
+  entriesThrough(classId: string): string[]; // 투어 단계에 이 클래스가 나오는 진입점
+}
 interface RepoGuide {
-  ref: string; sha: string;
-  stats: { files: number; classes: number; methods: number; edges: number; entries: number; ms: number };
+  ref: string; sha: string; dir: string | null;
+  stats: { files: number; generated: number; classes: number; methods: number; edges: number; entries: number; ms: number };
   packages: PackageNode[];        // 지도의 행
   classes: ClassNode[];           // 지도의 칩
   links: ClassLink[];             // 클래스 사이 호출 수(패키지 밖 연결 포함)
   entries: TourEntry[];           // 투어 목록. 진입점이 없으면 공개 API 진입점
   noEntries: boolean;
 }
-interface ClassNode { id: string; name: string; packageName: string; path: string; role: Role; fanIn: number; methods: number; entryIds: string[] }
+interface ClassNode { id: string; name: string; packageName: string; path: string; kind: ClassKind | "file"; role: Role; range: Range; methods: number; fanIn: number; tests: number; entryIds: string[] }
 type Role = "entry" | "service" | "integration" | "data" | "model" | "config" | "other";
 interface Tour { entry: TourEntry; steps: TourStep[]; collapsed: number; truncated: boolean }
+interface TourStep {
+  n: number; symbol: SymbolRef; classId: string; depth: number;
+  parent: number | null; line: number | null;   // 부른 단계와 그 본문의 호출 줄
+  alternatives: number;                          // 2 이상이면 인터페이스 구현 같은 갈래
+  calls: { line: number; to: number; back: boolean }[]; // 코드 옆 단계 번호. back이면 앞 단계를 다시 부름
+  folded: { line: number; name: string }[];      // 접은 사소한 메서드
+}
 ```
 
+- 색인기는 이를 위해 클래스 종류(`kind`: class, interface, enum, record, data, object, annotation)와 메서드 본문의 문장 수(`statements`)를 더 기록한다.
 - 투어 단계는 진입점마다 처음 열 때 만든다(지연 계산). 진입점이 수백 개인 저장소에서 처음 화면을 빨리 띄우기 위해서다.
-- CLI에 `callpath guide <repo> [--ref HEAD] [--summary]`를 더해 표본과 실제 저장소로 시험한다.
+- CLI에 `callpath guide <repo> [--ref HEAD] [--dir <경로>] [--summary] [--tour <n|all>]`를 더해 표본과 실제 저장소로 시험한다. git 저장소가 아니면 디렉터리를 그대로 읽는다.
 
 ### 4.2 데스크톱
 
@@ -135,7 +148,7 @@ interface Tour { entry: TourEntry; steps: TourStep[]; collapsed: number; truncat
 
 ### 5.1 역할 나누기 (지도의 열)
 
-클래스의 애노테이션을 먼저 보고, 없으면 이름 끝을 본다. 위에서부터 먼저 맞는 것 하나만 쓴다.
+칩은 최상위 클래스 단위다. 중첩 클래스와 companion object는 바깥 클래스에 합친다. 역할은 `.callpath.yml`의 사용자 규칙, 애노테이션(진입점 메서드 포함), 구조(record, data class, enum), 이름 끝과 상위 타입 순서로 보고, 각 단계에서 표의 위에서부터 먼저 맞는 것 하나만 쓴다. 이름 끝을 볼 때는 `Impl`을 뗀다(`PaymentClientImpl` → 외부 연동). 그래서 `@ConfigurationProperties`가 붙은 record는 설정이다.
 
 | 역할 | 애노테이션 | 이름 끝, 상위 타입 |
 |---|---|---|
@@ -147,20 +160,20 @@ interface Tour { entry: TourEntry; steps: TourStep[]; collapsed: number; truncat
 | 설정 | `@Configuration`, `@ConfigurationProperties` | `Config`, `Configuration`, `Properties` |
 | 기타 | 위에 없음 | |
 
-규칙은 1차 진입점 규칙처럼 `.callpath.yml`로 더할 수 있다. 테스트 클래스는 지도와 투어에 넣지 않고, 클래스의 맥락에 "이 클래스를 부르는 테스트 n개"로만 보인다.
+규칙은 1차 진입점 규칙처럼 `.callpath.yml`의 `roles`로 더한다(`- annotation: '@UseCase'` 또는 `- suffix: Port`와 `role: service`). 테스트 클래스는 지도와 투어에 넣지 않고, 클래스의 맥락에 "이 클래스를 부르는 테스트 n개"로만 보인다.
 
 ### 5.2 투어 순서 (D18)
 
-1. 진입점 목록은 종류 순(HTTP, 메시지, 스케줄, 이벤트, gRPC, main), 같은 종류 안에서는 경로나 이름 순이다.
+1. 진입점 목록은 종류 순(HTTP, 메시지, 스케줄, 이벤트, gRPC, main), 같은 종류 안에서는 이름 순이다. HTTP는 같은 경로의 GET, POST가 붙어 나오게 경로 다음에 메서드 순이다.
 2. 진입점 메서드에서 호출문이 본문에 나오는 순서대로 깊이 우선으로 따라간다. 1차 흐름 정렬과 같다.
 3. 저장소 안 메서드만 단계가 된다. 같은 투어에서 이미 나온 메서드는 다시 세지 않고 "앞 단계 n"으로 가리킨다.
-4. 사소한 메서드(본문이 한 문장이고 저장소 안 호출이 없거나, getter, setter)는 단계로 세지 않고 접는다.
+4. 사소한 메서드는 단계로 세지 않고 접는다. 본문의 문장 수(반복문, 조건문, 람다 안의 블록 포함)가 1 이하인 메서드(getter, setter, 한 줄 위임, Kotlin 식 본문)와 저장소 안 호출이 없는 생성자다. 접은 메서드가 저장소 안 메서드를 부르면 그 호출은 접은 메서드를 부른 단계의 같은 줄에서 이어진다(한 줄 위임 `find` → `findByCode`). 본문이 없는 추상 메서드는 구현이 없을 때 데이터 접근이나 외부 경계를 보여 주므로 단계로 둔다.
 5. 깊이 8, 단계 60에서 자르고 "잘린 가지가 있음"을 알린다.
 6. 인터페이스를 부르면 1계층이 찾은 구현 클래스로 이어 가고, 구현이 여럿이면 갈래로 보인다.
 
 ### 5.3 진입점이 없는 저장소 (D19)
 
-라이브러리처럼 진입점 규칙에 맞는 메서드가 없으면 그 사실을 알리고 **공개 API 투어**로 대신한다. 다른 패키지에서 많이 부르는 공개 클래스(많이 쓰이는 클래스 순) 상위 20개의 공개 메서드를 진입점처럼 쓴다. commons-lang에서 이 경우를 확인했다.
+라이브러리처럼 진입점 규칙에 맞는 메서드가 없으면 그 사실을 알리고 **공개 API 투어**로 대신한다. 다른 패키지에서 많이 부르는 공개 클래스(많이 쓰이는 클래스 순) 상위 20개에서, 다른 패키지가 많이 부르는 공개 메서드를 클래스마다 3개까지 진입점처럼 쓴다. 투어가 한 단계로 끝나는 사소한 메서드와 생성자는 빼고, 오버로드는 가장 많이 불린 하나만 둔다. commons-lang에서 이 경우를 확인했다(진입점 36개).
 
 ### 5.4 많이 쓰이는 클래스
 
@@ -168,7 +181,9 @@ interface Tour { entry: TourEntry; steps: TourStep[]; collapsed: number; truncat
 
 ## 6. 성능과 큰 저장소
 
-- 측정(2026-10-30, M 시리즈 맥, 1계층만): spring-petclinic 파일 50개 0.2초, commons-lang 파일 630개(메서드 1만 1천 개, 간선 10만 개) 6.2초.
+- 측정(2026-10-30, M 시리즈 맥, 1계층만)
+  - 1차 `analyze`로 잰 설계 때 값: spring-petclinic 파일 50개 0.2초, commons-lang 파일 630개(테스트 포함, 메서드 1만 1천 개, 간선 10만 개) 6.2초
+  - 7a `guide()`: spring-petclinic 0.1초, commons-lang 2.3초. 모든 진입점의 투어를 만드는 데 각각 1ms, 7ms. 화면으로 보낼 결과 JSON은 27KB, 240KB
 - 목표: 파일 1,000개 이하는 처음 분석 10초 안, 같은 커밋 다시 열기 1초 안. 분석 중에도 화면은 움직이고 진행을 보인다.
 - 파일이 3,000개를 넘으면 시작 전에 알리고, 디렉터리 하나로 좁혀 둘러보기를 고를 수 있게 한다.
 - `build/`, `target/`, `out/`, `generated` 경로와 `@Generated` 클래스는 넣지 않는다.
