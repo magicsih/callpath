@@ -504,7 +504,7 @@ type ExplainRequest =
 | 4 | JDT LS 기동과 보강, kotlin-lsp 탐지, SQLite 분석 캐시 | fixture에서 간선이 `high`로 올라감, LSP 없을 때 동작 유지 |
 | 5 | GitHub, GHE, GitLab 제공자, 로컬 메모와 코멘트 게시 | 공개 테스트 저장소 PR로 읽기와 게시 확인 |
 | 6 | LLM 설명 패널 | 미리보기 → 전송 → 스트리밍 표시, 로그 기록 |
-| 7 (2차) | 새 저장소 안내자 | 별도 설계 보강 뒤 진행 |
+| 7 (2차) | 새 저장소 안내자 | 별도 설계 [2026-10-30-repo-guide](../2026-10-30-repo-guide/README.md) 승인 뒤 진행 |
 
 ## 11. 운영과 복구
 
