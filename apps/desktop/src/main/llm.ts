@@ -199,6 +199,9 @@ const KIND_LABEL: Record<ClassNode["kind"], string> = {
 /** 패키지 설명에 넣는 클래스당 공개 메서드 수 상한 */
 const MAX_METHODS_PER_CLASS = 20;
 
+/** 지도 칩 id에서 클래스 전체 이름. 같은 전체 이름이 두 파일에 있으면 id 끝에 "@경로"가 붙어 있다 */
+const qualifiedNameOf = (n: ClassNode) => n.id.replace(/^file:/, "").replace(/@[^@]*$/, "");
+
 /** 패키지 설명용 공개 메서드 시그니처. 파일을 다시 색인해 이름과 매개변수 타입만 꺼낸다(본문은 꺼내지 않는다) */
 async function publicMethods(repo: string, ref: string, nodes: ClassNode[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
@@ -210,7 +213,7 @@ async function publicMethods(repo: string, ref: string, nodes: ClassNode[]): Pro
     for (const n of nodes.filter((x) => x.path === path)) {
       // 최상위 함수 파일은 최상위 함수, 클래스는 그 클래스와 안쪽 클래스의 메서드
       const mine = index.methods.filter((m) =>
-        n.kind === "file" ? m.classQualifiedName === null : m.classQualifiedName === n.id || !!m.classQualifiedName?.startsWith(`${n.id}.`),
+        n.kind === "file" ? m.classQualifiedName === null : m.classQualifiedName === qualifiedNameOf(n) || !!m.classQualifiedName?.startsWith(`${qualifiedNameOf(n)}.`),
       );
       // 생성자와 초기화 블록은 의존성 주입이나 값 채우기라 패키지가 맡는 일을 흐리므로 뺀다
       const isCtor = (m: (typeof mine)[number]) => m.name === "constructor" || m.name === "init" || m.name === m.container?.split(".").pop();
@@ -240,7 +243,7 @@ export async function previewExplain(req: { repo: string; base: string; head: st
       text: lines.slice(n.range.startLine, n.range.endLine + 1).join("\n"),
     };
     payload = preview({
-      kind: "class", name: n.name, qualifiedName: n.id.replace(/^file:/, ""), role: ROLE_LABEL[n.role], classKind: KIND_LABEL[n.kind], packageLabel: target.packageLabel,
+      kind: "class", name: n.name, qualifiedName: qualifiedNameOf(n), role: ROLE_LABEL[n.role], classKind: KIND_LABEL[n.kind], packageLabel: target.packageLabel,
       snippet, callers: target.callers, callees: target.callees, entries: target.entries,
     });
   } else if (target.kind === "package") {

@@ -17,7 +17,8 @@ export function Breakable({ text }: { text: string }) {
           </Fragment>
         ))}
       </span>
-      <span className="sr-only">{text}</span>
+      {/* 화면 읽기용 사본은 끌어 복사할 때 섞이지 않게 선택되지 않도록 한다 */}
+      <span className="sr-only" style={{ userSelect: "none" }}>{text}</span>
     </>
   );
 }
