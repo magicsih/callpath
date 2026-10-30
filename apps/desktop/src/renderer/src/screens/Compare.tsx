@@ -116,7 +116,7 @@ export function Compare(props: {
               ))}
             </ul>
           )}
-          <button type="submit" className={guideFirst ? "big" : "primary big"} disabled={!ready} autoFocus={!guideFirst}>
+          <button type="submit" className={guideFirst ? "big" : "primary big"} disabled={!ready} autoFocus={!guideFirst && props.initialGuideRef === undefined}>
             흐름 분석
           </button>
         </form>
@@ -132,9 +132,9 @@ export function Compare(props: {
           >
             <div className="ref">
               <label htmlFor="guide-ref">둘러볼 브랜치나 커밋</label>
-              <input id="guide-ref" list="branches" value={guideRef} onChange={(e) => setGuideRef(e.target.value)} />
+              <input id="guide-ref" list="branches" value={guideRef} onChange={(e) => setGuideRef(e.target.value)} autoFocus={props.initialGuideRef !== undefined} />
             </div>
-            <button type="submit" className={guideFirst ? "primary" : ""} disabled={!guideRef.trim()} autoFocus={guideFirst}>둘러보기</button>
+            <button type="submit" className={guideFirst ? "primary" : ""} disabled={!guideRef.trim()} autoFocus={guideFirst && props.initialGuideRef === undefined}>둘러보기</button>
           </form>
         </section>
         {prs.status !== "no-remote" && (

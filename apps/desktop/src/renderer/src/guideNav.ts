@@ -33,6 +33,11 @@ export function linkNote(g: RepoGuide, n: Neighbor): string | null {
   return supers.length ? `${supers.join(", ")} 구현 후보` : "연결 불확실";
 }
 
+/** 인터페이스면 "구현", 클래스면 "하위 클래스" */
+export function subtypeWord(node: ClassNode): string {
+  return node.kind === "interface" ? "구현" : "하위 클래스";
+}
+
 /** 이 클래스를 상속하거나 구현하는 클래스 */
 export function implementors(g: RepoGuide, classId: string): ClassNode[] {
   return g.classes.filter((c) => c.supertypeIds.includes(classId)).sort((a, b) => a.name.localeCompare(b.name));
@@ -93,17 +98,23 @@ export function stepLabel(s: TourStep): string {
   return displayName(s.symbol);
 }
 
-/** 투어 안에서 이름이 겹치는 단계(오버로드)는 매개변수 타입을 붙인다 */
+/** 투어 안에서 이름이 겹치는 단계(오버로드)는 매개변수 타입을, 그래도 겹치면(다른 패키지의 같은 이름 클래스) 패키지 마지막 마디를 붙인다 */
 export function stepName(t: Tour, s: TourStep): string {
   const label = stepLabel(s);
-  const dup = t.steps.some((x) => x !== s && stepLabel(x) === label);
-  return dup ? `${label}(${s.params.join(", ")})` : label;
+  const others = t.steps.filter((x) => x !== s && stepLabel(x) === label);
+  if (!others.length) return label;
+  const withParams = `${label}(${s.params.join(", ")})`;
+  if (!others.some((x) => x.params.join() === s.params.join())) return withParams;
+  const parts = s.symbol.qualifiedName.split(".");
+  const pkg = parts[parts.length - 1 - (s.symbol.container?.split(".").length ?? 0) - 1];
+  return pkg ? `${pkg}.${withParams}` : withParams;
 }
 
 /** 갈래 표시. 목록에는 짧게, 제목에는 길게 */
 export function branchText(s: TourStep, long: boolean): string | null {
   if (s.alternatives < 2) return null;
-  const kind = s.branch === "overloads" ? "오버로드" : s.branch === "implementations" ? "구현" : "같은 이름 후보";
+  if (s.branch === "overloads") return long ? `오버로드 ${s.alternatives}개 중 매개변수 타입이 가장 맞는 하나` : "오버로드";
+  const kind = s.branch === "implementations" ? "구현" : "같은 이름 후보";
   return long ? `${kind} ${s.alternatives}개 중 하나` : s.branch === "implementations" ? "갈래" : kind;
 }
 
@@ -111,38 +122,49 @@ export interface CodeMark {
   /** 파일 기준 줄(1부터) */
   line: number;
   text: string;
-  kind: "next" | "back" | "fold";
+  /** next: 이어지는 단계, back: 앞 단계를 다시 부름, fold: 접은 메서드, ext: 물려받거나 자동으로 생긴 메서드 */
+  kind: "next" | "back" | "fold" | "ext";
+  /** 누르면 갈 단계 */
+  to?: number;
 }
 
-/** 코드 줄 옆에 붙일 표시. 이어지는 단계, 앞 단계를 다시 부름, 접은 메서드를 한 줄에 모은다 */
+/** 접은 메서드 이름. 투어 안에 이름은 같고 매개변수가 다른 것이 있으면 매개변수를 붙인다 */
+export function foldName(t: Tour, f: TourStep["folded"][number]): string {
+  const clash = t.steps.some((s) => s.folded.some((x) => x.name === f.name && x.params.join() !== f.params.join()));
+  return clash && f.params.length ? `${f.name}(${f.params.join(", ")})` : f.name;
+}
+
+/** 코드 줄 옆에 붙일 표시. 이어지는 단계는 단계마다 따로(눌러서 그 단계로), 나머지는 줄마다 한데 모은다 */
 export function tourMarks(t: Tour, n: number): CodeMark[] {
   const s = stepAt(t, n);
   if (!s) return [];
-  const byLine = new Map<number, { next: string[]; back: string[]; fold: string[] }>();
-  const at = (line: number) => byLine.get(line) ?? byLine.set(line, { next: [], back: [], fold: [] }).get(line)!;
+  const lines = new Set<number>();
+  const out: CodeMark[] = [];
+  const next = new Map<number, CodeMark[]>();
+  const back = new Map<number, number[]>();
+  const fold = new Map<number, string[]>();
+  const ext = new Map<number, string[]>();
+  const push = <V>(m: Map<number, V[]>, line: number, v: V) => {
+    lines.add(line);
+    (m.get(line) ?? m.set(line, []).get(line)!).push(v);
+  };
   for (const c of s.calls) {
     const target = stepAt(t, c.to);
     if (!target) continue;
-    if (c.back) at(c.line).back.push(`${c.to}단계`);
-    else at(c.line).next.push(`${c.to}단계 ${stepName(t, target)}`);
+    if (c.back) push(back, c.line, c.to);
+    else push(next, c.line, { line: c.line + 1, kind: "next", to: c.to, text: `→ ${c.to}단계 ${stepName(t, target)}` });
   }
-  for (const f of s.folded) at(f.line).fold.push(f.name);
-  return [...byLine]
-    .sort(([a], [b]) => a - b)
-    .map(([line, m]) => ({
-      line: line + 1,
-      kind: m.next.length ? "next" : m.back.length ? "back" : "fold",
-      text: [
-        m.next.length ? `→ ${m.next.join(", ")}` : "",
-        m.back.length ? `↩ 앞 ${m.back.join(", ")}` : "",
-        m.fold.length ? `접음 ${[...new Set(m.fold)].join(", ")}` : "",
-      ].filter(Boolean).join("   "),
-    }));
+  for (const f of s.folded) push(fold, f.line, foldName(t, f));
+  for (const f of s.external) push(ext, f.line, f.name);
+  for (const line of [...lines].sort((a, b) => a - b)) {
+    out.push(...(next.get(line) ?? []));
+    const b = back.get(line);
+    if (b) out.push({ line: line + 1, kind: "back", to: b[0]!, text: `↩ 앞 ${[...new Set(b)].map((x) => `${x}단계`).join(", ")}` });
+    const fo = fold.get(line);
+    if (fo) out.push({ line: line + 1, kind: "fold", text: `접음 ${[...new Set(fo)].join(", ")}` });
+    const ex = ext.get(line);
+    if (ex) out.push({ line: line + 1, kind: "ext", text: `↗ ${[...new Set(ex)].join(", ")}` });
+  }
+  return out;
 }
 
-/** 코드 옆 표시를 눌렀을 때 갈 단계. 그 줄의 첫 새 단계, 없으면 앞 단계 */
-export function stepForLine(t: Tour, n: number, fileLine: number): number | null {
-  const s = stepAt(t, n);
-  const calls = s?.calls.filter((c) => c.line + 1 === fileLine) ?? [];
-  return (calls.find((c) => !c.back) ?? calls[0])?.to ?? null;
-}

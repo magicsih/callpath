@@ -109,7 +109,9 @@ describe("투어 (B2)", () => {
     expect(t.truncated).toBe(false);
     expect(t.collapsed).toBe(9);
     const [, place, validate, findByCode, , , , , card, , point] = t.steps;
-    expect(place!.folded.map((f) => f.name)).toEqual(["OrderRequest.totalAmount", "Order 생성자", "Order.getId", "Order.getAmount"]);
+    // 선언 없는 생성자(record OrderResult)도 접은 메서드로, 물려받은 save와 record 접근자는 따로 보인다
+    expect(place!.folded.map((f) => f.name)).toEqual(["OrderRequest.totalAmount", "Order 생성자", "OrderResult 생성자", "Order.getId", "Order.getAmount"]);
+    expect([...new Set(place!.external.map((f) => f.name))]).toEqual(["OrderRequest.couponCode", "OrderRequest.items", "OrderRequest.customerId", "OrderRepository.save"]);
     // 한 줄 위임 find를 접고, 그 안의 findByCode는 validateCoupon의 find 호출 줄에서 이어진다
     expect(validate!.folded.map((f) => f.name)).toEqual(["CouponCalculator.find", "Coupon.isExpired"]);
     expect(findByCode!.parent).toBe(validate!.n);
@@ -122,13 +124,13 @@ describe("투어 (B2)", () => {
     expect(validate!.folded[0]!.classId).toBe("com.example.shop.coupon.CouponCalculator");
   });
 
-  it("한 클래스의 같은 이름 메서드로 갈리면 오버로드다", async () => {
+  it("한 클래스의 같은 이름 메서드(오버로드) 후보는 하나만 따라가고 후보 수를 남긴다", async () => {
     const body = (s: string) => `        log(${s});\n        log(${s});\n`;
     const r = await guideTree({
       "src/main/java/p/Api.java": `package p;\n\n@RestController\npublic class Api {\n    @GetMapping("/a")\n    public void a(Object x) {\n        log(x);\n        help(x);\n    }\n    void help(int v) {\n${body("v")}    }\n    void help(String v) {\n${body("v")}    }\n    void log(Object o) {}\n}\n`,
     });
     const t = r.tour(r.guide.entries[0]!.id);
-    expect(t.steps.slice(1).map((s) => [s.symbol.name, s.branch, s.params])).toEqual([["help", "overloads", ["int"]], ["help", "overloads", ["String"]]]);
+    expect(t.steps.slice(1).map((s) => [s.symbol.name, s.branch, s.alternatives, s.params])).toEqual([["help", "overloads", 2, ["int"]]]);
   });
 
   it("Kotlin: 최상위 함수 파일과 식 본문을 접고, 접은 메서드를 지나 이어진다", async () => {
@@ -250,8 +252,8 @@ public class Table {
     });
     expect(r.guide.noEntries).toBe(true);
     expect(r.guide.stats.entries).toBe(0);
-    // 한 문장짜리 isBlank는 빼고, pad 오버로드는 가장 많이 불린 하나만 둔다
-    expect(r.guide.entries.map((e) => `${e.kind} ${e.label}`)).toEqual(["api TextUtils.pad", "api TextUtils.center"]);
+    // 한 문장짜리 isBlank는 빼고, pad 오버로드는 가장 많이 불린 하나만 두며 매개변수로 어느 것인지 적는다
+    expect(r.guide.entries.map((e) => `${e.kind} ${e.label}`)).toEqual(["api TextUtils.pad(String, int)", "api TextUtils.center"]);
     const center = r.tour(r.guide.entries[1]!.id);
     expect(center.steps.map((s) => displayName(s.symbol))).toEqual(["TextUtils.center", "TextUtils.pad"]);
     // 칩에서 투어를 시작할 수 있게 진입점을 붙이지만, 역할은 구조대로 둔다
@@ -277,6 +279,14 @@ public interface Shape {
       "src/main/java/lib/print/Printer.java": "package lib.print;\n\nimport lib.core.Shape;\n\npublic class Printer {\n    public String print(Shape s) {\n        return s.describe();\n    }\n}\n",
     });
     expect(r.guide.entries.map((e) => e.label)).toEqual(["Shape.describe"]);
+  });
+});
+
+describe("화면용 매개변수 타입", () => {
+  it("배열, 가변 인자, 널 가능 표시는 남기고 제네릭과 패키지는 뺀다", async () => {
+    const { displayType } = await import("../src/index/symbols.js");
+    expect(["char[]", "java.util.List<java.lang.String>", "Map<String, List<Integer>>", "@NonNull String", "Long?", "T[]"].map(displayType))
+      .toEqual(["char[]", "List", "Map", "String", "Long?", "T[]"]);
   });
 });
 

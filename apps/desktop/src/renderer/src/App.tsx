@@ -15,7 +15,7 @@ type Screen =
   | { name: "start"; error: string | null; prError?: { url: string; message: string } }
   | { name: "compare"; repo: RepoInfo; base?: string; head?: string; guideRef?: string }
   | { name: "review"; repo: RepoInfo; req: CompareRequest; selection: string | null; showTests: boolean; pr: PrMeta | null }
-  | { name: "guide"; repo: RepoInfo; req: GuideRequest }
+  | { name: "guide"; repo: RepoInfo; req: GuideRequest; dirDraft?: string }
   | { name: "connections"; back: Screen; hint?: ConnectionHint }
   | { name: "llm"; back: Screen }
   | { name: "pr"; url: string; back: Screen };
@@ -53,7 +53,10 @@ export function App() {
       if (s.lastRepo && lastGuide) {
         const r = await window.callpath.inspectRepo(s.lastRepo);
         if (r.ok) {
-          setScreen({ name: "guide", repo: r.value, req: { repo: r.value.path, ref: lastGuide.ref, ...(lastGuide.dir ? { dir: lastGuide.dir } : {}) } });
+          setScreen({
+            name: "guide", repo: r.value,
+            req: { repo: r.value.path, ref: lastGuide.ref, ...(lastGuide.dir ? { dir: lastGuide.dir } : {}), ...(lastGuide.force ? { force: true } : {}) },
+          });
           return;
         }
         setScreen({ name: "start", error: `마지막 저장소를 열 수 없습니다: ${r.error}` });
@@ -120,7 +123,10 @@ export function App() {
   );
 
   /** 둘러보기를 연다. 같은 브랜치와 디렉터리면 마지막에 보던 자리를 이어간다. 저장은 지도가 열린 뒤에 한다(실패한 둘러보기로 다시 열리지 않게) */
-  const openGuide = useCallback((repo: RepoInfo, req: GuideRequest) => setScreen({ name: "guide", repo, req }), []);
+  const openGuide = useCallback(
+    (repo: RepoInfo, req: GuideRequest, dirDraft?: string) => setScreen({ name: "guide", repo, req, ...(dirDraft ? { dirDraft } : {}) }),
+    [],
+  );
 
   const pick = useCallback(async () => {
     const path = await window.callpath.pickFolder();
@@ -203,13 +209,14 @@ export function App() {
         repoName={repo.name}
         initial={last && last.ref === req.ref && last.dir === (req.dir ?? null) ? last : null}
         onBack={toCompare}
-        onNarrow={(dir, force) => openGuide(repo, { repo: repo.path, ref: req.ref, ...(dir ? { dir } : {}), ...(force ? { force } : {}) })}
+        onNarrow={(dir, force, draft) => openGuide(repo, { repo: repo.path, ref: req.ref, ...(dir ? { dir } : {}), ...(force ? { force } : {}) }, draft)}
+        {...(screen.dirDraft ? { initialDir: screen.dirDraft } : {})}
         onPersist={(place) =>
           persist({
             ...state.current,
             lastRepo: repo.path,
             lastView: "guide",
-            guides: { ...state.current.guides, [repo.path]: { ref: req.ref, dir: req.dir ?? null, ...place } },
+            guides: { ...state.current.guides, [repo.path]: { ref: req.ref, dir: req.dir ?? null, ...(req.force ? { force: true } : {}), ...place } },
           })
         }
       />

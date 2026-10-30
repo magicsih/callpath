@@ -157,6 +157,11 @@ async function openGuide(id: number, req: GuideRequest): Promise<GuideOutcome> {
   const sha = await new GitRefSource(req.repo, req.ref).resolve();
   const dir = req.dir?.trim().replace(/^\/+|\/+$/g, "") || null;
   const target = { repo: req.repo, sha, dir };
+  // 큰 저장소 확인은 캐시보다 먼저 한다. 전체를 한 번 둘러봤어도 새로 열 때는 좁힐지 다시 묻는다(전체를 고른 자리로 돌아갈 때는 force)
+  if (!dir && !req.force) {
+    const { paths } = await listGuideFiles(new GitRefSource(req.repo, sha));
+    if (isLargeRepo(paths.length)) return { status: "large", files: paths.length, sha, dirs: suggestDirs(paths) };
+  }
   const cached = cache.getGuide(req.repo, sha, dir);
   if (cached) {
     // 지도는 바로 그리고, 투어를 물을 때 바로 답하도록 호출 그래프는 뒤에서 다시 만든다
@@ -169,9 +174,6 @@ async function openGuide(id: number, req: GuideRequest): Promise<GuideOutcome> {
     if (paths.length === 0) {
       throw new Error(generated ? `"${dir}" 아래에는 생성 코드만 있습니다.` : `이 커밋에는 "${dir}" 아래 Java, Kotlin 파일이 없습니다. 디렉터리 이름을 확인하세요.`);
     }
-  } else if (!req.force) {
-    const { paths } = await listGuideFiles(new GitRefSource(req.repo, sha));
-    if (isLargeRepo(paths.length)) return { status: "large", files: paths.length, sha, dirs: suggestDirs(paths) };
   }
   let last = 0;
   const result = await loadGuide(target, (progress) => {

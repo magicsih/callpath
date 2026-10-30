@@ -55,8 +55,10 @@ test("B6 B7 B8 둘러보기: 지도에서 클래스를 고르고 투어로 따�
   // 인터페이스를 고르면 구현과, 구현을 부르는 쪽이 보이고 그 진입점 투어를 시작할 수 있다
   await chip(page, "PaymentClient").click();
   await expect(page.getByTestId("implementors")).toContainText("CardPaymentClient");
-  await expect(page.getByTestId("impl-callers")).toContainText("OrderService");
-  await expect(page.locator(".map-line.impl")).toHaveCount(2);
+  // 실제 호출은 구현으로 이어져 있어, 구현을 통해 부르는 쪽을 부르는 쪽에 합쳐 보인다. 구현은 칩 점선 테두리로
+  await expect(page.getByTestId("callers")).toContainText("OrderService");
+  await expect(page.getByTestId("callers")).toContainText("구현을 통해 부름");
+  await expect(page.locator(".map-chip.impl")).toHaveCount(2);
   await expect(page.getByTestId("context-entries")).toContainText("POST /orders");
   await expect(page.getByTestId("start-tour")).toBeEnabled();
   // 접은 getter로만 닿는 클래스도 지나는 진입점이 있다
@@ -80,6 +82,9 @@ test("B6 B7 B8 둘러보기: 지도에서 클래스를 고르고 투어로 따�
   await expect(page.getByTestId("step-title")).toHaveText("OrderService.placeOrder");
   await expect(page.getByTestId("tour-step")).toHaveCount(13);
   await expect(page.locator(".bottombar .position")).toContainText("POST /orders 2 / 13");
+  // 저장소 밖에서 물려받은 메서드(JpaRepository.save)와 record 접근자도 코드 옆에 보인다
+  await expect.poll(() => marks(page)).toContain("↗ OrderRepository.save");
+  await expect(page.getByTestId("tour-external")).toContainText("OrderRepository.save");
   // 코드의 호출 줄 옆에 이어지는 단계 번호가 붙는다
   await expect(page.locator(".tour-mark.next").first()).toBeVisible();
   await expect.poll(() => marks(page)).toContain("→ 3단계 CouponCalculator.validateCoupon");
@@ -108,10 +113,15 @@ test("B6 B7 B8 둘러보기: 지도에서 클래스를 고르고 투어로 따�
   await expect(page.getByTestId("tour-folded")).toContainText("PaymentResult.ok");
   await shot(app, "guide-06-branch");
 
-  // 코드 옆 "→ 12단계" 표시를 누르면 그 단계로 간다
+  // 코드 옆 "→ 12단계" 표시를 누르면 그 단계로 가고, 편집기에 초점이 있어도 Backspace로 돌아온다
   await page.locator(".tour-mark.next").first().click();
   await expect(page.getByTestId("step-title")).toHaveText("PointLedger.deduct");
+  await page.locator(".view-lines").click();
   await page.keyboard.press("Backspace");
+  await expect(page.getByTestId("step-title")).toHaveText("PointPaymentClient.approve");
+  // 한 줄에 갈래 둘이면 표시도 둘이라 둘째를 누르면 둘째로 간다
+  await page.getByTestId("tour-step").nth(1).click();
+  await page.locator(".tour-mark.next").filter({ hasText: "11단계" }).first().click();
   await expect(page.getByTestId("step-title")).toHaveText("PointPaymentClient.approve");
   // 마지막 단계에서는 끝을 알리고 다음 진입점으로 가는 길을 준다
   await page.getByTestId("tour-step").nth(12).click();
@@ -127,6 +137,17 @@ test("B6 B7 B8 둘러보기: 지도에서 클래스를 고르고 투어로 따�
   await expect(page.getByRole("tab", { name: "지도" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("context-title")).toHaveText("PointPaymentClient");
   await expect(chip(page, "PointPaymentClient")).toHaveAttribute("aria-pressed", "true");
+  // 같은 진입점 투어가 열려 있어도 "여기서 투어 시작"은 이 클래스 단계에서 열고 그 줄로 초점을 옮긴다
+  await page.getByTestId("start-tour").click();
+  await expect(page.getByTestId("step-title")).toHaveText("PointPaymentClient.approve");
+  await expect(page.getByTestId("tour-step").nth(10)).toBeFocused();
+  // 지도에서 보기로 초점을 옮긴 뒤에도 탭의 화살표는 초점을 탭에 둔다
+  await page.getByTestId("show-on-map").click();
+  await page.getByRole("tab", { name: "지도" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "투어" })).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByRole("tab", { name: "지도" })).toBeFocused();
   expect(pageErrors).toEqual([]);
   await app.close();
 });
@@ -224,6 +245,7 @@ test("없는 브랜치는 그 이름으로 알리고, 돌아가면 입력이 남
   await shot(app, "guide-10-no-branch");
   await page.getByRole("button", { name: "브랜치 다시 고르기" }).click();
   await expect(page.getByLabel("둘러볼 브랜치나 커밋")).toHaveValue("no-such-branch");
+  await expect(page.getByLabel("둘러볼 브랜치나 커밋")).toBeFocused();
   await app.close();
 });
 
@@ -239,6 +261,7 @@ test("큰 저장소는 디렉터리로 좁히고, 없는 디렉터리는 이유�
   await page.getByRole("button", { name: "좁혀 둘러보기" }).click();
   await expect(page.getByRole("alert")).toContainText('이 커밋에는 "no/such" 아래 Java, Kotlin 파일이 없습니다');
   await page.getByRole("button", { name: "다른 디렉터리 고르기" }).click();
+  await expect(page.getByLabel("다른 디렉터리")).toHaveValue("no/such");
   await page.getByTestId("guide-large").getByRole("button", { name: /^api/ }).click();
   await expect(page.getByTestId("guide-map")).toBeVisible();
   await expect(page.getByTestId("guide-ref")).toContainText("api");

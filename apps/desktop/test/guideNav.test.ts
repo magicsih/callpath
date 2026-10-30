@@ -21,8 +21,11 @@ describe("둘러보기 화면 계산", () => {
     expect(ancestry(t, 4).map((s) => s.n)).toEqual([1, 2, 3, 4]);
     expect(childSteps(t, 2).map((c) => c.step.n)).toEqual([3, 6, 9, 11, 13]);
     const marks = tourMarks(t, 11);
-    expect(marks.some((m) => m.kind === "back" && m.text.includes("↩ 앞 10단계"))).toBe(true);
-    expect(marks.some((m) => m.text.includes("→ 12단계 PointLedger.deduct"))).toBe(true);
+    expect(marks.some((m) => m.kind === "back" && m.to === 10 && m.text.includes("↩ 앞 10단계"))).toBe(true);
+    expect(marks.some((m) => m.to === 12 && m.text === "→ 12단계 PointLedger.deduct")).toBe(true);
+    // 갈래 둘은 따로 눌러 갈 수 있게 표시도 둘이다
+    expect(tourMarks(t, 2).filter((m) => m.kind === "next").map((m) => m.to)).toEqual([3, 6, 9, 11, 13]);
+    expect(tourMarks(t, 2).some((m) => m.kind === "ext" && m.text.includes("OrderRepository.save"))).toBe(true);
     expect(marks.some((m) => m.text.includes("접음 PointLedger.balanceOf"))).toBe(true);
     // 줄은 파일 기준 1부터다
     const step11 = t.steps[10]!;

@@ -104,12 +104,23 @@ export interface TourStep {
   alternatives: number;
   /** 갈래의 종류. implementations: 같은 상위 타입의 구현들, overloads: 한 클래스의 같은 이름 메서드들, candidates: 이름만 같은 메서드들 */
   branch: "implementations" | "overloads" | "candidates" | null;
-  /** 매개변수의 단순 타입. 같은 이름 메서드를 구별할 때 쓴다 */
+  /** 매개변수 타입(배열과 가변 인자 표시 포함). 같은 이름 메서드를 구별할 때 쓴다 */
   params: string[];
+  /** 본문이 없는 추상 메서드(구현이 저장소에 없음) */
+  abstract: boolean;
   confidence: Confidence;
   calls: TourCall[];
-  /** 이 단계에서 부르는 사소한 메서드. 단계로 세지 않는다 */
-  folded: Array<{ line: number; name: string; classId: string }>;
+  /** 이 단계에서 부르는 사소한 메서드와 선언 없는 생성자(record 등). 단계로 세지 않는다 */
+  folded: TourFold[];
+  /** 저장소 안 타입에 부르지만 선언이 저장소에 없는 메서드(JpaRepository.save 같은 물려받은 메서드, record 접근자) */
+  external: TourFold[];
+}
+
+export interface TourFold {
+  line: number;
+  name: string;
+  params: string[];
+  classId: string;
 }
 
 export interface Tour {
@@ -220,6 +231,21 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
   const testers = new Map<string, Set<string>>();
   const crossCallers = new Map<string, number>();
   let edges = 0;
+  const addLink = (from: ClassNode, to: ClassNode, confidence: Confidence): void => {
+    const key = `${from.id}\u0000${to.id}`;
+    const link = links.get(key);
+    if (link) {
+      link.calls++;
+      if (RANK[confidence] > RANK[link.confidence]) link.confidence = confidence;
+    } else links.set(key, { from: from.id, to: to.id, calls: 1, confidence });
+    if (from.packageName !== to.packageName) to.fanIn += confidence === "low" ? 0.5 : 1;
+  };
+  const unlinked = findUnlinkedCalls(graph, map, isTestMethod);
+  for (const [id, list] of unlinked) {
+    const from = nodeOfMethod(id);
+    if (!from) continue;
+    for (const u of list) addLink(from, map.byId.get(u.classId)!, "medium");
+  }
   for (const [id, m] of graph.methods) {
     const from = isTestMethod(m) ? null : map.nodeOf(m);
     for (const e of graph.outgoing(id)) {
@@ -232,16 +258,8 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
       }
       edges++;
       if (from.id === to.id) continue;
-      const key = `${from.id}\u0000${to.id}`;
-      const link = links.get(key);
-      if (link) {
-        link.calls++;
-        if (RANK[e.confidence] > RANK[link.confidence]) link.confidence = e.confidence;
-      } else links.set(key, { from: from.id, to: to.id, calls: 1, confidence: e.confidence });
-      if (from.packageName !== to.packageName) {
-        to.fanIn += e.confidence === "low" ? 0.5 : 1;
-        crossCallers.set(e.callee, (crossCallers.get(e.callee) ?? 0) + 1);
-      }
+      addLink(from, to, e.confidence);
+      if (from.packageName !== to.packageName) crossCallers.set(e.callee, (crossCallers.get(e.callee) ?? 0) + 1);
     }
   }
   for (const [id, set] of testers) map.byId.get(id)!.tests = set.size;
@@ -277,7 +295,7 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
     if (hit) return hit;
     const entry = entries.find((e) => e.id === entryId);
     if (!entry) throw new Error(`진입점을 찾을 수 없습니다: ${entryId}`);
-    const built = buildTour(graph, entry, isTestId, (id) => nodeOfMethod(id)?.id ?? "");
+    const built = buildTour(graph, entry, isTestId, (id) => nodeOfMethod(id)?.id ?? "", unlinked);
     tours.set(entryId, built);
     return built;
   };
@@ -294,7 +312,7 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
       }
     }
     return entries
-      .filter((e) => tour(e.id).steps.some((s) => family.has(s.classId) || s.folded.some((f) => family.has(f.classId))))
+      .filter((e) => tour(e.id).steps.some((s) => family.has(s.classId) || [...s.folded, ...s.external].some((f) => family.has(f.classId))))
       .map((e) => e.id);
   };
   return { guide: guideData, tour, entriesThrough };
@@ -372,7 +390,9 @@ function buildMap(files: FileIndex[], graph: CallGraph): MapIndex {
     if (node) node.methods++;
   }
 
-  const names = [...new Set(nodes.map((n) => n.packageName))].sort();
+  // p2가 p10보다 앞에 오게 숫자를 수로 비교한다
+  const natural = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+  const names = [...new Set(nodes.map((n) => n.packageName))].sort(natural);
   const common = commonPrefix(names.filter(Boolean).map((n) => n.split(".")));
   const packages: PackageNode[] = names.map((name) => {
     const parts = name ? name.split(".") : [];
@@ -381,7 +401,7 @@ function buildMap(files: FileIndex[], graph: CallGraph): MapIndex {
       name,
       label: !name ? "(기본 패키지)" : rest || parts[parts.length - 1]!,
       files: filesByPackage.get(name) ?? 0,
-      classIds: nodes.filter((n) => n.packageName === name).sort((a, b) => a.name.localeCompare(b.name)).map((n) => n.id),
+      classIds: nodes.filter((n) => n.packageName === name).sort((a, b) => natural(a.name, b.name)).map((n) => n.id),
     };
   });
   return { nodes, byId, symbols, packages, nodeOf };
@@ -392,6 +412,54 @@ function sortKey(e: TourEntry): string {
   if (e.kind !== "http") return e.label;
   const [verb, path] = e.label.split(" ");
   return `${path ?? ""} ${verb}`;
+}
+
+interface Unlinked {
+  callIndex: number;
+  line: number;
+  classId: string;
+  name: string;
+  /** ctor: 선언 없는 생성자(record, data class, 기본 생성자), member: 물려받았거나 자동으로 생긴 메서드 */
+  kind: "ctor" | "member";
+}
+
+/**
+ * 호출 그래프가 잇지 못한 호출 중 받는 쪽이 저장소 안 타입인 것. 예: OrderRepository의 save(JpaRepository에서 물려받음),
+ * record의 접근자, 선언 없는 생성자로 만드는 new OrderResult(...)와 Kotlin OrderPaid(...)
+ */
+function findUnlinkedCalls(graph: CallGraph, map: MapIndex, isTest: (m: MethodSymbol) => boolean): Map<string, Unlinked[]> {
+  const byName = new Map<string, ClassNode[]>();
+  for (const n of map.nodes) if (n.kind !== "file") (byName.get(n.name) ?? byName.set(n.name, []).get(n.name)!).push(n);
+  const out = new Map<string, Unlinked[]>();
+  for (const [id, m] of graph.methods) {
+    if (m.synthetic || isTest(m)) continue;
+    const self = map.nodeOf(m);
+    const linked = new Set(graph.outgoing(id).map((e) => e.callIndex));
+    const fields = m.classQualifiedName ? graph.classes.get(m.classQualifiedName)?.fields ?? {} : {};
+    m.calls.forEach((call, callIndex) => {
+      if (linked.has(callIndex)) return;
+      let type: string | null = null;
+      let kind: Unlinked["kind"] = "member";
+      if (call.name.startsWith("new ")) {
+        type = call.name.slice(4);
+        kind = "ctor";
+      } else if (call.receiver === null && m.language === "kotlin" && /^[A-Z]/.test(call.name)) {
+        type = call.name;
+        kind = "ctor";
+      } else if (call.receiver && !["?", "this", "super"].includes(call.receiver)) {
+        const r = call.receiver;
+        type = m.locals[r] ?? m.params.find((p) => p.name === r)?.type ?? fields[r] ?? (/^[A-Z]/.test(r) ? r : null);
+      }
+      if (!type) return;
+      const all = byName.get(type) ?? [];
+      const same = all.filter((n) => n.packageName === self?.packageName);
+      const target = (same.length ? same : all).length === 1 ? (same.length ? same : all)[0]! : null;
+      if (!target || target === self) return;
+      const name = kind === "ctor" ? `${target.name} 생성자` : `${target.name}.${call.name}`;
+      (out.get(id) ?? out.set(id, []).get(id)!).push({ callIndex, line: call.line, classId: target.id, name, kind });
+    });
+  }
+  return out;
 }
 
 function commonPrefix(lists: string[][]): string[] {
@@ -432,15 +500,24 @@ function apiEntries(map: MapIndex, graph: CallGraph, crossCallers: Map<string, n
       .slice(0, API_METHODS_PER_CLASS);
     for (const [id, m] of methods) out.push({ id, kind: "api", label: displayName(toRef(m)), classId: node.id, symbol: toRef(m) });
   }
-  // 이름이 겹치면(다른 패키지의 같은 이름 중첩 클래스 등) 바깥 클래스 이름을, 그래도 겹치면 패키지 마지막 마디를 붙인다
-  const count = (labels: string[]) => labels.reduce((m, l) => m.set(l, (m.get(l) ?? 0) + 1), new Map<string, number>());
-  const first = count(out.map((e) => e.label));
-  for (const e of out) if (first.get(e.label)! > 1 && e.symbol.container) e.label = `${e.symbol.container}.${e.symbol.name}`;
-  const second = count(out.map((e) => e.label));
+  // 저장소에 같은 표시 이름(클래스.메서드)을 가진 메서드가 더 있으면 구별한다.
+  // 다른 클래스면 바깥 클래스 이름을, 그래도 같으면 패키지 마지막 마디를, 같은 클래스의 오버로드면 매개변수 타입을 붙인다
+  const sameLabel = new Map<string, MethodSymbol[]>();
+  for (const m of graph.methods.values()) {
+    if (m.synthetic) continue;
+    const l = displayName(toRef(m));
+    (sameLabel.get(l) ?? sameLabel.set(l, []).get(l)!).push(m);
+  }
   for (const e of out) {
-    if (second.get(e.label)! <= 1) continue;
-    const pkg = map.byId.get(e.classId)?.packageName.split(".").pop();
-    if (pkg) e.label = `${pkg}.${e.label}`;
+    const m = graph.methods.get(e.id)!;
+    const others = (sameLabel.get(e.label) ?? []).filter((x) => x !== m);
+    if (others.some((x) => x.classQualifiedName !== m.classQualifiedName)) {
+      const chain = e.symbol.container ?? "";
+      const clash = others.some((x) => x.container === chain);
+      const pkg = map.byId.get(e.classId)?.packageName.split(".").pop();
+      e.label = clash && pkg ? `${pkg}.${chain}.${e.symbol.name}` : `${chain}.${e.symbol.name}`;
+    }
+    if (others.some((x) => x.classQualifiedName === m.classQualifiedName)) e.label += `(${m.params.map((p) => p.display).join(", ")})`;
   }
   return out;
 }
@@ -459,7 +536,9 @@ function isConstructor(m: MethodSymbol): boolean {
  * 접은 메서드가 다른 메서드를 부르면 그 호출은 접은 메서드를 부른 단계의 같은 줄에서 이어진다.
  * 본문이 없는 추상 메서드는 구현이 없을 때 데이터 접근이나 외부 경계를 보여 주므로 단계로 둔다.
  */
-function buildTour(graph: CallGraph, entry: TourEntry, isTestId: (id: string) => boolean, classOf: (id: string) => string): Tour {
+function buildTour(
+  graph: CallGraph, entry: TourEntry, isTestId: (id: string) => boolean, classOf: (id: string) => string, unlinked: Map<string, Unlinked[]>,
+): Tour {
   const steps: TourStep[] = [];
   const stepOf = new Map<string, number>();
   const collapsed = new Set<string>();
@@ -487,22 +566,45 @@ function buildTour(graph: CallGraph, entry: TourEntry, isTestId: (id: string) =>
     const m = graph.methods.get(id)!;
     const step: TourStep = {
       n: steps.length + 1, symbol: toRef(m), classId: classOf(id), depth, parent: parent?.n ?? null, line,
-      alternatives: Math.max(1, group.length), branch: branchOf(group), params: m.params.map((p) => p.type),
-      confidence, calls: [], folded: [],
+      alternatives: Math.max(1, group.length), branch: branchOf(group), params: m.params.map((p) => p.display), abstract: m.body === null,
+      confidence, calls: [], folded: [], external: [],
     };
     steps.push(step);
     stepOf.set(id, step.n);
     expand(id, step, confidence, null, new Set([id]));
   };
 
+  const pickOverload = <T>(caller: MethodSymbol, ids: string[], back: (id: string) => T): T => {
+    const known = new Set([...caller.params.map((p) => p.type), ...Object.values(caller.locals)]);
+    const score = (id: string) => graph.methods.get(id)!.params.filter((p) => known.has(p.type)).length;
+    const best = [...ids].sort((a, b) => score(b) - score(a) || graph.methods.get(a)!.range.startLine - graph.methods.get(b)!.range.startLine)[0]!;
+    return back(best);
+  };
+
+  const fold = (list: TourFold[], item: TourFold): void => {
+    if (!list.some((f) => f.line === item.line && f.name === item.name && f.params.join() === item.params.join())) list.push(item);
+  };
+
   // id의 호출을 step에 붙인다. via는 접은 메서드를 지나는 중일 때 step 본문의 호출 줄이다
   const expand = (id: string, step: TourStep, confidence: Confidence, via: number | null, chain: Set<string>): void => {
     const m = graph.methods.get(id)!;
-    const edges = outgoing(id).sort((a, b) => a.callIndex - b.callIndex);
+    const edges = outgoing(id);
     const groups = new Map<number, typeof edges>();
     for (const e of edges) (groups.get(e.callIndex) ?? groups.set(e.callIndex, []).get(e.callIndex)!).push(e);
-    for (const group of groups.values()) {
-      const line = via ?? m.calls[group[0]!.callIndex]?.line ?? m.range.startLine;
+    const missing = new Map((unlinked.get(id) ?? []).map((u) => [u.callIndex, u]));
+    // 이은 호출과 선언 없는 호출을 본문의 호출 순서대로 처리한다
+    for (const index of [...new Set([...groups.keys(), ...missing.keys()])].sort((a, b) => a - b)) {
+      const u = missing.get(index);
+      if (u) {
+        fold(u.kind === "ctor" ? step.folded : step.external, { line: via ?? u.line, name: u.name, params: [], classId: u.classId });
+        continue;
+      }
+      const all = groups.get(index)!;
+      const line = via ?? m.calls[index]?.line ?? m.range.startLine;
+      // 한 클래스의 같은 이름 메서드(오버로드) 후보는 인자 타입을 몰라 정확히 고를 수 없으므로 하나만 따라간다.
+      // 이미 나온 것, 아니면 부르는 메서드의 매개변수와 지역 변수 타입과 가장 많이 겹치는 것(같으면 먼저 선언된 것)
+      const overloads = branchOf(all.map((e) => e.callee)) === "overloads";
+      const group = overloads ? [all.find((e) => stepOf.has(e.callee)) ?? pickOverload(m, all.map((e) => e.callee), (x) => all.find((e) => e.callee === x)!)] : all;
       for (const e of group) {
         const known = stepOf.get(e.callee);
         if (known !== undefined) {
@@ -512,8 +614,8 @@ function buildTour(graph: CallGraph, entry: TourEntry, isTestId: (id: string) =>
         const c = minConfidence(confidence, e.confidence);
         if (trivial(e.callee)) {
           collapsed.add(e.callee);
-          const name = displayName(toRef(graph.methods.get(e.callee)!));
-          if (!step.folded.some((f) => f.line === line && f.name === name)) step.folded.push({ line, name, classId: classOf(e.callee) });
+          const callee = graph.methods.get(e.callee)!;
+          fold(step.folded, { line, name: displayName(toRef(callee)), params: callee.params.map((p) => p.display), classId: classOf(e.callee) });
           if (!chain.has(e.callee)) expand(e.callee, step, c, line, new Set([...chain, e.callee]));
           continue;
         }
@@ -522,7 +624,7 @@ function buildTour(graph: CallGraph, entry: TourEntry, isTestId: (id: string) =>
           continue;
         }
         step.calls.push({ line, to: steps.length + 1, back: false });
-        addStep(e.callee, step, line, group.map((x) => x.callee), c, step.depth + 1);
+        addStep(e.callee, step, line, all.map((x) => x.callee), c, step.depth + 1);
       }
     }
   };

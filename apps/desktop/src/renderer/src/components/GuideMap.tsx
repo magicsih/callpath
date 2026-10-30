@@ -11,12 +11,16 @@ interface Props {
   onOpen: (id: string) => void;
   /** 초점을 옮길 칩(패키지 목록, 지도에서 보기). pkg가 있으면 그 행을 잠깐 강조한다. nonce가 바뀔 때마다 옮긴다 */
   focusRequest: { id: string; nonce: number; pkg?: string } | null;
+  /** 맥락 목록에서 가리킨 클래스. 그 클래스와 잇는 선만 진하게 그린다 */
+  emphasis: string | null;
 }
 
 interface Line {
   key: string;
+  /** 고른 클래스가 아닌 쪽 */
+  other: string;
   d: string;
-  kind: "caller" | "callee" | "impl";
+  kind: "caller" | "callee";
   low: boolean;
   calls: number;
 }
@@ -25,18 +29,26 @@ const PKG_COL = 108;
 
 /** 선이 이보다 많으면 호출이 많은 것만 그린다 */
 const MAX_LINES = 40;
+/** 선이 이보다 많으면 같은 열 안의 연결은 선 없이 칩 테두리로만 보인다(세로 다발이 칩 이름을 덮는다) */
+const DENSE_LINES = 15;
 
 /**
  * 설계 7단계 3.1 지도. 행은 패키지, 열은 역할인 표에 클래스를 칩으로 놓는다(D17).
  * 고른 칩의 연결만 선으로 잇는다. 칩은 하나만 Tab으로 들어가고 화살표로 옮긴다
  */
-export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest }: Props) {
+export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emphasis }: Props) {
   const cols = useMemo(() => mapColumns(guide), [guide]);
   const byId = useMemo(() => new Map(guide.classes.map((c) => [c.id, c])), [guide]);
-  // 열마다 기본 100px, 패키지 하나에 칩이 평균 둘 이상 놓이는 역할은 최대 4배까지 넓혀 한 줄에 여러 칩이 놓이게 한다.
-  // 표가 이 합보다 넓으면 남는 폭을 같은 비율로 나눈다
+  // 열마다 그 열 칩 이름의 가장 긴 단어가 끊기지 않는 폭(최소 100px, 최대 170px)을 기본으로 하고,
+  // 패키지 하나에 칩이 평균 둘 이상 놓이는 역할은 최대 4배까지 넓혀 한 줄에 여러 칩이 놓이게 한다. 표가 더 넓으면 남는 폭을 같은 비율로 나눈다
   const widths = useMemo(
-    () => cols.map((r) => Math.round(100 * Math.min(4, Math.max(1, guide.classes.filter((c) => c.role === r).length / Math.max(1, guide.packages.length))))),
+    () =>
+      cols.map((r) => {
+        const chips = guide.classes.filter((c) => c.role === r);
+        const word = Math.max(0, ...chips.map((c) => Math.max(...c.name.split(/(?=[A-Z][a-z])|(?<=[./])/).map((w) => w.length)) + (c.entryIds.length ? 2 : 0)));
+        const base = Math.min(170, Math.max(100, Math.ceil(word * 7 + 34)));
+        return Math.round(base * Math.min(4, Math.max(1, chips.length / Math.max(1, guide.packages.length) / 2)));
+      }),
     [guide, cols],
   );
   const minWidth = PKG_COL + widths.reduce((a, b) => a + b, 0);
@@ -54,6 +66,7 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest }: Pr
     if (rel.callees.some((n) => n.node.id === id)) return "callee";
     if (rel.callers.some((n) => n.node.id === id)) return "caller";
     if (rel.impls.some((n) => n.id === id)) return "impl";
+    if (emphasis === id) return "emph";
     return "dim";
   };
   // 읽는 차례(행, 열, 칩 순)
@@ -70,12 +83,15 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest }: Pr
   const rows = useRef(new Map<string, HTMLTableRowElement>());
   const [lines, setLines] = useState<Line[]>([]);
   const [hidden, setHidden] = useState(0);
+  const [sameCol, setSameCol] = useState(0);
+  const [more, setMore] = useState(false);
 
   const measure = useCallback(() => {
     const box = inner.current;
     if (!box || !selected || !rel) {
       setLines([]);
       setHidden(0);
+      setSameCol(0);
       return;
     }
     const base = box.getBoundingClientRect();
@@ -105,25 +121,44 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest }: Pr
       const dy = (y2 - y1) * 0.45;
       return `M${x1},${y1} C${x1},${y1 + dy} ${x2},${y2 - dy} ${x2},${y2}`;
     };
+    const role = byId.get(selected)?.role;
+    const dense = rel.callers.length + rel.callees.length > DENSE_LINES;
+    let skipped = 0;
     const all: Line[] = [];
-    for (const n of rel.callers) {
-      const d = path(n.node.id, selected);
-      if (d) all.push({ key: `in:${n.node.id}`, d, kind: "caller", low: n.low, calls: n.calls });
-    }
-    for (const n of rel.callees) {
-      const d = path(selected, n.node.id);
-      if (d) all.push({ key: `out:${n.node.id}`, d, kind: "callee", low: n.low, calls: n.calls });
-    }
-    for (const n of rel.impls) {
-      const d = path(n.id, selected);
-      if (d) all.push({ key: `impl:${n.id}`, d, kind: "impl", low: true, calls: 1 });
-    }
-    const kept = all.length > MAX_LINES ? [...all].sort((a, b) => b.calls - a.calls).slice(0, MAX_LINES) : all;
+    const add = (other: string, from: string, to: string, kind: Line["kind"], low: boolean, calls: number) => {
+      if (dense && byId.get(other)?.role === role && other !== emphasis) {
+        skipped++;
+        return;
+      }
+      const d = path(from, to);
+      if (d) all.push({ key: `${kind}:${other}`, other, d, kind, low, calls });
+    };
+    for (const n of rel.callers) add(n.node.id, n.node.id, selected, "caller", n.low, n.calls);
+    for (const n of rel.callees) add(n.node.id, selected, n.node.id, "callee", n.low, n.calls);
+    const kept = all.length > MAX_LINES ? [...all].sort((a, b) => Number(b.other === emphasis) - Number(a.other === emphasis) || b.calls - a.calls).slice(0, MAX_LINES) : all;
     setLines(kept);
     setHidden(all.length - kept.length);
-  }, [selected, rel]);
+    setSameCol(skipped);
+  }, [selected, rel, emphasis, byId]);
 
   useLayoutEffect(() => measure(), [measure, guide]);
+  // 오른쪽으로 열이 더 있으면 가장자리에 넘침 표시를 둔다(스크롤 막대가 숨는 환경에서도 알 수 있게)
+  const checkMore = useCallback(() => {
+    const s = scroller.current;
+    setMore(!!s && s.scrollLeft + s.clientWidth < s.scrollWidth - 2);
+  }, []);
+  useEffect(() => {
+    const s = scroller.current;
+    if (!s) return;
+    checkMore();
+    const ro = new ResizeObserver(checkMore);
+    ro.observe(s);
+    s.addEventListener("scroll", checkMore, { passive: true });
+    return () => {
+      ro.disconnect();
+      s.removeEventListener("scroll", checkMore);
+    };
+  }, [checkMore, guide]);
   useEffect(() => {
     const box = inner.current;
     if (!box) return;
@@ -190,19 +225,24 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest }: Pr
   const entryWord = guide.noEntries ? "공개 API 투어가 있는 클래스" : "진입점이 있는 클래스";
   const legend = (
     <div className="map-legend small muted" data-testid="map-legend">
-      {guide.noEntries && <span className="legend-warn">진입점 규칙에 맞는 메서드가 없어 투어는 공개 API로 대신합니다.</span>}
+      {guide.noEntries && (
+        <span className="legend-warn">
+          {guide.entries.length ? "진입점 규칙에 맞는 메서드가 없어 투어는 공개 API로 대신합니다." : "투어를 시작할 진입점이 없습니다(공개 API도 없음)."}
+        </span>
+      )}
       {selected ? (
         <>
           <span><span className="legend-line callee" aria-hidden="true" /> 고른 클래스가 부르는 것</span>
           <span><span className="legend-line caller" aria-hidden="true" /> 고른 클래스를 부르는 쪽</span>
-          <span><span className="legend-line low" aria-hidden="true" /> 점선: 연결 불확실(이름이나 구현 후보로 이음)</span>
-          {rel && rel.impls.length > 0 && <span><span className="legend-line impl" aria-hidden="true" /> 구현 클래스</span>}
+          <span><span className="legend-line low" aria-hidden="true" /> 점선: 연결 불확실<span className="legend-long">(이름이나 구현 후보로 이음)</span></span>
+          {rel && rel.impls.length > 0 && <span><span className="legend-box impl" aria-hidden="true" /> 점선 테두리: {byId.get(selected)?.kind === "interface" ? "구현" : "하위 클래스"}</span>}
+          {sameCol > 0 && <span className="legend-warn">같은 열 안 연결 {sameCol}개는 칩 테두리로만 보입니다</span>}
           {hidden > 0 && <span className="legend-warn">선이 많아 호출이 많은 {MAX_LINES}개만 그렸습니다({hidden}개 생략)</span>}
         </>
       ) : (
         <span className="legend-hint">칩을 고르면 연결을 선으로 잇습니다. 화살표 키로 칩 사이를 옮기고 Enter로 고릅니다.</span>
       )}
-      <span><span className="chip-entry" aria-hidden="true">▶</span>{entryWord}</span>
+      {guide.entries.length > 0 && <span><span className="chip-entry" aria-hidden="true">▶</span>{entryWord}</span>}
     </div>
   );
 
@@ -212,18 +252,24 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest }: Pr
   return (
     <>
       {legend}
+      <div className={`map-wrap${more ? " more" : ""}`}>
       <div className="map-scroll" ref={scroller} data-testid="guide-map">
         <div className="map-inner" ref={inner}>
           <svg className="map-lines" aria-hidden="true">
             <defs>
-              {(["callee", "caller", "impl"] as const).map((k) => (
+              {(["callee", "caller"] as const).map((k) => (
                 <marker key={k} id={`arrow-${k}`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0,0 L8,4 L0,8 z" className={`arrow-${k}`} />
                 </marker>
               ))}
             </defs>
             {lines.map((l) => (
-              <path key={l.key} d={l.d} className={`map-line ${l.kind}${l.low ? " low" : ""}`} markerEnd={`url(#arrow-${l.kind})`} />
+              <path
+                key={l.key}
+                d={l.d}
+                className={`map-line ${l.kind}${l.low ? " low" : ""}${emphasis ? (l.other === emphasis ? " emph" : " faint") : ""}`}
+                markerEnd={`url(#arrow-${l.kind})`}
+              />
             ))}
           </svg>
           <table className="map-grid" onKeyDown={onKey} aria-label="패키지와 역할 지도" style={{ minWidth }}>
@@ -284,6 +330,8 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest }: Pr
             </tbody>
           </table>
         </div>
+      </div>
+      {more && <span className="map-more" aria-hidden="true">열 더 있음 →</span>}
       </div>
     </>
   );

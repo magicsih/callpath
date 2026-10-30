@@ -60,6 +60,8 @@ export interface GuideTarget {
 export interface LastGuide {
   ref: string;
   dir: string | null;
+  /** 큰 저장소 경고를 보고 저장소 전체를 고름. 다시 열 때 경고를 건너뛴다 */
+  force?: boolean;
   view: "map" | "tour";
   classId: string | null;
   entryId: string | null;
