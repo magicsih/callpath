@@ -65,6 +65,17 @@ export function makeRepoWithHeadEdit(file: string, edit: (text: string) => strin
   return dir;
 }
 
+/** 둘러보기 표본(fixtures/shop)을 main 브랜치 커밋 하나로 둔 저장소 */
+export function makeShopRepo(): string {
+  const dir = temp("callpath-e2e-shop-");
+  const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  cpSync(join(FIXTURES, "shop"), dir, { recursive: true });
+  git("add", "-A");
+  git("commit", "-qm", "shop");
+  return dir;
+}
+
 export function makeTempDir(prefix: string): string {
   return temp(prefix);
 }

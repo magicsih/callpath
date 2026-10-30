@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseConfig } from "../src/config.js";
-import { guide, isGeneratedPath, isLargeRepo, listGuideFiles, MAX_TOUR_DEPTH, MAX_TOUR_STEPS, type GuideResult } from "../src/guide/guide.js";
+import { guide, isGeneratedPath, isLargeRepo, listGuideFiles, MAX_TOUR_DEPTH, MAX_TOUR_STEPS, suggestDirs, type GuideResult } from "../src/guide/guide.js";
 import { displayName } from "../src/names.js";
 import { DirectorySource, type FileSource } from "../src/source/fileSource.js";
 import { writeTree, type Tree } from "./helpers.js";
@@ -288,6 +288,13 @@ describe("생성 코드와 큰 저장소 (B5)", () => {
     expect(await at(3000)).toBe(false);
     expect(await at(3001)).toBe(true);
     expect((await listGuideFiles(fake(3))).generated).toBe(1);
+  });
+
+  it("좁힐 디렉터리 후보는 처음 갈라지는 곳의 하위 디렉터리다", () => {
+    const single = ["src/main/java/com/x/order/A.java", "src/main/java/com/x/order/B.java", "src/main/java/com/x/pay/C.java"];
+    expect(suggestDirs(single)).toEqual([{ path: "src/main/java/com/x/order", files: 2 }, { path: "src/main/java/com/x/pay", files: 1 }]);
+    const modules = ["api/src/main/java/A.java", "core/src/main/java/B.java", "core/src/main/java/C.java", "Root.java"];
+    expect(suggestDirs(modules)).toEqual([{ path: "core", files: 2 }, { path: "api", files: 1 }]);
   });
 
   it("디렉터리로 좁히면 그 아래 파일만 둘러본다", async () => {

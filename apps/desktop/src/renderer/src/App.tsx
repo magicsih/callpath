@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CompareRequest, ConnectionHint, PrMeta, RepoInfo, UiState } from "../../shared/api";
+import type { CompareRequest, ConnectionHint, GuideRequest, PrMeta, RepoInfo, UiState } from "../../shared/api";
 import { EMPTY_STATE } from "../../shared/api";
 import { Start } from "./screens/Start";
 import { Compare } from "./screens/Compare";
 import { Review } from "./screens/Review";
+import { Guide } from "./screens/Guide";
 import { Connections } from "./screens/Connections";
 import { PrOpening } from "./screens/PrOpening";
 import { LlmSettings } from "./screens/LlmSettings";
@@ -14,6 +15,7 @@ type Screen =
   | { name: "start"; error: string | null; prError?: { url: string; message: string } }
   | { name: "compare"; repo: RepoInfo; base?: string; head?: string }
   | { name: "review"; repo: RepoInfo; req: CompareRequest; selection: string | null; showTests: boolean; pr: PrMeta | null }
+  | { name: "guide"; repo: RepoInfo; req: GuideRequest }
   | { name: "connections"; back: Screen; hint?: ConnectionHint }
   | { name: "llm"; back: Screen }
   | { name: "pr"; url: string; back: Screen };
@@ -46,6 +48,17 @@ export function App() {
       state.current = s;
       setRecent(s.recent);
       setRecentPrs(s.recentPrs);
+      // 마지막에 둘러보던 저장소면 둘러보기로 돌아간다
+      const lastGuide = s.lastRepo && s.lastView === "guide" ? s.guides[s.lastRepo] : undefined;
+      if (s.lastRepo && lastGuide) {
+        const r = await window.callpath.inspectRepo(s.lastRepo);
+        if (r.ok) {
+          setScreen({ name: "guide", repo: r.value, req: { repo: r.value.path, ref: lastGuide.ref, ...(lastGuide.dir ? { dir: lastGuide.dir } : {}) } });
+          return;
+        }
+        setScreen({ name: "start", error: `마지막 저장소를 열 수 없습니다: ${r.error}` });
+        return;
+      }
       const last = s.lastRepo ? s.repos[s.lastRepo] : undefined;
       // PR 리뷰는 받아 둔 코드와 PR 정보로 네트워크 없이 바로 복원한다. 새 커밋은 "새로 받기"로 확인한다
       const lastPr = s.lastRepo ? s.prs[s.lastRepo] : undefined;
@@ -96,11 +109,31 @@ export function App() {
       persist({
         ...state.current,
         lastRepo: m.gitDir,
+        lastView: "review",
         repos: { ...state.current.repos, [m.gitDir]: { ...req, selection, showTests } },
         prs: { ...state.current.prs, [m.gitDir]: m },
         recentPrs: [{ url: m.url, title: `#${m.number} ${m.title}` }, ...state.current.recentPrs.filter((p) => p.url !== m.url)].slice(0, 10),
       });
       setScreen({ name: "review", repo: prRepo(m), req, selection, showTests, pr: m });
+    },
+    [persist],
+  );
+
+  /** 둘러보기를 연다. 같은 브랜치와 디렉터리면 마지막에 보던 자리를 이어간다 */
+  const openGuide = useCallback(
+    (repo: RepoInfo, req: GuideRequest) => {
+      const prev = state.current.guides[repo.path];
+      const same = prev !== undefined && prev.ref === req.ref && prev.dir === (req.dir ?? null);
+      persist({
+        ...state.current,
+        lastRepo: repo.path,
+        lastView: "guide",
+        guides: {
+          ...state.current.guides,
+          [repo.path]: same ? prev : { ref: req.ref, dir: req.dir ?? null, view: "map", classId: null, entryId: null, step: null },
+        },
+      });
+      setScreen({ name: "guide", repo, req });
     },
     [persist],
   );
@@ -157,6 +190,7 @@ export function App() {
         onReload={() => void open(screen.repo.path)}
         onOpenPr={(url) => setScreen({ name: "pr", url, back: screen })}
         onConnections={(hint) => setScreen({ name: "connections", back: screen, ...(hint ? { hint } : {}) })}
+        onGuide={(ref) => openGuide(screen.repo, { repo: screen.repo.path, ref })}
         onAnalyze={(base, head) => {
           const req = { repo: screen.repo.path, base, head };
           // 같은 비교를 다시 열면 보던 위치까지, 다른 비교면 테스트 표시만 저장소별로 이어간다
@@ -164,8 +198,31 @@ export function App() {
           const same = remembered !== undefined && remembered.base === base && remembered.head === head;
           const selection = same ? remembered.selection : null;
           const showTests = remembered?.showTests ?? false;
-          persist({ ...state.current, lastRepo: req.repo, repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } });
+          persist({ ...state.current, lastRepo: req.repo, lastView: "review", repos: { ...state.current.repos, [req.repo]: { ...req, selection, showTests } } });
           setScreen({ name: "review", repo: screen.repo, req, selection, showTests, pr: null });
+        }}
+      />
+    );
+  }
+  if (screen.name === "guide") {
+    const { repo, req } = screen;
+    const last = state.current.guides[repo.path];
+    const toCompare = () => {
+      const remembered = state.current.repos[repo.path];
+      setScreen({ name: "compare", repo, ...(remembered ? { base: remembered.base, head: remembered.head } : {}) });
+    };
+    return (
+      <Guide
+        key={`${req.repo}|${req.ref}|${req.dir ?? ""}|${req.force ? 1 : 0}`}
+        req={req}
+        repoName={repo.name}
+        initial={last && last.ref === req.ref && last.dir === (req.dir ?? null) ? last : null}
+        onBack={toCompare}
+        onNarrow={(dir, force) => openGuide(repo, { repo: repo.path, ref: req.ref, ...(dir ? { dir } : {}), ...(force ? { force } : {}) })}
+        onPersist={(place) => {
+          const cur = state.current.guides[repo.path];
+          if (!cur || cur.ref !== req.ref || cur.dir !== (req.dir ?? null)) return;
+          persist({ ...state.current, lastRepo: repo.path, lastView: "guide", guides: { ...state.current.guides, [repo.path]: { ...cur, ...place } } });
         }}
       />
     );

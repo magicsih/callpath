@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AnalysisEvent, CallpathApi, PrProgress } from "../shared/api";
+import type { AnalysisEvent, CallpathApi, GuideProgressEvent, PrProgress } from "../shared/api";
 
 const api: CallpathApi = {
   pickFolder: () => ipcRenderer.invoke("pickFolder"),
@@ -42,6 +42,14 @@ const api: CallpathApi = {
   deleteNote: (id) => ipcRenderer.invoke("deleteNote", id),
   planPost: (pr, ids) => ipcRenderer.invoke("planPost", pr, ids),
   postNotes: (pr, plans) => ipcRenderer.invoke("postNotes", pr, plans),
+  guide: (req) => ipcRenderer.invoke("guide", req),
+  onGuideProgress: (cb) => {
+    const handler = (_e: unknown, ev: GuideProgressEvent) => cb(ev);
+    ipcRenderer.on("guide-progress", handler);
+    return () => ipcRenderer.removeListener("guide-progress", handler);
+  },
+  tour: (target, entryId) => ipcRenderer.invoke("tour", target, entryId),
+  entriesThrough: (target, classId) => ipcRenderer.invoke("entriesThrough", target, classId),
   loadState: () => ipcRenderer.invoke("loadState"),
   saveState: (state) => ipcRenderer.invoke("saveState", state),
 };

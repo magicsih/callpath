@@ -17,6 +17,8 @@ export function Compare(props: {
   onBack: () => void;
   onReload: () => void;
   onAnalyze: (base: string, head: string) => void;
+  /** 비교 없이 한 시점의 저장소를 둘러본다 */
+  onGuide: (ref: string) => void;
   onOpenPr: (url: string) => void;
   onConnections: (hint?: ConnectionHint) => void;
 }) {
@@ -52,12 +54,15 @@ export function Compare(props: {
   }
   const [base, setBase] = useState(props.initialBase ?? repo.defaultBase ?? "");
   const [head, setHead] = useState(props.initialHead ?? repo.current ?? "");
+  const [guideRef, setGuideRef] = useState(repo.current ?? repo.defaultBase ?? "");
+  // 브랜치가 하나뿐이면 비교할 것이 없으니 둘러보기를 먼저 권한다
+  const guideFirst = repo.branches.length === 1;
   const ready = base.trim() !== "" && head.trim() !== "";
   const known = (r: string) => repo.branches.includes(r.trim()) || /^[0-9a-f]{7,40}$/i.test(r.trim()) || /[~^]/.test(r);
   const warnings = [
     base.trim() && !known(base) ? `브랜치 목록에 없는 기준: "${base.trim()}". 태그나 커밋이면 그대로 분석합니다.` : null,
     head.trim() && !known(head) ? `브랜치 목록에 없는 리뷰할 변경: "${head.trim()}". 태그나 커밋이면 그대로 분석합니다.` : null,
-    ready && base.trim() === head.trim() ? "기준과 리뷰할 변경이 같아 바뀐 파일이 없습니다." : null,
+    ready && base.trim() === head.trim() ? "기준과 리뷰할 변경이 같아 바뀐 파일이 없습니다. 지금 코드를 읽으려면 아래 저장소 둘러보기를 쓰세요." : null,
   ].filter((w): w is string => w !== null);
   return (
     <main className="compare" aria-labelledby="compare-title">
@@ -109,10 +114,27 @@ export function Compare(props: {
               ))}
             </ul>
           )}
-          <button type="submit" className="primary big" disabled={!ready} autoFocus>
+          <button type="submit" className={guideFirst ? "big" : "primary big"} disabled={!ready} autoFocus={!guideFirst}>
             흐름 분석
           </button>
         </form>
+        <section aria-labelledby="guide-title" className="guide-start" data-testid="guide-start">
+          <h2 id="guide-title">저장소 둘러보기</h2>
+          <p className="muted">비교 없이 한 시점의 코드를 패키지 지도와 진입점 투어로 읽습니다. 처음 보는 저장소를 파악할 때 씁니다.</p>
+          <form
+            className="guide-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (guideRef.trim()) props.onGuide(guideRef.trim());
+            }}
+          >
+            <div className="ref">
+              <label htmlFor="guide-ref">둘러볼 브랜치나 커밋</label>
+              <input id="guide-ref" list="branches" value={guideRef} onChange={(e) => setGuideRef(e.target.value)} />
+            </div>
+            <button type="submit" className={guideFirst ? "primary" : ""} disabled={!guideRef.trim()} autoFocus={guideFirst}>둘러보기</button>
+          </form>
+        </section>
         {prs.status !== "no-remote" && (
           <section aria-labelledby="open-prs-title" className="recent" data-testid="open-prs">
             <h2 id="open-prs-title">이 저장소의 열린 PR</h2>

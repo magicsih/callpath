@@ -12,7 +12,7 @@ export { isTestFile, isTestPath } from "./classify/test.js";
 export { CONFIG_FILE, ROLES, loadConfig, parseConfig, type EntryRule, type CallpathConfig, type Role, type RoleRule } from "./config.js";
 export { ROLE_LABEL, displayName, methodLabel } from "./names.js";
 export {
-  guide, isGeneratedPath, isLargeRepo, listGuideFiles, LARGE_REPO_FILES, MAX_API_CLASSES, MAX_TOUR_DEPTH, MAX_TOUR_STEPS,
+  guide, isGeneratedPath, isLargeRepo, listGuideFiles, suggestDirs, LARGE_REPO_FILES, MAX_API_CLASSES, MAX_TOUR_DEPTH, MAX_TOUR_STEPS,
   type ClassLink, type ClassNode, type GuideOptions, type GuideProgress, type GuideResult, type PackageNode, type RepoGuide,
   type Tour, type TourCall, type TourEntry, type TourEntryKind, type TourStep,
 } from "./guide/guide.js";

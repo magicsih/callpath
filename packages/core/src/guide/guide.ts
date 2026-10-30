@@ -151,6 +151,32 @@ export async function listGuideFiles(source: FileSource, dir?: string): Promise<
   return { paths, generated: code.length - paths.length };
 }
 
+/**
+ * 큰 저장소를 좁힐 디렉터리 후보. 코드 파일이 한 디렉터리로만 이어지는 동안 내려가다가(src/main/java/com/x 같은)
+ * 처음 갈라지는 곳의 하위 디렉터리를 파일 수가 많은 순으로 준다. 멀티 모듈이면 모듈 디렉터리가 나온다
+ */
+export function suggestDirs(paths: string[], limit = 20): Array<{ path: string; files: number }> {
+  let prefix = "";
+  for (;;) {
+    const below = paths.filter((p) => p.startsWith(prefix)).map((p) => p.slice(prefix.length));
+    const children = new Map<string, number>();
+    let direct = 0;
+    for (const rest of below) {
+      const i = rest.indexOf("/");
+      if (i < 0) direct++;
+      else children.set(rest.slice(0, i), (children.get(rest.slice(0, i)) ?? 0) + 1);
+    }
+    if (children.size === 1 && direct === 0) {
+      prefix += `${[...children.keys()][0]}/`;
+      continue;
+    }
+    return [...children]
+      .map(([name, files]) => ({ path: `${prefix}${name}`, files }))
+      .sort((a, b) => b.files - a.files || a.path.localeCompare(b.path))
+      .slice(0, limit);
+  }
+}
+
 /** 설계 7단계: 한 커밋의 저장소 전체를 지도(패키지 × 역할)와 진입점 투어로 읽게 한다 */
 export async function guide(source: FileSource, opts: GuideOptions): Promise<GuideResult> {
   const started = performance.now();
