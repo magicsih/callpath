@@ -1,4 +1,4 @@
-import type { GuideProgress, RepoGuide, ReviewSession, Tour } from "@callpath/core";
+import type { ClassNode, GuideProgress, PackageNode, RepoGuide, ReviewSession, Tour } from "@callpath/core";
 
 export interface RepoInfo {
   /** 저장소 최상위 경로 */
@@ -208,6 +208,9 @@ export interface LlmSaved {
 /** 무엇을 설명받을지. 렌더러가 가진 분석 결과를 그대로 넘긴다 */
 export type ExplainTarget =
   | { kind: "flow"; flow: import("@callpath/core").Flow }
+  /** 둘러보기(설계 7단계 7절). 화면이 가진 지도에서 이름만 넘기고, 코드는 메인이 커밋에서 읽는다 */
+  | { kind: "class"; node: ClassNode; packageLabel: string; callers: string[]; callees: string[]; entries: string[] }
+  | { kind: "package"; pkg: PackageNode; classes: ClassNode[]; dependsOn: Array<{ label: string; calls: number }>; usedBy: Array<{ label: string; calls: number }> }
   | { kind: "method"; step: import("@callpath/core").Step; callees: string[]; /** 진입점 미확정 묶음의 단계 */ orphan: boolean };
 
 export interface ExplainPreview {

@@ -8,6 +8,8 @@ export interface Snippet {
   truncatedFrom?: number;
   /** 바뀌지 않은 메서드(진입점 등). 변경 후라고 적지 않는다 */
   unchanged?: boolean;
+  /** 비교 없이 한 시점의 코드(둘러보기). "현재 코드"라고 적는다 */
+  current?: boolean;
   path: string;
   side: "base" | "head";
   startLine: number;
@@ -22,7 +24,7 @@ export interface ChatMessage {
 
 /** 미리보기에 보이고 그대로 전송되는 내용 */
 export interface ExplainPayload {
-  kind: "flow" | "method";
+  kind: "flow" | "method" | "class" | "package";
   title: string;
   /** 포함한 코드 범위. 미리보기에서 어떤 파일의 어디가 나가는지 보인다 */
   scope: Array<Omit<Snippet, "text">>;
@@ -37,8 +39,21 @@ export interface ExplainPayload {
   omittedScope: Array<Omit<Snippet, "text">>;
 }
 
+/** 둘러보기 패키지 설명에 보내는 클래스 요약. 코드 본문은 넣지 않는다 */
+export interface PackageClass {
+  name: string;
+  role: string;
+  kind: string;
+  /** 공개 메서드 시그니처. 예: placeOrder(OrderRequest) */
+  methods: string[];
+}
+
 export type ExplainRequest =
   | { kind: "flow"; flow: Flow; snippets: Snippet[] }
+  /** 둘러보기(설계 7단계 7절): 한 클래스의 현재 코드와 저장소 안 위치 */
+  | { kind: "class"; name: string; qualifiedName: string; role: string; classKind: string; packageLabel: string; snippet: Snippet; callers: string[]; callees: string[]; entries: string[] }
+  /** 둘러보기: 패키지의 클래스 목록, 역할, 공개 메서드 시그니처, 다른 패키지와의 연결 수. 메서드 본문은 보내지 않는다 */
+  | { kind: "package"; name: string; label: string; classes: PackageClass[]; dependsOn: Array<{ label: string; calls: number }>; usedBy: Array<{ label: string; calls: number }> }
   /** orphan: 진입점에서 닿는 호출을 찾지 못한 단계(진입점 미확정 묶음) */
   | { kind: "method"; step: Step; snippet: Snippet; baseSnippet: Snippet | null; callers: SymbolRef[]; callees: string[]; orphan?: boolean };
 
@@ -105,7 +120,7 @@ function stepLine(s: Step): string {
 
 function fence(s: Snippet): string {
   const lang = s.path.endsWith(".kt") || s.path.endsWith(".kts") ? "kotlin" : "java";
-  const side = s.unchanged ? "바뀌지 않음" : s.side === "head" ? "변경 후" : "변경 전";
+  const side = s.current ? "현재 코드" : s.unchanged ? "바뀌지 않음" : s.side === "head" ? "변경 후" : "변경 전";
   return `### ${s.path}:${s.startLine}-${s.endLine} (${side})\n\`\`\`${lang}\n${s.text}\n\`\`\``;
 }
 
@@ -175,8 +190,69 @@ const SYSTEM = [
   "한국어로, 짧은 문단과 목록으로 답하세요.",
 ].join(" ");
 
+const GUIDE_SYSTEM = [
+  "당신은 처음 보는 Java와 Kotlin 저장소를 파악하도록 돕는 도우미입니다.",
+  "주어진 코드와 구조 정보만 근거로 답하세요. 보이지 않는 코드는 추측하지 말고, 추측이 필요하면 추측이라고 밝히세요.",
+  "한국어로, 짧은 문단과 목록으로 답하세요.",
+].join(" ");
+
+const list = (label: string, items: string[]) => (items.length ? `${label}: ${items.join(", ")}` : "");
+
+/** 설계 7단계 7절: 클래스는 현재 코드와 위치, 패키지는 구조만(메서드 본문 없음) */
+function previewGuide(req: Extract<ExplainRequest, { kind: "class" | "package" }>): ExplainPayload {
+  if (req.kind === "class") {
+    const graphSummary = capSummary(
+      [
+        `클래스: ${req.name} (${req.qualifiedName}, ${req.snippet.path})`,
+        `패키지: ${req.packageLabel}, 역할: ${req.role}, 종류: ${req.classKind}`,
+        list("부르는 쪽", req.callers),
+        list("부르는 것", req.callees),
+        list("이 클래스를 지나는 진입점", req.entries),
+      ].filter(Boolean).join("\n"),
+    );
+    const size = fence(req.snippet).length;
+    const kept = size <= MAX_CODE_CHARS ? req.snippet : truncate(req.snippet);
+    const user = [
+      "아래 클래스가 이 저장소에서 맡는 일을 설명하세요. 주요 메서드가 무엇을 하는지, 부르는 쪽과 부르는 것 관점에서 어디에 놓이는지 짚고, 처음 읽는 사람이 먼저 볼 메서드를 알려 주세요.",
+      "",
+      "## 위치",
+      graphSummary,
+      "",
+      "## 코드",
+      fence(kept),
+    ].join("\n");
+    const { text: _t, ...scope } = kept;
+    return {
+      kind: "class", title: `${req.name} 설명`, scope: [scope], graphSummary,
+      messages: [{ role: "system", content: GUIDE_SYSTEM }, { role: "user", content: user }],
+      chars: user.length + GUIDE_SYSTEM.length, omitted: 0, omittedScope: [],
+    };
+  }
+  const graphSummary = capSummary(
+    [
+      `패키지: ${req.label} (${req.name || "기본 패키지"})`,
+      "클래스(역할, 종류, 공개 메서드):",
+      ...req.classes.map((c) => `- ${c.name} [${c.role}, ${c.kind}]${c.methods.length ? `: ${c.methods.join(", ")}` : ""}`),
+      list("이 패키지가 부르는 패키지(호출 수)", req.dependsOn.map((d) => `${d.label} ${d.calls}`)),
+      list("이 패키지를 부르는 패키지(호출 수)", req.usedBy.map((d) => `${d.label} ${d.calls}`)),
+    ].filter(Boolean).join("\n"),
+  );
+  const user = [
+    "아래 패키지가 이 저장소에서 맡는 일을 설명하세요. 클래스 목록과 공개 메서드, 다른 패키지와의 연결만 보냈고 메서드 본문은 보내지 않았습니다. 어떤 클래스부터 읽으면 좋을지 짚어 주세요.",
+    "",
+    "## 구조",
+    graphSummary,
+  ].join("\n");
+  return {
+    kind: "package", title: `${req.label} 패키지 설명`, scope: [], graphSummary,
+    messages: [{ role: "system", content: GUIDE_SYSTEM }, { role: "user", content: user }],
+    chars: user.length + GUIDE_SYSTEM.length, omitted: 0, omittedScope: [],
+  };
+}
+
 /** 전송할 내용을 만든다(설계 6.3 preview). 네트워크를 쓰지 않는다 */
 export function preview(req: ExplainRequest): ExplainPayload {
+  if (req.kind === "class" || req.kind === "package") return previewGuide(req);
   if (req.kind === "flow") {
     const f = req.flow;
     const graphSummary = capSummary(

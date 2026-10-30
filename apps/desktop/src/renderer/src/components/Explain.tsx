@@ -241,6 +241,9 @@ export function ExplainDialog(props: {
           </p>
           <div className="explain-body">
             <h3 className="pane-title">보낼 코드 {phase.p.payload.scope.length}곳</h3>
+            {phase.p.payload.kind === "package" && (
+              <p className="muted small" data-testid="explain-no-code">패키지 설명에는 코드를 보내지 않습니다. 클래스 이름, 역할, 공개 메서드 시그니처, 다른 패키지와의 연결 수만 보냅니다.</p>
+            )}
             <ul className="plain small" data-testid="explain-scope">
               {phase.p.payload.scope.map((s) => (
                 <li key={`${s.side}:${s.path}:${s.startLine}`}>
@@ -248,8 +251,10 @@ export function ExplainDialog(props: {
                   <span className="note-where">
                     {s.path}:{s.startLine}-{s.endLine}
                   </span>{" "}
-                  <span className="muted">{s.side === "head" ? "변경 후" : "변경 전"}</span>
-                  {s.truncatedFrom && <span className="warn-text inline"> 메서드는 {s.truncatedFrom}줄까지이지만 글자 상한으로 {s.endLine}줄까지만 보냅니다</span>}
+                  <span className="muted">{s.current ? "현재 코드" : s.side === "head" ? "변경 후" : "변경 전"}</span>
+                  {s.truncatedFrom && (
+                    <span className="warn-text inline"> {phase.p.payload.kind === "class" ? "클래스" : "메서드"}는 {s.truncatedFrom}줄까지이지만 글자 상한으로 {s.endLine}줄까지만 보냅니다</span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -266,8 +271,8 @@ export function ExplainDialog(props: {
                 </ul>
               </div>
             )}
-            <h3 className="pane-title">호출 구조</h3>
-            <pre className="plan-body">{phase.p.payload.graphSummary}</pre>
+            <h3 className="pane-title">{phase.p.payload.kind === "class" || phase.p.payload.kind === "package" ? "구조" : "호출 구조"}</h3>
+            <pre className="plan-body" data-testid="explain-summary">{phase.p.payload.graphSummary}</pre>
             <details>
               <summary>보낼 메시지 전체 보기 ({phase.p.payload.chars.toLocaleString()}자)</summary>
               {phase.p.payload.messages.map((m, i) => (

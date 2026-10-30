@@ -135,7 +135,7 @@ export function App() {
 
   if (screen.name === "boot") return <div className="state" role="status">불러오는 중</div>;
   // 리뷰에서 온 LLM 설정은 아래에서 리뷰를 숨긴 채 그대로 두고 보인다(분석, 코드 위치, 받은 답을 지킨다)
-  if (screen.name === "llm" && screen.back.name !== "review") return <LlmSettings onBack={() => setScreen(screen.back)} />;
+  if (screen.name === "llm" && screen.back.name !== "review" && screen.back.name !== "guide") return <LlmSettings onBack={() => setScreen(screen.back)} />;
   if (screen.name === "connections") {
     // PR 열기에서 왔으면 돌아갈 때 그 PR을 이어서 연다는 것을 버튼에 적는다
     return <Connections onBack={() => setScreen(screen.back)} backLabel={screen.back.name === "pr" ? "돌아가서 PR 다시 열기" : "돌아가기"} {...(screen.hint ? { hint: screen.hint } : {})} />;
@@ -195,22 +195,30 @@ export function App() {
       />
     );
   }
-  if (screen.name === "guide") {
-    const { repo, req } = screen;
+  // 둘러보기에서 온 LLM 설정도 리뷰처럼 둘러보기를 숨긴 채 위에 띄워 보던 자리와 받은 답을 지킨다
+  if (screen.name === "guide" || (screen.name === "llm" && screen.back.name === "guide")) {
+    const onLlm = screen.name === "llm";
+    const gs = (screen.name === "llm" ? screen.back : screen) as Extract<Screen, { name: "guide" }>;
+    const { repo, req } = gs;
     const last = state.current.guides[repo.path];
     const toCompare = () => {
       const remembered = state.current.repos[repo.path];
       setScreen({ name: "compare", repo, guideRef: req.ref, ...(remembered ? { base: remembered.base, head: remembered.head } : {}) });
     };
     return (
+      <>
+      <div className="screen-slot" hidden={onLlm}>
       <Guide
         key={`${req.repo}|${req.ref}|${req.dir ?? ""}|${req.force ? 1 : 0}`}
+        active={!onLlm}
+        answerStore={answers.current}
+        onLlmSettings={() => setScreen({ name: "llm", back: gs })}
         req={req}
         repoName={repo.name}
         initial={last && last.ref === req.ref && last.dir === (req.dir ?? null) ? last : null}
         onBack={toCompare}
         onNarrow={(dir, force, draft) => openGuide(repo, { repo: repo.path, ref: req.ref, ...(dir ? { dir } : {}), ...(force ? { force } : {}) }, draft)}
-        {...(screen.dirDraft ? { initialDir: screen.dirDraft } : {})}
+        {...(gs.dirDraft ? { initialDir: gs.dirDraft } : {})}
         onPersist={(place) =>
           persist({
             ...state.current,
@@ -220,6 +228,9 @@ export function App() {
           })
         }
       />
+      </div>
+      {onLlm && <LlmSettings onBack={() => setScreen(gs)} backLabel="둘러보기로 돌아가기" />}
+      </>
     );
   }
   const onLlm = screen.name === "llm";
