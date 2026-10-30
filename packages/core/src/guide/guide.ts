@@ -531,12 +531,12 @@ function minConfidence(a: Confidence, b: Confidence): Confidence {
   return RANK[a] <= RANK[b] ? a : b;
 }
 
-/** 수신자가 있는데 그 타입을 알 수 없는 호출. 예: a.b().c()의 c, 지역 변수나 필드 타입을 모르는 x.run(). fields는 부르는 클래스의 필드 */
-function unknownReceiver(caller: MethodSymbol, call: MethodSymbol["calls"][number] | undefined, fields: Record<string, string>): boolean {
+/** 수신자가 있는데 그 타입을 알 수 없는 호출. 예: a.b().c()의 c, 지역 변수나 필드 타입을 모르는 x.run(). isField는 상속 포함 필드인지 */
+function unknownReceiver(caller: MethodSymbol, call: MethodSymbol["calls"][number] | undefined, isField: (name: string) => boolean): boolean {
   if (!call || call.receiver === null || call.receiver === "this" || call.receiver === "super") return false;
   if (call.receiver === "?") return true;
   const r = call.receiver;
-  return !(r in caller.locals) && !caller.params.some((p) => p.name === r) && !/^[A-Z]/.test(r) && !(r in fields);
+  return !(r in caller.locals) && !caller.params.some((p) => p.name === r) && !/^[A-Z]/.test(r) && !isField(r);
 }
 
 function isConstructor(m: MethodSymbol): boolean {
@@ -552,26 +552,6 @@ function isConstructor(m: MethodSymbol): boolean {
 function buildTour(
   graph: CallGraph, entry: TourEntry, isTestId: (id: string) => boolean, classOf: (id: string) => string, unlinked: Map<string, Unlinked[]>,
 ): Tour {
-  // 클래스와 저장소 안 상위 클래스가 선언한 필드. 상속받은 필드로 부르는 호출도 타입을 아는 호출이다
-  const bySimple = new Map<string, ClassSymbol[]>();
-  for (const c of graph.classes.values()) (bySimple.get(c.name) ?? bySimple.set(c.name, []).get(c.name)!).push(c);
-  const fieldCache = new Map<string, Record<string, string>>();
-  const fieldsOf = (qn: string | null): Record<string, string> => {
-    if (!qn) return {};
-    const hit = fieldCache.get(qn);
-    if (hit) return hit;
-    const out: Record<string, string> = {};
-    const seen = new Set<string>();
-    const walk = (c: ClassSymbol | undefined): void => {
-      if (!c || seen.has(c.qualifiedName)) return;
-      seen.add(c.qualifiedName);
-      for (const [k, v] of Object.entries(c.fields)) if (!(k in out)) out[k] = v;
-      for (const s of c.supertypes) for (const p of bySimple.get(s) ?? []) walk(p);
-    };
-    walk(graph.classes.get(qn));
-    fieldCache.set(qn, out);
-    return out;
-  };
   const steps: TourStep[] = [];
   const stepOf = new Map<string, number>();
   const collapsed = new Set<string>();
@@ -635,7 +615,7 @@ function buildTour(
       const all = groups.get(index)!;
       const line = via ?? m.calls[index]?.line ?? m.range.startLine;
       // 받는 쪽 타입을 모르는 호출(메서드 사슬, 모르는 변수)은 JDK나 라이브러리 메서드일 수 있다. 이름만 같은 저장소 메서드는 단계로 세지 않고 후보로 둔다
-      if (unknownReceiver(m, m.calls[index], fieldsOf(m.classQualifiedName))) {
+      if (unknownReceiver(m, m.calls[index], (r) => graph.fieldType(m.classQualifiedName, r) !== null)) {
         for (const e of all) {
           const callee = graph.methods.get(e.callee)!;
           fold(step.guesses, { line, name: displayName(toRef(callee)), params: callee.params.map((p) => p.display), classId: classOf(e.callee) });

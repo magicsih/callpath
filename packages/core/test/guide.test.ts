@@ -317,6 +317,20 @@ describe("수신자 타입 해석", () => {
     expect(t.steps.map((s) => s.symbol.name)).toEqual(["a", "doWork"]);
     expect(t.steps[0]!.guesses).toEqual([]);
   });
+
+  it("상속 필드의 타입으로 이어, 같은 이름 메서드가 다른 곳에 있어도 갈래가 생기지 않고, 다른 패키지의 같은 이름 상위 클래스 필드는 섞지 않는다", async () => {
+    const work = (pkg: string, cls: string) => `package ${pkg};\n\npublic class ${cls} {\n    public void doWork() {\n        int x = 1;\n        x++;\n    }\n}\n`;
+    const r = await guideTree({
+      "src/main/java/com/a/Base.java": "package com.a;\n\npublic abstract class Base {\n    protected HelperA helper;\n}\n",
+      "src/main/java/com/b/Base.java": "package com.b;\n\npublic abstract class Base {\n    protected Other helper;\n}\n",
+      "src/main/java/com/a/HelperA.java": work("com.a", "HelperA"),
+      "src/main/java/com/b/Other.java": work("com.b", "Other"),
+      "src/main/java/com/a/Api.java": "package com.a;\n\n@RestController\npublic class Api extends Base {\n    @GetMapping(\"/a\")\n    public void a() {\n        log();\n        helper.doWork();\n    }\n    void log() {}\n}\n",
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.map((s) => s.symbol.qualifiedName)).toEqual(["com.a.Api.a", "com.a.HelperA.doWork"]);
+    expect(t.steps[1]!.alternatives).toBe(1);
+  });
 });
 
 describe("화면용 매개변수 타입", () => {
