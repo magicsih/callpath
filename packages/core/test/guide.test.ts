@@ -118,6 +118,17 @@ describe("투어 (B2)", () => {
     // 두 구현이 함께 부르는 record는 한 번만 단계가 되고, 두 번째는 앞 단계를 가리킨다
     expect(point!.calls.filter((c) => c.back)).toEqual([{ line: expect.any(Number), to: 10, back: true }]);
     expect(place!.calls.map((c) => c.to)).toEqual([3, 6, 9, 11, 13]);
+    expect([card!.branch, place!.branch, place!.params]).toEqual(["implementations", null, ["OrderRequest"]]);
+    expect(validate!.folded[0]!.classId).toBe("com.example.shop.coupon.CouponCalculator");
+  });
+
+  it("한 클래스의 같은 이름 메서드로 갈리면 오버로드다", async () => {
+    const body = (s: string) => `        log(${s});\n        log(${s});\n`;
+    const r = await guideTree({
+      "src/main/java/p/Api.java": `package p;\n\n@RestController\npublic class Api {\n    @GetMapping("/a")\n    public void a(Object x) {\n        log(x);\n        help(x);\n    }\n    void help(int v) {\n${body("v")}    }\n    void help(String v) {\n${body("v")}    }\n    void log(Object o) {}\n}\n`,
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.slice(1).map((s) => [s.symbol.name, s.branch, s.params])).toEqual([["help", "overloads", ["int"]], ["help", "overloads", ["String"]]]);
   });
 
   it("Kotlin: 최상위 함수 파일과 식 본문을 접고, 접은 메서드를 지나 이어진다", async () => {
@@ -175,6 +186,18 @@ describe("진입점 목록과 지연 계산 (B3)", () => {
     const label = (ids: string[]) => ids.map((id) => r.guide.entries.find((e) => e.id === id)!.label);
     expect(label(r.entriesThrough("com.example.shop.payment.PaymentAudit"))).toEqual(["POST /orders"]);
     expect(label(r.entriesThrough("com.example.shop.notification.MailSender"))).toEqual(["Kafka order-paid", "Scheduled UnpaidReminderJob.run"]);
+    // 접은 메서드(getter, 생성자, 한 줄 메서드)로만 닿는 클래스와, 구현 클래스가 단계로 나오는 인터페이스도 지난다
+    expect(label(r.entriesThrough("com.example.shop.order.OrderRequest"))).toEqual(["POST /orders"]);
+    expect(label(r.entriesThrough("com.example.shop.order.Order"))).toEqual(["POST /orders"]);
+    expect(label(r.entriesThrough("com.example.shop.payment.PaymentClient"))).toEqual(["POST /orders"]);
+    expect(r.entriesThrough("com.example.shop.config.ShopProperties")).toEqual([]);
+  });
+
+  it("구현 클래스는 저장소 안의 상위 타입을 안다", async () => {
+    const { guide: g } = await shop();
+    const by = (name: string) => g.classes.find((c) => c.name === name)!;
+    expect(by("CardPaymentClient").supertypeIds).toEqual(["com.example.shop.payment.PaymentClient"]);
+    expect(by("OrderRepository").supertypeIds).toEqual([]);
   });
 });
 
@@ -254,6 +277,19 @@ public interface Shape {
       "src/main/java/lib/print/Printer.java": "package lib.print;\n\nimport lib.core.Shape;\n\npublic class Printer {\n    public String print(Shape s) {\n        return s.describe();\n    }\n}\n",
     });
     expect(r.guide.entries.map((e) => e.label)).toEqual(["Shape.describe"]);
+  });
+});
+
+describe("공개 API 진입점 이름", () => {
+  it("다른 패키지의 같은 이름 중첩 클래스는 바깥 클래스 이름으로 구별한다", async () => {
+    const ops = (pkg: string, outer: string) => `package ${pkg};\n\npublic class ${outer} {\n    public static class Ops {\n        public int apply(int v) {\n            int w = v + 1;\n            return w * 2;\n        }\n    }\n}\n`;
+    const r = await guideTree({
+      "src/main/java/lib/x/Fx.java": ops("lib.x", "Fx"),
+      "src/main/java/lib/y/Fy.java": ops("lib.y", "Fy"),
+      "src/main/java/lib/z/Use.java": "package lib.z;\n\npublic class Use {\n    public int run(lib.x.Fx.Ops a) {\n        int v = a.apply(1);\n        return v + 1;\n    }\n}\n",
+    });
+    expect(r.guide.noEntries).toBe(true);
+    expect(r.guide.entries.map((e) => e.label).sort()).toEqual(["Fx.Ops.apply", "Fy.Ops.apply"]);
   });
 });
 

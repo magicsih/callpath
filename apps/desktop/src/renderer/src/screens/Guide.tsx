@@ -6,7 +6,8 @@ import { ClassContext, TourSide } from "../components/GuideSide";
 import { CodeView } from "../components/CodeView";
 import { Icon } from "../components/Icon";
 import { languageFor } from "../monaco";
-import { ENTRY_KIND_LABEL, KIND_LABEL, childSteps, stepAt, stepLabel, topClasses, tourMarks } from "../guideNav";
+import { Breakable } from "../components/Breakable";
+import { ENTRY_KIND_LABEL, KIND_LABEL, branchText, childSteps, implementors, stepAt, stepForLine, stepName, topClasses, tourMarks } from "../guideNav";
 
 type Load =
   | { status: "loading"; progress: GuideProgress | null }
@@ -19,7 +20,7 @@ type View = LastGuide["view"];
 
 function progressText(p: GuideProgress | null): string {
   if (!p) return "저장소를 읽는 중";
-  if (p.stage === "read") return `파일 읽는 중 ${p.done} / ${p.total}`;
+  if (p.stage === "read") return `파일 읽는 중 ${p.done} / ${p.total} (테스트 포함)`;
   return p.stage === "link" ? "호출을 잇는 중" : "지도를 만드는 중";
 }
 
@@ -45,7 +46,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
   const [tours, setTours] = useState<Record<string, TourState>>({});
   const [through, setThrough] = useState<Record<string, string[] | { error: string }>>({});
   const [files, setFiles] = useState<Record<string, string | { error: string }>>({});
-  const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null);
+  const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number; pkg?: string } | null>(null);
+  const stateTitle = useRef<HTMLHeadingElement>(null);
   const [dirInput, setDirInput] = useState("");
   const history = useRef<number[]>([]);
   const stepRows = useRef(new Map<number, HTMLButtonElement>());
@@ -142,8 +144,11 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
     focusStep.current = moveFocus;
   }, []);
   useEffect(() => {
-    if (!tour || !pendingClass.current) return;
-    const s = tour.steps.find((x) => x.classId === pendingClass.current);
+    if (!tour || !pendingClass.current || !guide) return;
+    // 이 클래스가 단계로 나오는 곳, 없으면 접은 메서드로 나오는 단계, 인터페이스면 구현 클래스가 나오는 단계
+    const id = pendingClass.current;
+    const family = new Set([id, ...implementors(guide, id).map((c) => c.id)]);
+    const s = tour.steps.find((x) => family.has(x.classId)) ?? tour.steps.find((x) => x.folded.some((f) => family.has(f.classId)));
     pendingClass.current = null;
     if (s) setStep(s.n);
   }, [tour]);
@@ -243,6 +248,11 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
   const narrowMap = useNarrow("(max-width: 1100px)");
   const narrowTour = useNarrow("(max-width: 820px)");
 
+  // 오류와 큰 저장소 안내가 뜨면 제목으로 초점을 옮겨 화면 읽기가 이유부터 읽게 한다
+  useEffect(() => {
+    if (load.status === "error" || load.status === "large") stateTitle.current?.focus();
+  }, [load.status]);
+
   if (load.status === "loading") {
     return (
       <main className="state" aria-busy="true" data-testid="guide-loading">
@@ -256,11 +266,13 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
   if (load.status === "error") {
     return (
       <main className="state" data-testid="guide-error">
-        <p className="state-title"><Icon name="warn" /> 둘러보지 못했습니다</p>
-        <p className="muted">{load.message}</p>
+        <h1 className="state-title" tabIndex={-1} ref={stateTitle}><Icon name="warn" /> 둘러보지 못했습니다</h1>
+        <p className="muted" role="alert">{load.message}</p>
+        <p className="muted small">{repoName} {req.ref}{req.dir ? `, ${req.dir}` : ""}</p>
         <div className="row">
-          {load.kind !== "ref" && <button className="primary" onClick={() => setRun((n) => n + 1)}>다시 시도</button>}
-          <button className={load.kind === "ref" ? "primary" : ""} onClick={onBack}>비교로</button>
+          {req.dir && <button className="primary" onClick={() => onNarrow(null, false)}>다른 디렉터리 고르기</button>}
+          {load.kind !== "ref" && !req.dir && <button className="primary" onClick={() => setRun((n) => n + 1)}>다시 시도</button>}
+          <button className={load.kind === "ref" ? "primary" : ""} onClick={onBack}>{load.kind === "ref" ? "브랜치 다시 고르기" : "비교로"}</button>
         </div>
       </main>
     );
@@ -268,7 +280,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
   if (load.status === "large") {
     return (
       <main className="state large" data-testid="guide-large">
-        <p className="state-title">코드 파일이 {load.files.toLocaleString()}개입니다</p>
+        <h1 className="state-title" tabIndex={-1} ref={stateTitle}>코드 파일이 {load.files.toLocaleString()}개입니다</h1>
+        <p className="muted small">{repoName} {req.ref}</p>
         <p className="muted">3,000개가 넘으면 처음 분석이 오래 걸릴 수 있습니다. 디렉터리 하나로 좁혀 둘러보거나 전체를 둘러보세요.</p>
         <ul className="dir-list">
           {load.dirs.map((d) => (
@@ -338,6 +351,9 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
 
   const mapLeft = (
     <div className="list-scroll" id="panel-map" role="tabpanel" aria-labelledby="tab-map">
+      <button className="skip-link" onClick={() => setFocusRequest({ id: classId ?? g.packages.find((p) => p.classIds.length)?.classIds[0] ?? "", nonce: Date.now() })}>
+        지도 칩으로 바로 가기
+      </button>
       <h2 className="group-title"><span className="glabel">패키지 {g.packages.length}</span></h2>
       <ul className="side-list" data-testid="package-list">
         {g.packages.map((p) => (
@@ -348,7 +364,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
               onClick={() => {
                 setCodeOf(null);
                 const first = p.classIds[0];
-                if (first) setFocusRequest({ id: first, nonce: Date.now() });
+                if (first) setFocusRequest({ id: first, nonce: Date.now(), pkg: p.name });
               }}
             >
               <span className="name">{p.label}</span>
@@ -373,7 +389,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
                     setFocusRequest({ id: c.id, nonce: Date.now() });
                   }}
                 >
-                  <span className="name">{c.name}</span>
+                  <span className="name">{c.name}{topClasses(g).filter((x) => x.name === c.name).length > 1 && <span className="dim"> {g.packages.find((p) => p.name === c.packageName)?.label}</span>}</span>
                   <span className="dim">{c.fanIn}</span>
                 </button>
               </li>
@@ -398,7 +414,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
             <li key={e.id}>
               <button className={`side-row entry${open ? " selected" : ""}`} aria-expanded={open} onClick={() => (open ? undefined : startTour(e.id, null))} data-testid="entry-row">
                 <Icon name={e.kind === "api" ? "link" : e.kind} />
-                <span className="name" title={`${ENTRY_KIND_LABEL[e.kind]} ${e.label}`}>{e.label}</span>
+                <span className="name" title={`${ENTRY_KIND_LABEL[e.kind]} ${e.label}`}><Breakable text={e.label} /></span>
                 {st?.status === "ready" && <span className="dim">{st.tour.steps.length}</span>}
               </button>
               {open && st?.status === "loading" && <p className="muted small step-note" role="status">투어를 만드는 중</p>}
@@ -417,8 +433,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
                         onClick={() => goStep(s.n)}
                       >
                         <span className="num">{s.n}</span>
-                        <span className="name" title={s.symbol.qualifiedName}>{stepLabel(s)}</span>
-                        {s.alternatives > 1 && <span className="flag ref" title={`같은 호출이 이어지는 구현 ${s.alternatives}개 중 하나`}>갈래</span>}
+                        <span className="name" title={s.symbol.qualifiedName}><Breakable text={stepName(st.tour, s)} /></span>
+                        {branchText(s, false) && <span className="flag ref" title={branchText(s, true)!}>{branchText(s, false)}</span>}
                       </button>
                     </li>
                   ))}
@@ -470,18 +486,6 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
     </>
   ) : (
     <>
-      <p className="map-legend small muted" data-testid="map-legend">
-        {selected ? (
-          <>
-            <span><span className="legend-line callee" aria-hidden="true" /> 고른 클래스가 부르는 것</span>
-            <span><span className="legend-line caller" aria-hidden="true" /> 고른 클래스를 부르는 쪽</span>
-            <span><span className="legend-line low" aria-hidden="true" /> 점선: 이름이나 구현 후보로 이은 연결</span>
-          </>
-        ) : (
-          <span className="legend-hint">칩을 고르면 연결을 선으로 잇습니다. 화살표 키로 칩 사이를 옮기고 Enter로 고릅니다.</span>
-        )}
-        <span><span className="chip-entry" aria-hidden="true">▶</span>진입점이 있는 클래스</span>
-      </p>
       <GuideMap guide={g} selected={classId} onSelect={setClassId} onOpen={(id) => setCodeOf(id)} focusRequest={focusRequest} />
     </>
   );
@@ -496,8 +500,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
       <div className="detail-head">
         <div className="title-row">
           <span className="num">{s.n}</span>
-          <h2 title={s.symbol.qualifiedName} data-testid="step-title">{stepLabel(s)}</h2>
-          {s.alternatives > 1 && <span className="flag ref">구현 {s.alternatives}개 중 하나</span>}
+          <h2 title={s.symbol.qualifiedName} data-testid="step-title">{stepName(tour, s)}</h2>
+          {branchText(s, true) && <span className="flag ref">{branchText(s, true)}</span>}
           {s.confidence === "low" && <span className="flag low">연결 불확실</span>}
         </div>
         <p className="muted path">{s.symbol.path}</p>
@@ -515,13 +519,19 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
             reveal={null}
             highlight={null}
             marks={tourMarks(tour, s.n)}
-            label={`${s.n}단계 ${stepLabel(s)} 코드`}
+            label={`${s.n}단계 ${stepName(tour, s)} 코드`}
+            onMarkClick={(line) => {
+              const to = stepForLine(tour, s.n, line);
+              if (to) goStep(to);
+            }}
           />
         )}
       </div>
     </>
   );
 
+  const entry = entryId ? g.entries.find((e) => e.id === entryId) : undefined;
+  const nextEntry = entry ? g.entries[g.entries.indexOf(entry) + 1] ?? null : null;
   const side =
     view === "map" ? (
       <ClassContext
@@ -538,10 +548,9 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
         onStartTour={startTour}
       />
     ) : tour ? (
-      <TourSide tour={tour} n={step} onStep={(n) => goStep(n)} onShowOnMap={showOnMap} />
+      <TourSide tour={tour} n={step} onStep={(n) => goStep(n)} onShowOnMap={showOnMap} nextEntry={nextEntry} onNextEntry={() => nextEntry && startTour(nextEntry.id, null)} />
     ) : null;
 
-  const entry = entryId ? g.entries.find((e) => e.id === entryId) : undefined;
   const narrow = view === "map" ? narrowMap : narrowTour;
   // 지도 보기의 좁은 창에서는 클래스를 골랐을 때만 맥락을 지도 아래에 보인다
   const showNarrowSide = narrow && side && (view === "tour" || selected !== null);
@@ -576,7 +585,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist }: P
       {view === "tour" && tour && (
         <footer className="bottombar">
           <button onClick={() => goStep(step - 1)} disabled={step <= 1}><Icon name="back" /> 이전</button>
-          <span className="position" aria-live="polite">{entry?.label} {step} / {tour.steps.length}</span>
+          <span className="position" aria-live="polite">{entry?.label} {step} / {tour.steps.length}{step === tour.steps.length ? ", 마지막 단계" : ""}</span>
           <button onClick={() => goStep(step + 1)} disabled={step >= tour.steps.length}>다음 <Icon name="next" /></button>
           <span className="spacer" />
           <span className="keys muted"><kbd>j</kbd>/<kbd>k</kbd> 이동 <kbd>Enter</kbd> 이어지는 단계 <span className="keys-long"><kbd>⌫</kbd> 되돌아가기</span></span>

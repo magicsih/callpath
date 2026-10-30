@@ -14,6 +14,8 @@ export function Compare(props: {
   repo: RepoInfo;
   initialBase?: string;
   initialHead?: string;
+  /** 둘러보기에서 돌아올 때 입력해 둔 브랜치(없는 이름을 고칠 수 있게) */
+  initialGuideRef?: string;
   onBack: () => void;
   onReload: () => void;
   onAnalyze: (base: string, head: string) => void;
@@ -54,7 +56,7 @@ export function Compare(props: {
   }
   const [base, setBase] = useState(props.initialBase ?? repo.defaultBase ?? "");
   const [head, setHead] = useState(props.initialHead ?? repo.current ?? "");
-  const [guideRef, setGuideRef] = useState(repo.current ?? repo.defaultBase ?? "");
+  const [guideRef, setGuideRef] = useState(props.initialGuideRef ?? repo.current ?? repo.defaultBase ?? "");
   // 브랜치가 하나뿐이면 비교할 것이 없으니 둘러보기를 먼저 권한다
   const guideFirst = repo.branches.length === 1;
   const ready = base.trim() !== "" && head.trim() !== "";

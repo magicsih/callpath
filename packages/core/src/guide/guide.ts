@@ -48,13 +48,15 @@ export interface ClassNode {
   tests: number;
   /** 이 클래스에 선언된 진입점 */
   entryIds: string[];
+  /** 저장소 안에서 이 클래스가 상속하거나 구현하는 클래스와 인터페이스 */
+  supertypeIds: string[];
 }
 
 export interface ClassLink {
   from: string;
   to: string;
   calls: number;
-  /** 두 클래스 사이 간선 중 가장 높은 신뢰도. low면 이름으로만 이은 연결이다 */
+  /** 두 클래스 사이 간선 중 가장 높은 신뢰도. low면 이름이나 인터페이스 구현 후보로 추정한 연결이다 */
   confidence: Confidence;
 }
 
@@ -98,12 +100,16 @@ export interface TourStep {
   parent: number | null;
   /** 부른 단계 본문의 호출 줄 */
   line: number | null;
-  /** 같은 호출이 이어지는 후보 수. 2 이상이면 인터페이스 구현 같은 갈래다 */
+  /** 같은 호출이 이어지는 후보 수. 2 이상이면 갈래다 */
   alternatives: number;
+  /** 갈래의 종류. implementations: 같은 상위 타입의 구현들, overloads: 한 클래스의 같은 이름 메서드들, candidates: 이름만 같은 메서드들 */
+  branch: "implementations" | "overloads" | "candidates" | null;
+  /** 매개변수의 단순 타입. 같은 이름 메서드를 구별할 때 쓴다 */
+  params: string[];
   confidence: Confidence;
   calls: TourCall[];
   /** 이 단계에서 부르는 사소한 메서드. 단계로 세지 않는다 */
-  folded: Array<{ line: number; name: string }>;
+  folded: Array<{ line: number; name: string; classId: string }>;
 }
 
 export interface Tour {
@@ -128,7 +134,7 @@ export interface GuideResult {
   guide: RepoGuide;
   /** 진입점 하나의 투어. 처음 부를 때 만들고 기억한다 */
   tour(entryId: string): Tour;
-  /** 투어 단계에 이 클래스가 나오는 진입점 */
+  /** 투어의 단계나 접은 메서드에 이 클래스가 나오는 진입점. 인터페이스나 상위 클래스면 구현 클래스가 나오는 것도 센다 */
   entriesThrough(classId: string): string[];
 }
 
@@ -275,7 +281,22 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
     tours.set(entryId, built);
     return built;
   };
-  const entriesThrough = (classId: string): string[] => entries.filter((e) => tour(e.id).steps.some((s) => s.classId === classId)).map((e) => e.id);
+  const entriesThrough = (classId: string): string[] => {
+    // 이 클래스와, 이 클래스를 상속하거나 구현하는 클래스(여러 단계)
+    const family = new Set([classId]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const n of map.nodes) {
+        if (!family.has(n.id) && n.supertypeIds.some((s) => family.has(s))) {
+          family.add(n.id);
+          grew = true;
+        }
+      }
+    }
+    return entries
+      .filter((e) => tour(e.id).steps.some((s) => family.has(s.classId) || s.folded.some((f) => family.has(f.classId))))
+      .map((e) => e.id);
+  };
   return { guide: guideData, tour, entriesThrough };
 }
 
@@ -306,7 +327,7 @@ function buildMap(files: FileIndex[], graph: CallGraph): MapIndex {
       const id = byId.has(c.qualifiedName) ? `${c.qualifiedName}@${f.path}` : c.qualifiedName;
       const node: ClassNode = {
         id, name: c.name, packageName: f.packageName, path: f.path, kind: c.kind, role: "other", range: c.range,
-        methods: 0, fanIn: 0, tests: 0, entryIds: [],
+        methods: 0, fanIn: 0, tests: 0, entryIds: [], supertypeIds: [],
       };
       nodes.push(node);
       byId.set(id, node);
@@ -323,10 +344,23 @@ function buildMap(files: FileIndex[], graph: CallGraph): MapIndex {
       const node: ClassNode = {
         id, name: f.path.split("/").pop()!, packageName: f.packageName, path: f.path, kind: "file", role: "other",
         range: { startLine: Math.min(...topLevel.map((m) => m.range.startLine)), endLine: Math.max(...topLevel.map((m) => m.range.endLine)) },
-        methods: 0, fanIn: 0, tests: 0, entryIds: [],
+        methods: 0, fanIn: 0, tests: 0, entryIds: [], supertypeIds: [],
       };
       nodes.push(node);
       byId.set(id, node);
+    }
+  }
+
+  // 상위 타입은 단순 이름이라 같은 패키지의 것을 먼저, 없으면 같은 이름 전부를 잇는다
+  const byName = new Map<string, ClassNode[]>();
+  for (const n of nodes) if (n.kind !== "file") (byName.get(n.name) ?? byName.set(n.name, []).get(n.name)!).push(n);
+  for (const n of nodes) {
+    const sym = symbols.get(n.id);
+    if (!sym) continue;
+    for (const s of sym.supertypes) {
+      const all = (byName.get(s) ?? []).filter((x) => x !== n);
+      const same = all.filter((x) => x.packageName === n.packageName);
+      n.supertypeIds.push(...(same.length ? same : all).map((x) => x.id));
     }
   }
 
@@ -398,6 +432,16 @@ function apiEntries(map: MapIndex, graph: CallGraph, crossCallers: Map<string, n
       .slice(0, API_METHODS_PER_CLASS);
     for (const [id, m] of methods) out.push({ id, kind: "api", label: displayName(toRef(m)), classId: node.id, symbol: toRef(m) });
   }
+  // 이름이 겹치면(다른 패키지의 같은 이름 중첩 클래스 등) 바깥 클래스 이름을, 그래도 겹치면 패키지 마지막 마디를 붙인다
+  const count = (labels: string[]) => labels.reduce((m, l) => m.set(l, (m.get(l) ?? 0) + 1), new Map<string, number>());
+  const first = count(out.map((e) => e.label));
+  for (const e of out) if (first.get(e.label)! > 1 && e.symbol.container) e.label = `${e.symbol.container}.${e.symbol.name}`;
+  const second = count(out.map((e) => e.label));
+  for (const e of out) {
+    if (second.get(e.label)! <= 1) continue;
+    const pkg = map.byId.get(e.classId)?.packageName.split(".").pop();
+    if (pkg) e.label = `${pkg}.${e.label}`;
+  }
   return out;
 }
 
@@ -429,10 +473,22 @@ function buildTour(graph: CallGraph, entry: TourEntry, isTestId: (id: string) =>
     return isConstructor(m) && outgoing(id).length === 0;
   };
 
-  const addStep = (id: string, parent: TourStep | null, line: number | null, alternatives: number, confidence: Confidence, depth: number): void => {
+  /** 한 호출이 여러 메서드로 이어질 때 그 종류 */
+  const branchOf = (callees: string[]): TourStep["branch"] => {
+    if (callees.length < 2) return null;
+    const owners = [...new Set(callees.map((id) => graph.methods.get(id)!.classQualifiedName))];
+    if (owners.length === 1) return "overloads";
+    const supers = owners.map((qn) => new Set(qn ? graph.classes.get(qn)?.supertypes ?? [] : []));
+    const shared = [...supers[0]!].some((s) => supers.every((set) => set.has(s)));
+    return shared ? "implementations" : "candidates";
+  };
+
+  const addStep = (id: string, parent: TourStep | null, line: number | null, group: string[], confidence: Confidence, depth: number): void => {
     const m = graph.methods.get(id)!;
     const step: TourStep = {
-      n: steps.length + 1, symbol: toRef(m), classId: classOf(id), depth, parent: parent?.n ?? null, line, alternatives, confidence, calls: [], folded: [],
+      n: steps.length + 1, symbol: toRef(m), classId: classOf(id), depth, parent: parent?.n ?? null, line,
+      alternatives: Math.max(1, group.length), branch: branchOf(group), params: m.params.map((p) => p.type),
+      confidence, calls: [], folded: [],
     };
     steps.push(step);
     stepOf.set(id, step.n);
@@ -457,7 +513,7 @@ function buildTour(graph: CallGraph, entry: TourEntry, isTestId: (id: string) =>
         if (trivial(e.callee)) {
           collapsed.add(e.callee);
           const name = displayName(toRef(graph.methods.get(e.callee)!));
-          if (!step.folded.some((f) => f.line === line && f.name === name)) step.folded.push({ line, name });
+          if (!step.folded.some((f) => f.line === line && f.name === name)) step.folded.push({ line, name, classId: classOf(e.callee) });
           if (!chain.has(e.callee)) expand(e.callee, step, c, line, new Set([...chain, e.callee]));
           continue;
         }
@@ -466,11 +522,11 @@ function buildTour(graph: CallGraph, entry: TourEntry, isTestId: (id: string) =>
           continue;
         }
         step.calls.push({ line, to: steps.length + 1, back: false });
-        addStep(e.callee, step, line, group.length, c, step.depth + 1);
+        addStep(e.callee, step, line, group.map((x) => x.callee), c, step.depth + 1);
       }
     }
   };
 
-  addStep(entry.id, null, null, 1, "high", 0);
+  addStep(entry.id, null, null, [], "high", 0);
   return { entry, steps, collapsed: collapsed.size, truncated };
 }

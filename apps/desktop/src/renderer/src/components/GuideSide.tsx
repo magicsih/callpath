@@ -1,8 +1,11 @@
 import type { ClassNode, RepoGuide, Tour, TourEntry } from "@callpath/core";
-import { ENTRY_KIND_LABEL, KIND_LABEL, ROLE_LABEL, ancestry, childSteps, neighbors, stepAt, stepLabel, type Neighbor } from "../guideNav";
+import {
+  ENTRY_KIND_LABEL, KIND_LABEL, ROLE_LABEL, ancestry, branchText, childSteps, implementorCallers, implementors, linkNote, neighbors, stepAt, stepName,
+  type Neighbor,
+} from "../guideNav";
 import { Icon } from "./Icon";
 
-function NeighborList({ title, items, onSelect, testId }: { title: string; items: Neighbor[]; onSelect: (id: string) => void; testId: string }) {
+function NeighborList({ guide, title, items, onSelect, testId }: { guide: RepoGuide; title: string; items: Neighbor[]; onSelect: (id: string) => void; testId: string }) {
   return (
     <>
       <h3 className="pane-title">{title} {items.length}</h3>
@@ -10,15 +13,18 @@ function NeighborList({ title, items, onSelect, testId }: { title: string; items
         <p className="muted small">없음</p>
       ) : (
         <ul className="next-steps" data-testid={testId}>
-          {items.map((n) => (
-            <li key={n.node.id}>
-              <span className="next-line">
-                <button className="link" onClick={() => onSelect(n.node.id)} title={n.node.id}>{n.node.name}</button>
-                <span className="dim">{n.calls}번</span>
-                {n.low && <span className="flag low">이름으로 이음</span>}
-              </span>
-            </li>
-          ))}
+          {items.map((n) => {
+            const note = linkNote(guide, n);
+            return (
+              <li key={n.node.id}>
+                <span className="next-line">
+                  <button className="link" onClick={() => onSelect(n.node.id)} title={n.node.id}>{n.node.name}</button>
+                  <span className="dim">{n.calls}번</span>
+                </span>
+                {note && <span className="via flag-text">{note}</span>}
+              </li>
+            );
+          })}
         </ul>
       )}
     </>
@@ -29,7 +35,7 @@ function NeighborList({ title, items, onSelect, testId }: { title: string; items
 export function ClassContext(props: {
   guide: RepoGuide;
   node: ClassNode | null;
-  /** 투어 단계에 이 클래스가 나오는 진입점. 아직 모르면 null */
+  /** 투어에 이 클래스가 나오는 진입점. 아직 모르면 null */
   through: string[] | null;
   throughError: string | null;
   onSelect: (id: string) => void;
@@ -46,11 +52,14 @@ export function ClassContext(props: {
     );
   }
   const near = neighbors(guide, node.id);
+  const impls = implementors(guide, node.id);
+  const implCallers = implementorCallers(guide, node.id);
   const entry = (id: string) => guide.entries.find((e) => e.id === id);
   const declared = node.entryIds.map(entry).filter((e): e is TourEntry => e !== undefined);
   const passing = (props.through ?? []).filter((id) => !node.entryIds.includes(id)).map(entry).filter((e): e is TourEntry => e !== undefined);
   const start = declared[0] ?? passing[0] ?? null;
   const pkg = guide.packages.find((p) => p.name === node.packageName);
+  const supers = node.supertypeIds.map((id) => guide.classes.find((c) => c.id === id)).filter((c): c is ClassNode => c !== undefined);
   return (
     <>
       <h2 className="pane-title class-title" title={node.id} data-testid="context-title">{node.name}</h2>
@@ -65,7 +74,11 @@ export function ClassContext(props: {
         </button>
         <button onClick={() => props.onOpenCode(node.id)}>코드 보기</button>
       </div>
-      {!start && props.through !== null && <p className="muted small">이 클래스를 지나는 진입점이 없습니다. 진입점 규칙에 맞는 메서드에서 닿지 않는 코드입니다.</p>}
+      {!start && props.through !== null && (
+        <p className="muted small" data-testid="no-tour">
+          어느 진입점의 투어에도 나오지 않습니다. 진입점에서 닿지 않거나, 투어가 깊이나 단계 상한에서 잘린 뒤에 불리는 코드일 수 있습니다.
+        </p>
+      )}
       <h3 className="pane-title">이 클래스를 지나는 진입점</h3>
       {props.throughError ? (
         <p className="error-text small"><Icon name="warn" /> {props.throughError}</p>
@@ -85,14 +98,45 @@ export function ClassContext(props: {
           ))}
         </ul>
       )}
-      <NeighborList title="부르는 쪽" items={near.callers} onSelect={props.onSelect} testId="callers" />
-      <NeighborList title="부르는 것" items={near.callees} onSelect={props.onSelect} testId="callees" />
+      {supers.length > 0 && (
+        <p className="small muted">
+          상위 타입: {supers.map((s, i) => (
+            <span key={s.id}>{i > 0 && ", "}<button className="link small" onClick={() => props.onSelect(s.id)}>{s.name}</button></span>
+          ))}
+        </p>
+      )}
+      {impls.length > 0 && (
+        <>
+          <h3 className="pane-title">구현 {impls.length}</h3>
+          <ul className="next-steps" data-testid="implementors">
+            {impls.map((c) => (
+              <li key={c.id}><button className="link" onClick={() => props.onSelect(c.id)} title={c.id}>{c.name}</button></li>
+            ))}
+          </ul>
+        </>
+      )}
+      <NeighborList guide={guide} title="부르는 쪽" items={near.callers} onSelect={props.onSelect} testId="callers" />
+      {implCallers.length > 0 && (
+        <>
+          <NeighborList guide={guide} title="구현을 부르는 쪽" items={implCallers.map((n) => ({ ...n, low: false }))} onSelect={props.onSelect} testId="impl-callers" />
+          <p className="muted small">이 타입의 메서드를 부르는 호출은 구현 클래스로 이어 두었습니다.</p>
+        </>
+      )}
+      <NeighborList guide={guide} title="부르는 것" items={near.callees} onSelect={props.onSelect} testId="callees" />
     </>
   );
 }
 
 /** 투어 단계의 호출 스택과 이어지는 단계(설계 7단계 3.2 오른쪽) */
-export function TourSide(props: { tour: Tour; n: number; onStep: (n: number) => void; onShowOnMap: (classId: string) => void }) {
+export function TourSide(props: {
+  tour: Tour;
+  n: number;
+  onStep: (n: number) => void;
+  onShowOnMap: (classId: string) => void;
+  /** 다음 진입점(마지막 단계에서 보인다) */
+  nextEntry: TourEntry | null;
+  onNextEntry: () => void;
+}) {
   const { tour, n } = props;
   const step = stepAt(tour, n);
   if (!step) return null;
@@ -100,6 +144,7 @@ export function TourSide(props: { tour: Tour; n: number; onStep: (n: number) => 
   const children = childSteps(tour, n);
   const back = step.calls.filter((c) => c.back).map((c) => stepAt(tour, c.to)!).filter(Boolean);
   const folded = [...new Set(step.folded.map((f) => f.name))];
+  const last = n === tour.steps.length;
   return (
     <>
       <h2 className="pane-title">호출 스택</h2>
@@ -109,9 +154,9 @@ export function TourSide(props: { tour: Tour; n: number; onStep: (n: number) => 
           return (
             <li key={s.n} className={current ? "current" : ""} style={{ paddingLeft: `${Math.min(i, 8) * 10}px` }}>
               {current ? (
-                <span aria-current="step" title={s.symbol.qualifiedName}>{stepLabel(s)}</span>
+                <span aria-current="step" title={s.symbol.qualifiedName}>{stepName(tour, s)}</span>
               ) : (
-                <button className="link" onClick={() => props.onStep(s.n)} title={s.symbol.qualifiedName}>{stepLabel(s)}</button>
+                <button className="link" onClick={() => props.onStep(s.n)} title={s.symbol.qualifiedName}>{stepName(tour, s)}</button>
               )}
               <span className="role">{i === 0 ? "진입점" : `${s.n}단계`}</span>
             </li>
@@ -126,13 +171,19 @@ export function TourSide(props: { tour: Tour; n: number; onStep: (n: number) => 
           {children.map(({ step: c }, i) => (
             <li key={c.n}>
               <span className="next-line">
-                <button className="link" onClick={() => props.onStep(c.n)} title={c.symbol.qualifiedName}>{c.n}단계 {stepLabel(c)}</button>
+                <button className="link" onClick={() => props.onStep(c.n)} title={c.symbol.qualifiedName}>{c.n}단계 {stepName(tour, c)}</button>
                 {i === 0 && <kbd aria-hidden="true">Enter</kbd>}
               </span>
-              {c.alternatives > 1 && <span className="via muted">구현 {c.alternatives}개 중 하나</span>}
+              {branchText(c, true) && <span className="via muted">{branchText(c, true)}</span>}
             </li>
           ))}
         </ul>
+      )}
+      {last && (
+        <div className="tour-end" data-testid="tour-end">
+          <p><strong>투어의 마지막 단계입니다.</strong>{tour.truncated ? " 깊이나 단계 상한에서 잘린 가지가 있습니다." : ""}</p>
+          {props.nextEntry && <button onClick={props.onNextEntry}>다음 진입점: {props.nextEntry.label}</button>}
+        </div>
       )}
       {back.length > 0 && (
         <>
@@ -140,7 +191,7 @@ export function TourSide(props: { tour: Tour; n: number; onStep: (n: number) => 
           <ul className="next-steps">
             {back.map((b) => (
               <li key={b.n}>
-                <button className="link" onClick={() => props.onStep(b.n)}>{b.n}단계 {stepLabel(b)}</button>
+                <button className="link" onClick={() => props.onStep(b.n)}>{b.n}단계 {stepName(tour, b)}</button>
               </li>
             ))}
           </ul>

@@ -163,7 +163,13 @@ async function openGuide(id: number, req: GuideRequest): Promise<GuideOutcome> {
     loadGuide(target).catch(() => undefined);
     return { status: "ready", guide: { ...cached, ref: req.ref }, cached: true };
   }
-  if (!req.force && !dir) {
+  if (dir) {
+    // 오타로 없는 디렉터리를 넣으면 빈 지도 대신 이유를 알린다
+    const { paths, generated } = await listGuideFiles(new GitRefSource(req.repo, sha), dir);
+    if (paths.length === 0) {
+      throw new Error(generated ? `"${dir}" 아래에는 생성 코드만 있습니다.` : `이 커밋에는 "${dir}" 아래 Java, Kotlin 파일이 없습니다. 디렉터리 이름을 확인하세요.`);
+    }
+  } else if (!req.force) {
     const { paths } = await listGuideFiles(new GitRefSource(req.repo, sha));
     if (isLargeRepo(paths.length)) return { status: "large", files: paths.length, sha, dirs: suggestDirs(paths) };
   }

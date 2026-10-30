@@ -66,6 +66,9 @@
 ```
 
 - 가운데 지도는 행이 패키지, 열이 역할인 격자다(D17). 칸 안에 클래스 이름을 칩으로 놓고, 칩을 고르면 그 클래스가 부르는 칩과 부르는 쪽 칩을 선으로 잇는다. 모든 선을 한꺼번에 그리지 않는다.
+  - 선은 칩 아래 층에 그리고, 40개가 넘으면 호출이 많은 40개만 그린다. 연결 불확실(이름이나 구현 후보로 이음)은 점선이다.
+  - 인터페이스나 상위 클래스를 고르면 구현 클래스(회색 점선)와 구현을 부르는 쪽을 잇는다. 실제 호출 간선은 구현으로 이어져 있기 때문이다.
+  - 열은 기본 100px이고, 패키지 하나에 칩이 평균 둘 이상인 역할은 4배까지 넓힌다. 이름은 단어 경계에서만 줄을 바꾼다.
 - 클래스 칩을 두 번 누르거나 `Enter`를 누르면 가운데가 코드 보기로 바뀌고, 위에 "지도로" 돌아가는 길이 생긴다.
 - 왼쪽에는 패키지 목록과 "많이 쓰이는 클래스"(다른 패키지에서 부르는 수)를 둔다.
 - 좁은 창에서는 1차와 같이 오른쪽 영역을 접고 맥락을 지도 아래로 내린다.
@@ -111,7 +114,7 @@
 interface GuideResult {
   guide: RepoGuide;                         // 직렬화해 화면과 캐시로 보내는 부분
   tour(entryId: string): Tour;              // 처음 부를 때 만들고 기억한다
-  entriesThrough(classId: string): string[]; // 투어 단계에 이 클래스가 나오는 진입점
+  entriesThrough(classId: string): string[]; // 투어의 단계나 접은 메서드에 이 클래스(상위 타입이면 구현 클래스)가 나오는 진입점
 }
 interface RepoGuide {
   ref: string; sha: string; dir: string | null;
@@ -122,15 +125,17 @@ interface RepoGuide {
   entries: TourEntry[];           // 투어 목록. 진입점이 없으면 공개 API 진입점
   noEntries: boolean;
 }
-interface ClassNode { id: string; name: string; packageName: string; path: string; kind: ClassKind | "file"; role: Role; range: Range; methods: number; fanIn: number; tests: number; entryIds: string[] }
+interface ClassNode { id: string; name: string; packageName: string; path: string; kind: ClassKind | "file"; role: Role; range: Range; methods: number; fanIn: number; tests: number; entryIds: string[]; supertypeIds: string[] }
 type Role = "entry" | "service" | "integration" | "data" | "model" | "config" | "other";
 interface Tour { entry: TourEntry; steps: TourStep[]; collapsed: number; truncated: boolean }
 interface TourStep {
   n: number; symbol: SymbolRef; classId: string; depth: number;
   parent: number | null; line: number | null;   // 부른 단계와 그 본문의 호출 줄
-  alternatives: number;                          // 2 이상이면 인터페이스 구현 같은 갈래
+  alternatives: number;                          // 2 이상이면 갈래
+  branch: "implementations" | "overloads" | "candidates" | null; // 같은 상위 타입의 구현, 한 클래스의 오버로드, 이름만 같은 후보
+  params: string[];                              // 매개변수 단순 타입. 같은 이름 단계를 구별한다
   calls: { line: number; to: number; back: boolean }[]; // 코드 옆 단계 번호. back이면 앞 단계를 다시 부름
-  folded: { line: number; name: string }[];      // 접은 사소한 메서드
+  folded: { line: number; name: string; classId: string }[]; // 접은 사소한 메서드
 }
 ```
 
@@ -174,11 +179,12 @@ interface TourStep {
 3. 저장소 안 메서드만 단계가 된다. 같은 투어에서 이미 나온 메서드는 다시 세지 않고 "앞 단계 n"으로 가리킨다.
 4. 사소한 메서드는 단계로 세지 않고 접는다. 본문의 문장 수(반복문, 조건문, 람다 안의 블록 포함)가 1 이하인 메서드(getter, setter, 한 줄 위임, Kotlin 식 본문)와 저장소 안 호출이 없는 생성자다. 접은 메서드가 저장소 안 메서드를 부르면 그 호출은 접은 메서드를 부른 단계의 같은 줄에서 이어진다(한 줄 위임 `find` → `findByCode`). 본문이 없는 추상 메서드는 구현이 없을 때 데이터 접근이나 외부 경계를 보여 주므로 단계로 둔다.
 5. 깊이 8, 단계 60에서 자르고 "잘린 가지가 있음"을 알린다.
-6. 인터페이스를 부르면 1계층이 찾은 구현 클래스로 이어 가고, 구현이 여럿이면 갈래로 보인다.
+6. 인터페이스를 부르면 1계층이 찾은 구현 클래스로 이어 가고, 구현이 여럿이면 갈래로 보인다. 갈래는 종류를 적는다: 같은 상위 타입의 구현, 한 클래스의 오버로드, 이름만 같은 후보. 투어 안에서 이름이 겹치는 단계는 매개변수 타입을 붙인다.
+7. "이 클래스를 지나는 진입점"은 투어의 단계나 접은 메서드에 그 클래스가 나오는 진입점이다. 인터페이스나 상위 클래스면 구현 클래스가 나오는 것도 센다. "여기서 투어 시작"은 그 클래스가 단계로 나오는 곳(없으면 접은 메서드로 나오는 단계)에서 연다.
 
 ### 5.3 진입점이 없는 저장소 (D19)
 
-라이브러리처럼 진입점 규칙에 맞는 메서드가 없으면 그 사실을 알리고 **공개 API 투어**로 대신한다. 다른 패키지에서 많이 부르는 공개 클래스(많이 쓰이는 클래스 순) 상위 20개에서, 다른 패키지가 많이 부르는 공개 메서드를 클래스마다 3개까지 진입점처럼 쓴다. 투어가 한 단계로 끝나는 사소한 메서드와 생성자는 빼고, 오버로드는 가장 많이 불린 하나만 둔다. commons-lang에서 이 경우를 확인했다(진입점 36개).
+라이브러리처럼 진입점 규칙에 맞는 메서드가 없으면 그 사실을 알리고 **공개 API 투어**로 대신한다. 다른 패키지에서 많이 부르는 공개 클래스(많이 쓰이는 클래스 순) 상위 20개에서, 다른 패키지가 많이 부르는 공개 메서드를 클래스마다 3개까지 진입점처럼 쓴다. 투어가 한 단계로 끝나는 사소한 메서드와 생성자는 빼고, 오버로드는 가장 많이 불린 하나만 둔다. 이름이 겹치면(다른 패키지의 같은 이름 중첩 클래스) 바깥 클래스 이름을, 그래도 겹치면 패키지 마지막 마디를 붙인다. commons-lang에서 이 경우를 확인했다(진입점 36개).
 
 ### 5.4 많이 쓰이는 클래스
 

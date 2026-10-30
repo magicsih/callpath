@@ -13,7 +13,7 @@ import type { SavedAnswer } from "./components/Explain";
 type Screen =
   | { name: "boot" }
   | { name: "start"; error: string | null; prError?: { url: string; message: string } }
-  | { name: "compare"; repo: RepoInfo; base?: string; head?: string }
+  | { name: "compare"; repo: RepoInfo; base?: string; head?: string; guideRef?: string }
   | { name: "review"; repo: RepoInfo; req: CompareRequest; selection: string | null; showTests: boolean; pr: PrMeta | null }
   | { name: "guide"; repo: RepoInfo; req: GuideRequest }
   | { name: "connections"; back: Screen; hint?: ConnectionHint }
@@ -119,24 +119,8 @@ export function App() {
     [persist],
   );
 
-  /** 둘러보기를 연다. 같은 브랜치와 디렉터리면 마지막에 보던 자리를 이어간다 */
-  const openGuide = useCallback(
-    (repo: RepoInfo, req: GuideRequest) => {
-      const prev = state.current.guides[repo.path];
-      const same = prev !== undefined && prev.ref === req.ref && prev.dir === (req.dir ?? null);
-      persist({
-        ...state.current,
-        lastRepo: repo.path,
-        lastView: "guide",
-        guides: {
-          ...state.current.guides,
-          [repo.path]: same ? prev : { ref: req.ref, dir: req.dir ?? null, view: "map", classId: null, entryId: null, step: null },
-        },
-      });
-      setScreen({ name: "guide", repo, req });
-    },
-    [persist],
-  );
+  /** 둘러보기를 연다. 같은 브랜치와 디렉터리면 마지막에 보던 자리를 이어간다. 저장은 지도가 열린 뒤에 한다(실패한 둘러보기로 다시 열리지 않게) */
+  const openGuide = useCallback((repo: RepoInfo, req: GuideRequest) => setScreen({ name: "guide", repo, req }), []);
 
   const pick = useCallback(async () => {
     const path = await window.callpath.pickFolder();
@@ -183,6 +167,7 @@ export function App() {
         repo={screen.repo}
         {...(screen.base ? { initialBase: screen.base } : {})}
         {...(screen.head ? { initialHead: screen.head } : {})}
+        {...(screen.guideRef ? { initialGuideRef: screen.guideRef } : {})}
         onBack={() => {
           persist({ ...state.current, lastRepo: null });
           setScreen({ name: "start", error: null });
@@ -209,7 +194,7 @@ export function App() {
     const last = state.current.guides[repo.path];
     const toCompare = () => {
       const remembered = state.current.repos[repo.path];
-      setScreen({ name: "compare", repo, ...(remembered ? { base: remembered.base, head: remembered.head } : {}) });
+      setScreen({ name: "compare", repo, guideRef: req.ref, ...(remembered ? { base: remembered.base, head: remembered.head } : {}) });
     };
     return (
       <Guide
@@ -219,11 +204,14 @@ export function App() {
         initial={last && last.ref === req.ref && last.dir === (req.dir ?? null) ? last : null}
         onBack={toCompare}
         onNarrow={(dir, force) => openGuide(repo, { repo: repo.path, ref: req.ref, ...(dir ? { dir } : {}), ...(force ? { force } : {}) })}
-        onPersist={(place) => {
-          const cur = state.current.guides[repo.path];
-          if (!cur || cur.ref !== req.ref || cur.dir !== (req.dir ?? null)) return;
-          persist({ ...state.current, lastRepo: repo.path, lastView: "guide", guides: { ...state.current.guides, [repo.path]: { ...cur, ...place } } });
-        }}
+        onPersist={(place) =>
+          persist({
+            ...state.current,
+            lastRepo: repo.path,
+            lastView: "guide",
+            guides: { ...state.current.guides, [repo.path]: { ref: req.ref, dir: req.dir ?? null, ...place } },
+          })
+        }
       />
     );
   }

@@ -22,8 +22,35 @@ export function mapColumns(g: RepoGuide): Role[] {
 export interface Neighbor {
   node: ClassNode;
   calls: number;
-  /** 이름으로만 이은 연결 */
+  /** 이름이나 구현 후보로 이은 연결(연결 불확실) */
   low: boolean;
+}
+
+/** 불확실한 연결의 설명. 구현 클래스면 어느 상위 타입의 구현 후보인지 적는다 */
+export function linkNote(g: RepoGuide, n: Neighbor): string | null {
+  if (!n.low) return null;
+  const supers = n.node.supertypeIds.map((id) => g.classes.find((c) => c.id === id)?.name).filter(Boolean);
+  return supers.length ? `${supers.join(", ")} 구현 후보` : "연결 불확실";
+}
+
+/** 이 클래스를 상속하거나 구현하는 클래스 */
+export function implementors(g: RepoGuide, classId: string): ClassNode[] {
+  return g.classes.filter((c) => c.supertypeIds.includes(classId)).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** 구현 클래스들을 부르는 쪽. 인터페이스를 고르면 실제 호출은 구현으로 이어져 있어 이것을 보인다 */
+export function implementorCallers(g: RepoGuide, classId: string): Neighbor[] {
+  const impls = new Set(implementors(g, classId).map((c) => c.id));
+  if (!impls.size) return [];
+  const byId = new Map(g.classes.map((c) => [c.id, c]));
+  const acc = new Map<string, Neighbor>();
+  for (const l of g.links) {
+    if (!impls.has(l.to) || impls.has(l.from) || l.from === classId || !byId.has(l.from)) continue;
+    const prev = acc.get(l.from);
+    if (prev) prev.calls += l.calls;
+    else acc.set(l.from, { node: byId.get(l.from)!, calls: l.calls, low: true });
+  }
+  return [...acc.values()].sort((a, b) => b.calls - a.calls || a.node.name.localeCompare(b.node.name));
 }
 
 /** 고른 클래스를 부르는 쪽과 이 클래스가 부르는 것. 호출 수가 많은 순 */
@@ -66,6 +93,20 @@ export function stepLabel(s: TourStep): string {
   return displayName(s.symbol);
 }
 
+/** 투어 안에서 이름이 겹치는 단계(오버로드)는 매개변수 타입을 붙인다 */
+export function stepName(t: Tour, s: TourStep): string {
+  const label = stepLabel(s);
+  const dup = t.steps.some((x) => x !== s && stepLabel(x) === label);
+  return dup ? `${label}(${s.params.join(", ")})` : label;
+}
+
+/** 갈래 표시. 목록에는 짧게, 제목에는 길게 */
+export function branchText(s: TourStep, long: boolean): string | null {
+  if (s.alternatives < 2) return null;
+  const kind = s.branch === "overloads" ? "오버로드" : s.branch === "implementations" ? "구현" : "같은 이름 후보";
+  return long ? `${kind} ${s.alternatives}개 중 하나` : s.branch === "implementations" ? "갈래" : kind;
+}
+
 export interface CodeMark {
   /** 파일 기준 줄(1부터) */
   line: number;
@@ -83,7 +124,7 @@ export function tourMarks(t: Tour, n: number): CodeMark[] {
     const target = stepAt(t, c.to);
     if (!target) continue;
     if (c.back) at(c.line).back.push(`${c.to}단계`);
-    else at(c.line).next.push(`${c.to}단계 ${stepLabel(target)}`);
+    else at(c.line).next.push(`${c.to}단계 ${stepName(t, target)}`);
   }
   for (const f of s.folded) at(f.line).fold.push(f.name);
   return [...byLine]
@@ -97,4 +138,11 @@ export function tourMarks(t: Tour, n: number): CodeMark[] {
         m.fold.length ? `접음 ${[...new Set(m.fold)].join(", ")}` : "",
       ].filter(Boolean).join("   "),
     }));
+}
+
+/** 코드 옆 표시를 눌렀을 때 갈 단계. 그 줄의 첫 새 단계, 없으면 앞 단계 */
+export function stepForLine(t: Tour, n: number, fileLine: number): number | null {
+  const s = stepAt(t, n);
+  const calls = s?.calls.filter((c) => c.line + 1 === fileLine) ?? [];
+  return (calls.find((c) => !c.back) ?? calls[0])?.to ?? null;
 }

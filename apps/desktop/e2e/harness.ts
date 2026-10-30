@@ -76,6 +76,24 @@ export function makeShopRepo(): string {
   return dir;
 }
 
+/** 큰 저장소 판정(코드 파일 3,000개 초과)을 볼 합성 저장소. 모듈 api, core */
+export function makeLargeRepo(): string {
+  const dir = temp("callpath-e2e-large-");
+  const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  for (const mod of ["api", "core"]) {
+    for (let i = 0; i < 1501; i++) {
+      const pkg = `p${Math.floor(i / 100)}`;
+      const path = join(dir, mod, "src/main/java/com/example", mod, pkg);
+      mkdirSync(path, { recursive: true });
+      writeFileSync(join(path, `C${i}.java`), `package com.example.${mod}.${pkg};\n\npublic class C${i} {\n    public int run(int x) {\n        int y = x + 1;\n        return y * 2;\n    }\n}\n`);
+    }
+  }
+  git("add", "-A");
+  git("commit", "-qm", "large");
+  return dir;
+}
+
 export function makeTempDir(prefix: string): string {
   return temp(prefix);
 }
