@@ -113,13 +113,18 @@ export async function analyze(base: FileSource, head: FileSource, opts: AnalyzeO
   };
 }
 
-async function indexSource(source: FileSource): Promise<Map<string, FileIndex>> {
-  const paths = (await source.listFiles()).filter((p) => languageOf(p) !== null);
+/** 코드 파일을 모두 색인한다. paths를 주면 그 파일만 읽고, 한 파일을 색인할 때마다 onIndexed로 알린다 */
+export async function indexSource(
+  source: FileSource,
+  opts: { paths?: string[]; onIndexed?: (done: number, total: number) => void } = {},
+): Promise<Map<string, FileIndex>> {
+  const paths = opts.paths ?? (await source.listFiles()).filter((p) => languageOf(p) !== null);
   const texts = await source.readMany(paths);
   const out = new Map<string, FileIndex>();
   for (const path of paths) {
     const lang = languageOf(path)!;
     out.set(path, indexFile(path, lang, await parse(lang, texts.get(path)!)));
+    opts.onIndexed?.(out.size, paths.length);
   }
   return out;
 }

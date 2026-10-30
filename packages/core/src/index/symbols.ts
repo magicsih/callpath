@@ -8,11 +8,15 @@ export interface Annotation {
   named: Record<string, string[]>;
 }
 
+export type ClassKind = "class" | "interface" | "enum" | "record" | "data" | "object" | "annotation";
+
 export interface ClassSymbol {
   path: string;
   language: Language;
   qualifiedName: string;
   name: string;
+  /** Kotlin data class는 "data", object와 companion object는 "object" */
+  kind: ClassKind;
   range: Range;
   annotations: Annotation[];
   /** 상위 타입의 단순 이름 */
@@ -32,6 +36,8 @@ export interface MethodSymbol extends SymbolRef {
   bodyFingerprint: string;
   /** 본문을 뺀 선언부(애노테이션, 이름, 매개변수, 반환 타입)에서 공백을 제거한 것 */
   signatureFingerprint: string;
+  /** 본문의 문장 수. 반복문, 조건문, 람다 안의 블록도 센다(주석 제외). Kotlin 식 본문(`= 식`)은 1, 본문이 없으면 0 */
+  statements: number;
   annotations: Annotation[];
   visibility: "public" | "protected" | "private" | "internal" | "package";
   isStatic: boolean;
@@ -163,11 +169,19 @@ interface LanguageSpec {
   controlNodes: Set<string>;
   blockNodes: Set<string>;
   className(n: Node): string;
+  classKind(n: Node): ClassKind;
   classInfo(n: Node): { annotations: Annotation[]; supertypes: string[]; fields: Record<string, string> };
   methodName(n: Node): string;
   methodInfo(n: Node, body: Node | null): Pick<MethodSymbol, "annotations" | "visibility" | "isStatic" | "isOverride" | "params" | "locals">;
   callOf(n: Node): { name: string; arity: number; receiver: string | null } | null;
 }
+
+const JAVA_KINDS: Record<string, ClassKind> = {
+  interface_declaration: "interface", enum_declaration: "enum", record_declaration: "record", annotation_type_declaration: "annotation",
+};
+/** 문장을 담는 블록과, 블록 안에 있지만 문장이 아닌 것 */
+const STATEMENT_BLOCKS = new Set(["block", "constructor_body", "switch_block_statement_group", "statements", "lambda_literal"]);
+const NOT_STATEMENTS = new Set(["line_comment", "block_comment", "multiline_comment", "switch_label", "lambda_parameters", ...STATEMENT_BLOCKS]);
 
 const JAVA: LanguageSpec = {
   packageNode: "package_declaration",
@@ -181,6 +195,7 @@ const JAVA: LanguageSpec = {
   ]),
   blockNodes: new Set(["block", "constructor_body", "switch_block", "lambda_expression"]),
   className: (n) => n.childForFieldName("name")?.text ?? "<anonymous>",
+  classKind: (n) => JAVA_KINDS[n.type] ?? "class",
   classInfo: (n) => {
     const supertypes: string[] = [];
     const sup = n.childForFieldName("superclass");
@@ -284,6 +299,15 @@ const KOTLIN: LanguageSpec = {
   className: (n) => {
     if (n.type === "companion_object") return firstChildOfType(n, ["identifier"])?.text ?? "Companion";
     return n.childForFieldName("name")?.text ?? firstChildOfType(n, ["identifier", "type_identifier"])?.text ?? "<anonymous>";
+  },
+  classKind: (n) => {
+    if (n.type !== "class_declaration") return "object";
+    if (n.children.some((c) => !c.isNamed && c.text === "interface")) return "interface";
+    const mods = childrenOfType(firstChildOfType(n, ["modifiers"]), ["class_modifier"]).map((c) => c.text);
+    if (mods.includes("data")) return "data";
+    if (mods.includes("enum")) return "enum";
+    if (mods.includes("annotation")) return "annotation";
+    return "class";
   },
   classInfo: (n) => {
     const annotations = [...kotlinDetachedAnnotations(n), ...kotlinAnnotations(firstChildOfType(n, ["modifiers"]))];
@@ -396,25 +420,29 @@ export function indexFile(path: string, language: Language, tree: Tree): FileInd
   const classes: ClassSymbol[] = [];
   const methods: MethodSymbol[] = [];
 
-  const visit = (node: Node, containers: string[]): void => {
+  // Java 인터페이스와 애노테이션 타입의 멤버는 수정자가 없어도 public이다
+  const visit = (node: Node, containers: string[], inInterface = false): void => {
     if (spec.containerNodes.has(node.type)) {
       const name = spec.className(node);
       const chain = [...containers, name];
       const qualifiedName = [packageName, ...chain].filter(Boolean).join(".");
       const info = spec.classInfo(node);
-      classes.push({ path, language, qualifiedName, name, range: rangeOf(node), ...info });
+      classes.push({ path, language, qualifiedName, name, kind: spec.classKind(node), range: rangeOf(node), ...info });
       if (language === "kotlin" && info.supertypes.some((s) => KOTEST_SPECS.has(s))) {
         const spec = kotlinSpecLambda(node);
         if (spec) methods.push(syntheticSpec(path, spec, packageName, chain, qualifiedName));
       }
-      for (const c of node.children) visit(c, chain);
+      const iface = language === "java" && (node.type === "interface_declaration" || node.type === "annotation_type_declaration");
+      for (const c of node.children) visit(c, chain, iface);
       return;
     }
     if (spec.methodNodes.has(node.type)) {
-      methods.push(toSymbol(path, language, spec, node, packageName, containers));
+      const m = toSymbol(path, language, spec, node, packageName, containers);
+      if (inInterface && m.visibility === "package") m.visibility = "public";
+      methods.push(m);
       return; // 메서드 안의 지역 클래스와 람다 안 함수는 다루지 않는다
     }
-    for (const c of node.children) visit(c, containers);
+    for (const c of node.children) visit(c, containers, inInterface);
   };
   visit(root, []);
   return { path, language, packageName, classes, methods };
@@ -453,9 +481,23 @@ function toSymbol(path: string, language: Language, spec: LanguageSpec, node: No
     calls,
     bodyFingerprint: body ? body.text.replace(/\s+/g, "") : "",
     signatureFingerprint: (body ? node.text.replace(body.text, "") : node.text).replace(/\s+/g, ""),
+    statements: countStatements(body),
     classQualifiedName,
     ...spec.methodInfo(node, body),
   };
+}
+
+function countStatements(body: Node | null): number {
+  if (!body) return 0;
+  // Kotlin function_body는 블록이거나 식 하나다
+  if (body.type === "function_body" && !firstChildOfType(body, ["block"])) return 1;
+  let n = 0;
+  const walk = (node: Node): void => {
+    if (STATEMENT_BLOCKS.has(node.type)) n += node.namedChildren.filter((c) => !NOT_STATEMENTS.has(c.type)).length;
+    for (const c of node.namedChildren) walk(c);
+  };
+  walk(body);
+  return n;
 }
 
 function kotlinSpecLambda(classNode: Node): Node | null {
@@ -489,6 +531,7 @@ function syntheticSpec(path: string, lambda: Node, pkg: string, chain: string[],
     calls,
     bodyFingerprint: lambda.text.replace(/\s+/g, ""),
     signatureFingerprint: "",
+    statements: countStatements(lambda),
     annotations: [],
     visibility: "public",
     isStatic: false,
