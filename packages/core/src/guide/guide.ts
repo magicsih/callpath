@@ -114,6 +114,8 @@ export interface TourStep {
   folded: TourFold[];
   /** 저장소 안 타입에 부르지만 선언이 저장소에 없는 메서드(JpaRepository.save 같은 물려받은 메서드, record 접근자) */
   external: TourFold[];
+  /** 받는 쪽 타입을 몰라 이름만 같은 저장소 메서드로 이은 호출. 다른 라이브러리 메서드일 수 있어 단계로 세지 않는다 */
+  guesses: TourFold[];
 }
 
 export interface TourFold {
@@ -231,20 +233,21 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
   const testers = new Map<string, Set<string>>();
   const crossCallers = new Map<string, number>();
   let edges = 0;
-  const addLink = (from: ClassNode, to: ClassNode, confidence: Confidence): void => {
+  // 많이 쓰이는 정도(fanIn)에는 getter 같은 사소한 메서드 호출을 넣지 않는다. 모델의 getId 호출이 중심처럼 보이지 않게
+  const addLink = (from: ClassNode, to: ClassNode, confidence: Confidence, trivial: boolean): void => {
     const key = `${from.id}\u0000${to.id}`;
     const link = links.get(key);
     if (link) {
       link.calls++;
       if (RANK[confidence] > RANK[link.confidence]) link.confidence = confidence;
     } else links.set(key, { from: from.id, to: to.id, calls: 1, confidence });
-    if (from.packageName !== to.packageName) to.fanIn += confidence === "low" ? 0.5 : 1;
+    if (from.packageName !== to.packageName && !trivial) to.fanIn += confidence === "low" ? 0.5 : 1;
   };
   const unlinked = findUnlinkedCalls(graph, map, isTestMethod);
   for (const [id, list] of unlinked) {
     const from = nodeOfMethod(id);
     if (!from) continue;
-    for (const u of list) addLink(from, map.byId.get(u.classId)!, "medium");
+    for (const u of list) addLink(from, map.byId.get(u.classId)!, "medium", u.kind === "ctor");
   }
   for (const [id, m] of graph.methods) {
     const from = isTestMethod(m) ? null : map.nodeOf(m);
@@ -258,7 +261,8 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
       }
       edges++;
       if (from.id === to.id) continue;
-      addLink(from, to, e.confidence);
+      const callee = graph.methods.get(e.callee)!;
+      addLink(from, to, e.confidence, callee.body !== null && callee.statements <= 1);
       if (from.packageName !== to.packageName) crossCallers.set(e.callee, (crossCallers.get(e.callee) ?? 0) + 1);
     }
   }
@@ -311,9 +315,10 @@ export async function guide(source: FileSource, opts: GuideOptions): Promise<Gui
         }
       }
     }
-    return entries
-      .filter((e) => tour(e.id).steps.some((s) => family.has(s.classId) || [...s.folded, ...s.external].some((f) => family.has(f.classId))))
-      .map((e) => e.id);
+    // 그 클래스가 단계로 나오는 진입점을 먼저, 접은 메서드나 물려받은 메서드로만 나오는 진입점을 뒤에 둔다
+    const asStep = (e: TourEntry) => tour(e.id).steps.some((s) => family.has(s.classId));
+    const any = (e: TourEntry) => asStep(e) || tour(e.id).steps.some((s) => [...s.folded, ...s.external].some((f) => family.has(f.classId)));
+    return [...entries.filter(asStep), ...entries.filter((e) => !asStep(e) && any(e))].map((e) => e.id);
   };
   return { guide: guideData, tour, entriesThrough };
 }
@@ -526,6 +531,14 @@ function minConfidence(a: Confidence, b: Confidence): Confidence {
   return RANK[a] <= RANK[b] ? a : b;
 }
 
+/** 수신자가 있는데 그 타입을 알 수 없는 호출. 예: a.b().c()의 c, 지역 변수나 필드 타입을 모르는 x.run(). fields는 부르는 클래스의 필드 */
+function unknownReceiver(caller: MethodSymbol, call: MethodSymbol["calls"][number] | undefined, fields: Record<string, string>): boolean {
+  if (!call || call.receiver === null || call.receiver === "this" || call.receiver === "super") return false;
+  if (call.receiver === "?") return true;
+  const r = call.receiver;
+  return !(r in caller.locals) && !caller.params.some((p) => p.name === r) && !/^[A-Z]/.test(r) && !(r in fields);
+}
+
 function isConstructor(m: MethodSymbol): boolean {
   return m.name === "constructor" || m.name === "init" || m.name === m.container?.split(".").pop();
 }
@@ -567,7 +580,7 @@ function buildTour(
     const step: TourStep = {
       n: steps.length + 1, symbol: toRef(m), classId: classOf(id), depth, parent: parent?.n ?? null, line,
       alternatives: Math.max(1, group.length), branch: branchOf(group), params: m.params.map((p) => p.display), abstract: m.body === null,
-      confidence, calls: [], folded: [], external: [],
+      confidence, calls: [], folded: [], external: [], guesses: [],
     };
     steps.push(step);
     stepOf.set(id, step.n);
@@ -601,6 +614,14 @@ function buildTour(
       }
       const all = groups.get(index)!;
       const line = via ?? m.calls[index]?.line ?? m.range.startLine;
+      // 받는 쪽 타입을 모르는 호출(메서드 사슬, 모르는 변수)은 JDK나 라이브러리 메서드일 수 있다. 이름만 같은 저장소 메서드는 단계로 세지 않고 후보로 둔다
+      if (unknownReceiver(m, m.calls[index], m.classQualifiedName ? graph.classes.get(m.classQualifiedName)?.fields ?? {} : {})) {
+        for (const e of all) {
+          const callee = graph.methods.get(e.callee)!;
+          fold(step.guesses, { line, name: displayName(toRef(callee)), params: callee.params.map((p) => p.display), classId: classOf(e.callee) });
+        }
+        continue;
+      }
       // 한 클래스의 같은 이름 메서드(오버로드) 후보는 인자 타입을 몰라 정확히 고를 수 없으므로 하나만 따라간다.
       // 이미 나온 것, 아니면 부르는 메서드의 매개변수와 지역 변수 타입과 가장 많이 겹치는 것(같으면 먼저 선언된 것)
       const overloads = branchOf(all.map((e) => e.callee)) === "overloads";

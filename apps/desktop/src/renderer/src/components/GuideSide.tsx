@@ -1,7 +1,7 @@
 import type { ClassNode, RepoGuide, Tour, TourEntry } from "@callpath/core";
 import {
   ENTRY_KIND_LABEL, KIND_LABEL, ROLE_LABEL, ancestry, branchText, childSteps, foldName, implementorCallers, implementors, linkNote, neighbors, stepAt,
-  stepName, subtypeWord, type Neighbor,
+  stepName, type Neighbor,
 } from "../guideNav";
 import { Breakable } from "./Breakable";
 import { Icon } from "./Icon";
@@ -9,8 +9,10 @@ import { Icon } from "./Icon";
 function NeighborList(props: {
   guide: RepoGuide; title: string; items: Neighbor[]; onSelect: (id: string) => void; testId: string;
   onEmphasis?: (id: string | null) => void;
-  /** 구현을 통해 부르는 쪽 */
+  /** 구현(하위 클래스)을 통해 부르는 쪽 */
   via?: Set<string>;
+  /** 예: "구현을 통해 부름", "하위 클래스를 통해 부름" */
+  viaText?: string;
 }) {
   const { guide, title, items, onSelect, testId, onEmphasis, via } = props;
   return (
@@ -38,7 +40,7 @@ function NeighborList(props: {
                   </button>
                   <span className="dim">{n.calls}번</span>
                 </span>
-                {via?.has(n.node.id) ? <span className="via muted">구현을 통해 부름</span> : note && <span className="via flag-text">{note}</span>}
+                {via?.has(n.node.id) ? <span className="via muted">{props.viaText}</span> : note && <span className="via flag-text">{note}</span>}
               </li>
             );
           })}
@@ -97,7 +99,9 @@ export function ClassContext(props: {
       </div>
       {!start && props.through !== null && (
         <p className="muted small" data-testid="no-tour">
-          어느 진입점의 투어에도 나오지 않습니다. 진입점에서 닿지 않거나, 투어가 깊이나 단계 상한에서 잘린 뒤에 불리는 코드일 수 있습니다.
+          {node.methods === 0 || ["enum", "record", "data", "annotation"].includes(node.kind)
+            ? "어느 투어에도 나오지 않습니다. 메서드를 부르지 않고 타입이나 상수로만 쓰이면 호출로 잇지 않습니다. 쓰는 곳은 코드 검색으로 찾으세요."
+            : "어느 진입점의 투어에도 나오지 않습니다. 진입점에서 닿지 않거나, 투어가 깊이나 단계 상한에서 잘린 뒤에 불리는 코드일 수 있습니다."}
         </p>
       )}
       <h3 className="pane-title">이 클래스를 지나는 진입점</h3>
@@ -136,8 +140,14 @@ export function ClassContext(props: {
           </ul>
         </>
       )}
-      <NeighborList guide={guide} title="부르는 쪽" items={callers} onSelect={props.onSelect} testId="callers" onEmphasis={props.onEmphasis} via={via} />
-      {via.size > 0 && <p className="muted small">이 타입의 메서드를 부르는 호출은 {subtypeWord(node)} 클래스로 이어 두어, 지도에서는 {subtypeWord(node)}으로 선이 갑니다.</p>}
+      <NeighborList guide={guide} title="부르는 쪽" items={callers} onSelect={props.onSelect} testId="callers" onEmphasis={props.onEmphasis} via={via} viaText={node.kind === "interface" ? "구현을 통해 부름" : "하위 클래스를 통해 부름"} />
+      {via.size > 0 && (
+        <p className="muted small">
+          {node.kind === "interface"
+            ? "이 타입의 메서드 호출은 구현 클래스로 이어 두었습니다. 지도에서는 구현 클래스로 선이 갑니다."
+            : "이 타입의 메서드 호출은 하위 클래스로 이어 두었습니다. 지도에서는 하위 클래스로 선이 갑니다."}
+        </p>
+      )}
       <NeighborList guide={guide} title="부르는 것" items={near.callees} onSelect={props.onSelect} testId="callees" onEmphasis={props.onEmphasis} />
     </>
   );
@@ -158,9 +168,11 @@ export function TourSide(props: {
   if (!step) return null;
   const chain = ancestry(tour, n);
   const children = childSteps(tour, n);
-  const back = step.calls.filter((c) => c.back).map((c) => stepAt(tour, c.to)!).filter(Boolean);
+  // 같은 앞 단계를 여러 줄에서 부르면 한 번만 보인다
+  const back = [...new Set(step.calls.filter((c) => c.back).map((c) => c.to))].map((to) => stepAt(tour, to)!).filter(Boolean);
   const folded = [...new Set(step.folded.map((f) => foldName(tour, f)))];
   const external = [...new Set(step.external.map((f) => f.name))];
+  const guesses = [...new Set(step.guesses.map((f) => foldName(tour, f)))];
   const last = n === tour.steps.length;
   return (
     <>
@@ -208,7 +220,7 @@ export function TourSide(props: {
           <ul className="next-steps">
             {back.map((b) => (
               <li key={b.n}>
-                <button className="link" onClick={() => props.onStep(b.n)}>{b.n}단계 {stepName(tour, b)}</button>
+                <button className="link" onClick={() => props.onStep(b.n)}>{b.n}단계 <Breakable text={stepName(tour, b)} /></button>
               </li>
             ))}
           </ul>
@@ -229,6 +241,15 @@ export function TourSide(props: {
           <p className="muted small">저장소 안 타입에 부르지만 선언이 저장소에 없습니다. JpaRepository의 save 같은 상속 메서드나 record 접근자입니다. 코드 옆에 ↗로 보입니다.</p>
           <ul className="folded" data-testid="tour-external">
             {external.map((name) => <li key={name}><Breakable text={name} /></li>)}
+          </ul>
+        </>
+      )}
+      {guesses.length > 0 && (
+        <>
+          <h3 className="pane-title">이름만 같은 메서드</h3>
+          <p className="muted small">받는 쪽 타입을 몰라(메서드 사슬 등) 이름만 같은 저장소 메서드를 찾았습니다. JDK나 라이브러리 메서드일 수 있어 단계로 세지 않습니다. 코드 옆에 ?로 보입니다.</p>
+          <ul className="folded" data-testid="tour-guesses">
+            {guesses.map((name) => <li key={name}><Breakable text={name} /></li>)}
           </ul>
         </>
       )}

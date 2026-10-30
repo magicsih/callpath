@@ -76,6 +76,19 @@ test("B6 B7 B8 둘러보기: 지도에서 클래스를 고르고 투어로 따�
   await expect(page.getByTestId("guide-map")).toBeVisible();
   await expect(chip(page, "OrderService")).toBeFocused();
 
+  // 처음 여는 진입점이어도 "여기서 투어 시작"은 그 클래스 단계 줄로 초점을 옮겨, 이어서 Enter를 누르면 다음 단계로 간다
+  await chip(page, "StockService").click();
+  await page.getByTestId("start-tour").click();
+  await expect(page.getByTestId("step-title")).toHaveText("StockService.decrease");
+  await expect(page.getByTestId("tour-step").nth(5)).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("step-title")).toHaveText("StockRepository.remaining");
+  // 오른쪽 호출 스택 링크를 누르면 초점이 새 단계 줄로 간다
+  await page.getByTestId("tour-stack").getByRole("button", { name: "OrderService.placeOrder" }).click();
+  await expect(page.getByTestId("tour-step").nth(1)).toBeFocused();
+  await page.getByRole("tab", { name: "지도" }).click();
+  await chip(page, "OrderService").click();
+
   // 여기서 투어 시작: 이 클래스를 지나는 POST /orders 투어의 OrderService 단계에서 연다
   await page.getByTestId("start-tour").click();
   await expect(page.getByRole("tab", { name: "투어" })).toHaveAttribute("aria-selected", "true");
@@ -166,6 +179,8 @@ test("B9 다시 열면 마지막 자리로 돌아오고 같은 커밋은 캐시�
   await expect(second.page.getByRole("tab", { name: "투어" })).toHaveAttribute("aria-selected", "true");
   await expect(second.page.getByTestId("step-title")).toHaveText("Notifier.sendReceipt");
   await expect(second.page.getByTestId("entry-row").filter({ hasText: "Kafka order-paid" })).toHaveAttribute("aria-expanded", "true");
+  // 투어를 받은 뒤 현재 단계 줄로 초점이 간다
+  await expect(second.page.getByTestId("tour-step").nth(1)).toBeFocused();
   // 지도로 가도 고른 클래스가 남아 있다
   await second.page.getByRole("tab", { name: "지도" }).click();
   await expect(second.page.getByTestId("context-title")).toHaveText("Notifier");
@@ -214,7 +229,10 @@ test("B10 좁은 창과 확대에서 잘리지 않고, 키보드만으로 지도
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Enter");
+  // 좁은 창에서는 맥락이 지도 아래에 한 줄로 접혀 있다가 펼친다
   await expect(page.locator(".narrow-side")).toBeVisible();
+  await expect(page.getByTestId("side-toggle")).toHaveAttribute("aria-expanded", "false");
+  await page.getByTestId("side-toggle").click();
   await expect(page.getByTestId("context-title")).not.toBeEmpty();
   await shot(app, "guide-08-narrow-context");
   // 탭 목록에서 오른쪽 화살표로 투어로
@@ -224,7 +242,8 @@ test("B10 좁은 창과 확대에서 잘리지 않고, 키보드만으로 지도
   await expect(page.getByTestId("tour-step").first()).toBeVisible();
   await page.keyboard.press("j");
   await expect(page.locator(".bottombar .position")).toContainText("2 /");
-  // 아래로 내려온 호출 스택이 눌리지 않고 보인다
+  // 아래로 내려온 호출 스택은 접혀 있다가 펼치면 눌리지 않고 보인다
+  await page.getByTestId("side-toggle").click();
   expect((await page.locator(".narrow-side").boundingBox())!.height).toBeGreaterThan(100);
   await expect(page.getByTestId("tour-stack")).toBeVisible();
   await shot(app, "guide-09-narrow-tour");
@@ -246,6 +265,10 @@ test("없는 브랜치는 그 이름으로 알리고, 돌아가면 입력이 남
   await page.getByRole("button", { name: "브랜치 다시 고르기" }).click();
   await expect(page.getByLabel("둘러볼 브랜치나 커밋")).toHaveValue("no-such-branch");
   await expect(page.getByLabel("둘러볼 브랜치나 커밋")).toBeFocused();
+  // "-"로 시작하는 이름은 git 옵션으로 넘기지 않고 같은 안내를 준다
+  await page.getByLabel("둘러볼 브랜치나 커밋").fill("--version");
+  await page.getByRole("button", { name: "둘러보기", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText('찾을 수 없는 이름: "--version"');
   await app.close();
 });
 

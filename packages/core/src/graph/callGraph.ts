@@ -85,8 +85,10 @@ export function buildCallGraph(files: FileIndex[]): CallGraph {
   const byClass = new Map<string, MethodSymbol[]>();
   const classesBySimpleName = new Map<string, ClassSymbol[]>();
   const implementors = new Map<string, ClassSymbol[]>();
+  const packageOf = new Map<string, string>();
 
   for (const f of files) {
+    packageOf.set(f.path, f.packageName);
     for (const c of f.classes) {
       g.classes.set(c.qualifiedName, c);
       push(classesBySimpleName, c.name, c);
@@ -111,9 +113,13 @@ export function buildCallGraph(files: FileIndex[]): CallGraph {
     return c.supertypes.flatMap((s) => (classesBySimpleName.get(s) ?? []).flatMap((p) => lookupInHierarchy(p, name, seen)));
   };
 
-  const resolveOnType = (type: string, name: string): { candidates: MethodSymbol[]; viaImplementors: boolean } | null => {
-    const classes = classesBySimpleName.get(type);
-    if (!classes) return null; // 저장소 밖 타입 (List, String 등)
+  const resolveOnType = (type: string, name: string, callerPath: string): { candidates: MethodSymbol[]; viaImplementors: boolean } | null => {
+    const all = classesBySimpleName.get(type);
+    if (!all) return null; // 저장소 밖 타입 (List, String 등)
+    // 같은 단순 이름 클래스가 여러 패키지에 있으면 부르는 쪽과 같은 패키지의 것을 먼저 쓴다(import 없이 쓸 수 있는 타입)
+    const pkg = packageOf.get(callerPath);
+    const same = all.length > 1 ? all.filter((c) => packageOf.get(c.path) === pkg) : [];
+    const classes = same.length ? same : all;
     const direct = classes.flatMap((c) => lookupInHierarchy(c, name));
     if (direct.some((m) => m.body)) return { candidates: direct, viaImplementors: false };
     // 인터페이스나 추상 메서드면 구현 클래스의 메서드로 잇는다
@@ -166,7 +172,7 @@ export function buildCallGraph(files: FileIndex[]): CallGraph {
       if (!type && /^[A-Z]/.test(r)) type = r;
     }
     if (type) {
-      const res = resolveOnType(type, call.name);
+      const res = resolveOnType(type, call.name, caller.path);
       if (!res) return none;
       return pick(res.candidates, call.arity, res.viaImplementors);
     }

@@ -9,7 +9,8 @@ describe("둘러보기 화면 계산", () => {
   it("지도 열은 클래스가 있는 역할만, 많이 쓰이는 클래스는 fan-in 순", async () => {
     const { guide: g } = await shop();
     expect(mapColumns(g)).toEqual(["entry", "service", "integration", "data", "model", "config", "other"]);
-    expect(topClasses(g, 3).map((c) => c.name)).toEqual(["Order", "CouponCalculator", "OrderEventPublisher"]);
+    // Order는 다른 패키지에서 getter만 불려 빠진다
+    expect(topClasses(g, 3).map((c) => c.name)).toEqual(["CouponCalculator", "OrderEventPublisher", "OrderRepository"]);
     const n = neighbors(g, "com.example.shop.order.OrderService");
     expect(n.callers.map((x) => x.node.name)).toEqual(["OrderController"]);
     expect(n.callees.find((x) => x.node.name === "CardPaymentClient")?.low).toBe(true);

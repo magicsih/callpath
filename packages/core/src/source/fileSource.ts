@@ -54,7 +54,9 @@ export class DirectorySource implements FileSource {
 export class GitRefSource implements FileSource {
   private treeCache: Promise<Map<string, string>> | null = null;
 
-  constructor(private readonly repo: string, private readonly ref: string) {}
+  constructor(private readonly repo: string, private readonly ref: string) {
+    checkRef(ref);
+  }
 
   get label(): string {
     return this.ref;
@@ -127,7 +129,14 @@ export class GitRefSource implements FileSource {
  * PR 리뷰의 base는 두 ref의 merge-base다(설계 5.1의 git diff base...head).
  * base 브랜치가 앞서 나가도 그쪽 변경이 되돌림으로 섞이지 않는다.
  */
+/** "-"로 시작하는 이름은 git이 옵션으로 읽으므로 받지 않는다. 오류 문구는 git의 bad revision과 같게 둔다 */
+function checkRef(ref: string): void {
+  if (ref.startsWith("-")) throw new Error(`bad revision '${ref}'`);
+}
+
 export async function mergeBase(repo: string, base: string, head: string): Promise<string> {
+  checkRef(base);
+  checkRef(head);
   const { stdout } = await execFileAsync("git", ["-C", repo, "merge-base", base, head]);
   return stdout.trim();
 }

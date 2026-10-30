@@ -54,6 +54,10 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   const [dirInput, setDirInput] = useState(initialDir ?? "");
   // 맥락 목록에서 마우스나 초점이 놓인 클래스. 지도에서 그 선만 진하게 그린다
   const [emphasis, setEmphasis] = useState<string | null>(null);
+  // 좁은 창의 접은 맥락과 호출 스택. 보기마다 따로 기억한다
+  const [sideOpenBy, setSideOpenBy] = useState<Record<View, boolean>>({ map: false, tour: false });
+  const sideOpen = sideOpenBy[view];
+  const setSideOpen = (f: (v: boolean) => boolean) => setSideOpenBy((m) => ({ ...m, [view]: f(m[view]) }));
   const codeBack = useRef<HTMLButtonElement>(null);
   const history = useRef<number[]>([]);
   const stepRows = useRef(new Map<number, HTMLButtonElement>());
@@ -175,11 +179,13 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
 
   // 지도나 진입점 목록에서 투어를 열면 고른 단계 줄로 초점을 옮겨 j/k와 화면 읽기가 그 자리에서 시작하게 한다.
   // 탭에서 화살표로 넘어온 것이면 초점을 탭에 둔다
+  // 같은 커밋에서 클래스 단계로 옮기는 setStep이 아직 반영되지 않았을 수 있어, 다음 프레임에 그때의 단계를 읽는다
+  const stepNow = useRef(step);
+  stepNow.current = step;
   useEffect(() => {
     if (view !== "tour" || !tour || !focusStep.current || pendingClass.current) return;
     focusStep.current = false;
-    // 단계 줄이 그려진 다음 프레임에 옮긴다(같은 진입점에서 단계만 바뀔 때 줄이 아직 없을 수 있다)
-    requestAnimationFrame(() => stepRows.current.get(step)?.focus());
+    requestAnimationFrame(() => requestAnimationFrame(() => stepRows.current.get(stepNow.current)?.focus()));
   }, [view, tour, step, startNonce]);
 
   // 코드를 열면 "지도로" 단추로 초점을 옮겨 Escape나 Enter로 바로 돌아갈 수 있게 한다
@@ -190,7 +196,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   // 지도나 투어가 처음 뜨면, 초점이 아무 데도 없을 때만 고른 칩이나 단계 줄로 옮긴다
   const focusedOnce = useRef(false);
   useEffect(() => {
-    if (!guide || focusedOnce.current) return;
+    // 투어 보기로 다시 열면 투어를 받은 뒤에 옮긴다
+    if (!guide || focusedOnce.current || (view === "tour" && !tour)) return;
     focusedOnce.current = true;
     const id = requestAnimationFrame(() => {
       const active = document.activeElement;
@@ -553,7 +560,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
             firstLine={s.symbol.range.startLine + 1}
             reveal={null}
             highlight={null}
-            marks={tourMarks(tour, s.n)}
+            marks={tourMarks(tour, s.n, narrowTour)}
             label={`${s.n}단계 ${stepName(tour, s)} 코드`}
             onMarkClick={(to) => goStep(to)}
           />
@@ -581,12 +588,28 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         onEmphasis={setEmphasis}
       />
     ) : tour ? (
-      <TourSide tour={tour} n={step} onStep={(n) => goStep(n)} onShowOnMap={showOnMap} nextEntry={nextEntry} onNextEntry={() => nextEntry && startTour(nextEntry.id, null)} />
+      <TourSide
+        tour={tour}
+        n={step}
+        onStep={(n) => {
+          // 누른 링크는 목록이 다시 그려지며 사라지므로 새 단계 줄로 초점을 옮긴다
+          focusStep.current = true;
+          goStep(n);
+        }}
+        onShowOnMap={showOnMap}
+        nextEntry={nextEntry}
+        onNextEntry={() => nextEntry && startTour(nextEntry.id, null)}
+      />
     ) : null;
 
   const narrow = view === "map" ? narrowMap : narrowTour;
   // 지도 보기의 좁은 창에서는 클래스를 골랐을 때만 맥락을 지도 아래에 보인다
   const showNarrowSide = narrow && side && (view === "tour" || selected !== null);
+  // 좁은 창에서 아래로 내린 맥락과 호출 스택은 기본으로 접어 한 줄 요약만 보인다(지도와 코드가 읽힐 높이를 지킨다)
+  const sideSummary =
+    view === "map"
+      ? selected && `${selected.name}, 부르는 쪽 ${g.links.filter((l) => l.to === selected.id).length}, 부르는 것 ${g.links.filter((l) => l.from === selected.id).length}`
+      : currentStep && tour && `${step}단계 ${stepName(tour, currentStep)}, 이어지는 단계 ${childSteps(tour, step).length}`;
   const st = g.stats;
   return (
     <div className="review guide" data-testid="guide" data-cached={load.cached}>
@@ -612,7 +635,14 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         </nav>
         <main className="pane center">
           {view === "map" ? mapCenter : tourCenter}
-          {showNarrowSide && <section className="narrow-side" aria-label={view === "map" ? "맥락" : "호출 스택"}>{side}</section>}
+          {showNarrowSide && (
+            <section className={`narrow-side${sideOpen ? " open" : ""}`} aria-label={view === "map" ? "맥락" : "호출 스택"}>
+              <button className="side-toggle" aria-expanded={sideOpen} onClick={() => setSideOpen((v) => !v)} data-testid="side-toggle">
+                <Icon name={sideOpen ? "back" : "next"} /> {view === "map" ? "맥락" : "호출 스택"}: {sideSummary}
+              </button>
+              {sideOpen && side}
+            </section>
+          )}
         </main>
         {!narrow && <aside className="pane right" aria-label={view === "map" ? "맥락" : "호출 스택"}>{side}</aside>}
       </div>

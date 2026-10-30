@@ -66,7 +66,6 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emph
     if (rel.callees.some((n) => n.node.id === id)) return "callee";
     if (rel.callers.some((n) => n.node.id === id)) return "caller";
     if (rel.impls.some((n) => n.id === id)) return "impl";
-    if (emphasis === id) return "emph";
     return "dim";
   };
   // 읽는 차례(행, 열, 칩 순)
@@ -78,6 +77,8 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emph
   const [flash, setFlash] = useState<string | null>(null);
 
   const scroller = useRef<HTMLDivElement>(null);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const inner = useRef<HTMLDivElement>(null);
   const chips = useRef(new Map<string, HTMLButtonElement>());
   const rows = useRef(new Map<string, HTMLTableRowElement>());
@@ -95,31 +96,66 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emph
       return;
     }
     const base = box.getBoundingClientRect();
-    const rect = (id: string) => {
-      const r = chips.current.get(id)?.getBoundingClientRect();
-      return r ? { l: r.left - base.left, r: r.right - base.left, t: r.top - base.top, b: r.bottom - base.top } : null;
-    };
-    const path = (from: string, to: string): string | null => {
-      const a = rect(from);
-      const b = rect(to);
-      if (!a || !b) return null;
-      // 옆 열이면 옆 가장자리끼리, 같은 열이면 위아래 가장자리끼리 잇는다
-      if (b.l > a.r || a.l > b.r) {
-        const right = b.l > a.r;
-        const x1 = right ? a.r : a.l;
-        const x2 = right ? b.l : b.r;
-        const y1 = (a.t + a.b) / 2;
-        const y2 = (b.t + b.b) / 2;
-        const dx = (x2 - x1) * 0.45;
-        return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+    type Rect = { l: number; r: number; t: number; b: number };
+    const rects = new Map<string, Rect>();
+    for (const [id, el] of chips.current) {
+      const r = el.getBoundingClientRect();
+      rects.set(id, { l: r.left - base.left, r: r.right - base.left, t: r.top - base.top, b: r.bottom - base.top });
+    }
+    type Pt = [number, number];
+    // 곡선이 두 끝 칩이 아닌 다른 칩을 몇 개 지나는지 곡선 위 점으로 센다
+    const crosses = (p: [Pt, Pt, Pt, Pt], skip: string[]): number => {
+      const xs = p.map((q) => q[0]);
+      const ys = p.map((q) => q[1]);
+      const box = { l: Math.min(...xs), r: Math.max(...xs), t: Math.min(...ys), b: Math.max(...ys) };
+      const near = [...rects].filter(([id, r]) => !skip.includes(id) && r.r > box.l && r.l < box.r && r.b > box.t && r.t < box.b).map(([, r]) => r);
+      if (!near.length) return 0;
+      const hit = new Set<Rect>();
+      for (let i = 1; i < 24; i++) {
+        const s = i / 24;
+        const k = [(1 - s) ** 3, 3 * (1 - s) ** 2 * s, 3 * (1 - s) * s ** 2, s ** 3];
+        const x = k.reduce((acc, w, j) => acc + w * p[j]![0], 0);
+        const y = k.reduce((acc, w, j) => acc + w * p[j]![1], 0);
+        for (const r of near) if (x > r.l - 2 && x < r.r + 2 && y > r.t - 2 && y < r.b + 2) hit.add(r);
       }
-      const down = b.t > a.b;
-      const x1 = (a.l + a.r) / 2;
-      const x2 = (b.l + b.r) / 2;
-      const y1 = down ? a.b : a.t;
-      const y2 = down ? b.t : b.b;
-      const dy = (y2 - y1) * 0.45;
-      return `M${x1},${y1} C${x1},${y1 + dy} ${x2},${y2 - dy} ${x2},${y2}`;
+      return hit.size;
+    };
+    const svg = (p: [Pt, Pt, Pt, Pt]) => `M${p[0][0]},${p[0][1]} C${p[1][0]},${p[1][1]} ${p[2][0]},${p[2][1]} ${p[3][0]},${p[3][1]}`;
+    const path = (from: string, to: string): string | null => {
+      const a = rects.get(from);
+      const b = rects.get(to);
+      if (!a || !b) return null;
+      // 칩의 네 가장자리 가운데를 드나드는 곳으로 두고, 가장자리 바깥쪽으로 뻗는 곡선을 만든다.
+      // 옆 열이면 마주 보는 옆 가장자리, 같은 열이면 위아래 가장자리를 먼저 써 보고, 다른 칩을 지나면 위아래 가장자리로 돌아간다
+      type Side = "l" | "r" | "t" | "b";
+      const anchor = (r: Rect, s: Side): { p: Pt; d: Pt } => {
+        const cx = (r.l + r.r) / 2;
+        const cy = (r.t + r.b) / 2;
+        return s === "l" ? { p: [r.l, cy], d: [-1, 0] } : s === "r" ? { p: [r.r, cy], d: [1, 0] } : s === "t" ? { p: [cx, r.t], d: [0, -1] } : { p: [cx, r.b], d: [0, 1] };
+      };
+      const sideBy = b.l > a.r || a.l > b.r;
+      const facingA: Side = sideBy ? (b.l > a.r ? "r" : "l") : b.t > a.b ? "b" : "t";
+      const facingB: Side = sideBy ? (b.l > a.r ? "l" : "r") : b.t > a.b ? "t" : "b";
+      const pairs: Array<[Side, Side]> = [[facingA, facingB]];
+      for (const sa of [facingA, "t", "b"] as Side[]) for (const sb of [facingB, "t", "b"] as Side[]) if (!pairs.some(([x, y]) => x === sa && y === sb)) pairs.push([sa, sb]);
+      const options = pairs.map(([sa, sb]): [Pt, Pt, Pt, Pt] => {
+        const s = anchor(a, sa);
+        const e = anchor(b, sb);
+        const reach = Math.max(28, Math.hypot(e.p[0] - s.p[0], e.p[1] - s.p[1]) * 0.4);
+        return [s.p, [s.p[0] + s.d[0] * reach, s.p[1] + s.d[1] * reach], [e.p[0] + e.d[0] * reach, e.p[1] + e.d[1] * reach], e.p];
+      });
+      // 다른 칩을 지나지 않는 첫 길, 없으면 가장 적게 지나는 길
+      let best = options[0]!;
+      let fewest = Infinity;
+      for (const p of options) {
+        const n = crosses(p, [from, to]);
+        if (n < fewest) {
+          best = p;
+          fewest = n;
+        }
+        if (n === 0) break;
+      }
+      return svg(best);
     };
     const role = byId.get(selected)?.role;
     const dense = rel.callers.length + rel.callees.length > DENSE_LINES;
@@ -151,7 +187,11 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emph
     const s = scroller.current;
     if (!s) return;
     checkMore();
-    const ro = new ResizeObserver(checkMore);
+    const ro = new ResizeObserver(() => {
+      checkMore();
+      // 맥락이 열리거나 창이 줄어 고른 칩이 밖으로 밀렸으면 다시 보이게 한다
+      if (selectedRef.current) chips.current.get(selectedRef.current)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
     ro.observe(s);
     s.addEventListener("scroll", checkMore, { passive: true });
     return () => {
@@ -263,13 +303,17 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emph
                 </marker>
               ))}
             </defs>
-            {lines.map((l) => (
-              <path
-                key={l.key}
-                d={l.d}
-                className={`map-line ${l.kind}${l.low ? " low" : ""}${emphasis ? (l.other === emphasis ? " emph" : " faint") : ""}`}
-                markerEnd={`url(#arrow-${l.kind})`}
-              />
+            {lines.filter((l) => l.other !== emphasis).map((l) => (
+              <path key={l.key} d={l.d} className={`map-line ${l.kind}${l.low ? " low" : ""}${emphasis ? " faint" : ""}`} markerEnd={`url(#arrow-${l.kind})`} />
+            ))}
+          </svg>
+          {/* 맥락 목록에서 가리킨 선은 칩 위 층에 바탕색 테두리를 둘러 그려, 지나가는 칩과 섞이지 않게 한다 */}
+          <svg className="map-lines top" aria-hidden="true">
+            {lines.filter((l) => l.other === emphasis).map((l) => (
+              <g key={l.key}>
+                <path d={l.d} className="map-line halo" />
+                <path d={l.d} className={`map-line ${l.kind} emph${l.low ? " low" : ""}`} markerEnd={`url(#arrow-${l.kind})`} />
+              </g>
             ))}
           </svg>
           <table className="map-grid" onKeyDown={onKey} aria-label="패키지와 역할 지도" style={{ minWidth }}>
@@ -304,7 +348,7 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emph
                               <button
                                 key={c.id}
                                 ref={(el) => void (el ? chips.current.set(c.id, el) : chips.current.delete(c.id))}
-                                className={`map-chip role-${c.role} ${how}`}
+                                className={`map-chip role-${c.role} ${how}${emphasis === c.id ? " emph" : ""}`}
                                 data-class-id={c.id}
                                 data-testid="map-chip"
                                 tabIndex={c.id === (focusId ?? order[0]) ? 0 : -1}
@@ -331,7 +375,12 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emph
           </table>
         </div>
       </div>
-      {more && <span className="map-more" aria-hidden="true">열 더 있음 →</span>}
+      {more && (
+        <>
+          <span className="map-more" aria-hidden="true">오른쪽에 더 있음 →</span>
+          <span className="map-more-edge" aria-hidden="true" />
+        </>
+      )}
       </div>
     </>
   );

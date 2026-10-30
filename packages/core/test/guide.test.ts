@@ -70,7 +70,8 @@ describe("둘러보기 지도 (B1)", () => {
     expect(link("OrderService", "CardPaymentClient")).toMatchObject({ calls: 1, confidence: "low" });
     expect(link("OrderService", "PaymentClient")).toBeUndefined();
     const fanIn = Object.fromEntries(g.classes.filter((c) => c.fanIn > 0).map((c) => [c.name, c.fanIn]));
-    expect(fanIn).toEqual({ Order: 2, CouponCalculator: 1, OrderEventPublisher: 1, OrderRepository: 1, CardPaymentClient: 0.5, PointPaymentClient: 0.5 });
+    // Order는 다른 패키지에서 getter만 불려(getId, getAmount) 많이 쓰이는 정도에 넣지 않는다
+    expect(fanIn).toEqual({ CouponCalculator: 1, OrderEventPublisher: 1, OrderRepository: 1, CardPaymentClient: 0.5, PointPaymentClient: 0.5 });
   });
 
   it(".callpath.yml roles가 기본 규칙보다 먼저다", async () => {
@@ -279,6 +280,19 @@ public interface Shape {
       "src/main/java/lib/print/Printer.java": "package lib.print;\n\nimport lib.core.Shape;\n\npublic class Printer {\n    public String print(Shape s) {\n        return s.describe();\n    }\n}\n",
     });
     expect(r.guide.entries.map((e) => e.label)).toEqual(["Shape.describe"]);
+  });
+});
+
+describe("받는 쪽 타입을 모르는 호출", () => {
+  it("이름만 같은 저장소 메서드는 단계로 세지 않고 후보로 둔다", async () => {
+    const r = await guideTree({
+      "src/main/java/p/Api.java": `package p;\n\n@RestController\npublic class Api {\n    private final Repo repo;\n    @GetMapping("/a")\n    public boolean a(String s) {\n        log(s);\n        repo.load(s);\n        return s.chars().allMatch(c -> c > 0);\n    }\n    void log(String s) {}\n}\n`,
+      "src/main/java/p/Repo.java": "package p;\n\npublic class Repo {\n    public void load(String s) {\n        log(s);\n        log(s);\n    }\n    void log(String s) {}\n}\n",
+      "src/main/java/q/Stream.java": "package q;\n\npublic class Stream {\n    public boolean allMatch(Object p) {\n        int n = 1;\n        return n > 0;\n    }\n}\n",
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.map((s) => s.symbol.name)).toEqual(["a", "load"]);
+    expect(t.steps[0]!.guesses.map((g) => g.name)).toEqual(["Stream.allMatch"]);
   });
 });
 
