@@ -54,10 +54,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   const [dirInput, setDirInput] = useState(initialDir ?? "");
   // 맥락 목록에서 마우스나 초점이 놓인 클래스. 지도에서 그 선만 진하게 그린다
   const [emphasis, setEmphasis] = useState<string | null>(null);
-  // 좁은 창의 접은 맥락과 호출 스택. 보기마다 따로 기억한다
-  const [sideOpenBy, setSideOpenBy] = useState<Record<View, boolean>>({ map: false, tour: false });
-  const sideOpen = sideOpenBy[view];
-  const setSideOpen = (f: (v: boolean) => boolean) => setSideOpenBy((m) => ({ ...m, [view]: f(m[view]) }));
+  // 아래로 내린 맥락과 호출 스택을 펼쳤는지. 보기마다 따로 기억하고, 고르지 않았으면(null) 창 너비로 정한다
+  const [sideOpenBy, setSideOpenBy] = useState<Record<View, boolean | null>>({ map: null, tour: null });
   const codeBack = useRef<HTMLButtonElement>(null);
   const history = useRef<number[]>([]);
   const stepRows = useRef(new Map<number, HTMLButtonElement>());
@@ -286,6 +284,9 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   };
   const narrowMap = useNarrow("(max-width: 1100px)");
   const narrowTour = useNarrow("(max-width: 820px)");
+  // 820px 이하(작은 창이나 크게 확대)에서는 지도와 코드가 읽힐 높이를 지키려고 기본으로 접는다
+  const sideOpen = sideOpenBy[view] ?? !narrowTour;
+  const setSideOpen = (f: (v: boolean) => boolean) => setSideOpenBy((m) => ({ ...m, [view]: f(m[view] ?? !narrowTour) }));
   // 표시는 단계가 바뀔 때만 다시 만든다(같은 배열이면 코드 보기가 장식을 다시 깔지 않는다)
   const marks = useMemo(() => (tour ? tourMarks(tour, step, narrowTour) : []), [tour, step, narrowTour]);
 
@@ -607,7 +608,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   const narrow = view === "map" ? narrowMap : narrowTour;
   // 지도 보기의 좁은 창에서는 클래스를 골랐을 때만 맥락을 지도 아래에 보인다
   const showNarrowSide = narrow && side && (view === "tour" || selected !== null);
-  // 좁은 창에서 아래로 내린 맥락과 호출 스택은 기본으로 접어 한 줄 요약만 보인다(지도와 코드가 읽힐 높이를 지킨다)
+  // 접으면 한 줄 요약만 보인다
   const sideSummary =
     view === "map"
       ? selected && `${selected.name}, 부르는 쪽 ${g.links.filter((l) => l.to === selected.id).length}, 부르는 것 ${g.links.filter((l) => l.from === selected.id).length}`

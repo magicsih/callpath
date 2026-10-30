@@ -111,6 +111,9 @@ export async function launch(userData: string, env: Record<string, string> = {})
   });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
+  // CI 맥 화면처럼 작은 창에서 돌려 보려면 E2E_WINDOW=1024x645처럼 준다
+  const size = /^(\d+)x(\d+)$/.exec(process.env.E2E_WINDOW ?? "");
+  if (size) await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0]!.setContentSize(w, h), [Number(size[1]), Number(size[2])] as const);
   return { app, page };
 }
 
