@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  # macOS까지 확인해야 하는 브랜치는 손으로 전체 조합을 돌린다
+  # PR을 열기 전에 브랜치에서 두 OS를 돌려 볼 때 손으로 실행한다
   workflow_dispatch:
 
 jobs:
@@ -13,8 +13,8 @@ jobs:
       # 한 OS가 실패해도 다른 OS 결과를 끝까지 본다
       fail-fast: false
       matrix:
-        # 비공개 저장소의 macOS 러너는 분당 10배 과금이라 PR에서는 ubuntu만, main 반영 때 macOS를 함께 돌린다
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest","macos-latest"]') }}
+        # 공개 저장소라 GitHub 호스트 러너가 무료다. PR에서도 macOS를 함께 돌린다(CI macOS 창은 1024x645라 한 열 diff가 기본)
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       # JDT LS를 한 번 내려받아 단위, 통합, E2E 테스트가 함께 쓴다
