@@ -17,6 +17,30 @@ function snippetOf(path: string, side: "base" | "head", start: number, end: numb
   return { path, side, startLine: start + 1, endLine: end + 1, text: lines.slice(start, end + 1).join("\n") };
 }
 
+describe("둘러보기 설명 미리보기", () => {
+  it("클래스 설명은 현재 코드와 위치를, 패키지 설명은 메서드 본문 없이 구조만 보낸다", () => {
+    const snippet = { name: "OrderService", path: "src/main/java/shop/order/OrderService.java", side: "head" as const, current: true, startLine: 9, endLine: 12, text: "public class OrderService {\n  void placeOrder() { stock.decrease(); }\n}" };
+    const c = preview({ kind: "class", name: "OrderService", qualifiedName: "shop.order.OrderService", role: "서비스", classKind: "클래스", packageLabel: "order", snippet, callers: ["OrderController"], callees: ["StockService"], entries: ["POST /orders"] });
+    const cu = c.messages[1]!.content;
+    expect(c.kind).toBe("class");
+    expect(cu).toContain("(현재 코드)");
+    expect(cu).toContain("stock.decrease()");
+    expect(cu).toContain("이 클래스를 지나는 진입점: POST /orders");
+    expect(c.scope).toEqual([{ name: "OrderService", path: snippet.path, side: "head", current: true, startLine: 9, endLine: 12 }]);
+    const p = preview({
+      kind: "package", name: "shop.order", label: "order",
+      classes: [{ name: "OrderService", role: "서비스", kind: "클래스", methods: ["placeOrder(OrderRequest)", "find(long)"] }],
+      dependsOn: [{ label: "coupon", calls: 1 }], usedBy: [],
+    });
+    const pu = p.messages[1]!.content;
+    expect(p.kind).toBe("package");
+    expect(p.scope).toEqual([]);
+    expect(pu).toContain("- OrderService [서비스, 클래스]: placeOrder(OrderRequest), find(long)");
+    expect(pu).toContain("이 패키지가 부르는 패키지(호출 수): coupon 1");
+    expect(pu).not.toContain("```");
+  });
+});
+
 describe("미리보기", () => {
   it("흐름 요약에는 호출 순서와 바뀐 메서드 코드가 들어가고, 전송 없이 만들어진다", () => {
     const flow = session.flows[0]!;

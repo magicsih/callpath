@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GuideProgress, RepoGuide, Tour } from "@callpath/core";
-import type { ErrorKind, GuideRequest, GuideTarget, LastGuide } from "../../../shared/api";
+import type { ClassNode, GuideProgress, RepoGuide, Tour } from "@callpath/core";
+import type { ErrorKind, ExplainTarget, GuideRequest, GuideTarget, LastGuide, LlmSettingsView } from "../../../shared/api";
+import { ExplainDialog, type SavedAnswer } from "../components/Explain";
 import { GuideMap } from "../components/GuideMap";
-import { ClassContext, TourSide } from "../components/GuideSide";
+import { ClassContext, GuideLlm, TourSide } from "../components/GuideSide";
 import { CodeView } from "../components/CodeView";
 import { Icon } from "../components/Icon";
 import { languageFor } from "../monaco";
 import { Breakable } from "../components/Breakable";
-import { ENTRY_KIND_LABEL, KIND_LABEL, branchText, childSteps, implementors, stepAt, stepName, topClasses, tourMarks } from "../guideNav";
+import { ENTRY_KIND_LABEL, KIND_LABEL, branchText, childSteps, implementors, neighbors, stepAt, stepName, topClasses, tourMarks } from "../guideNav";
 
 type Load =
   | { status: "loading"; progress: GuideProgress | null }
@@ -36,9 +37,27 @@ interface Props {
   /** 큰 저장소 안내의 디렉터리 입력칸 처음 값 */
   initialDir?: string;
   onPersist: (place: Pick<LastGuide, "view" | "classId" | "entryId" | "step">) => void;
+  /** 다른 화면(LLM 설정)이 위에 있으면 false. 숨은 동안 단축키를 받지 않는다 */
+  active: boolean;
+  /** 받은 LLM 답. 화면 밖(앱)에 두어 설정에 다녀와도 남는다. 키에 커밋 SHA가 들어간다 */
+  answerStore: Record<string, SavedAnswer>;
+  onLlmSettings: () => void;
 }
 
-export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, initialDir }: Props) {
+export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, initialDir, active, answerStore, onLlmSettings }: Props) {
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  // LLM 설명: 설정(켜짐 여부), 열린 설명 대화상자, 받은 답
+  const [llm, setLlm] = useState<LlmSettingsView | null>(null);
+  useEffect(() => {
+    if (active) void window.callpath.getLlmSettings().then(setLlm);
+  }, [active]);
+  const [explain, setExplain] = useState<{ key: string; target: ExplainTarget; title: string } | null>(null);
+  const [answers, setAnswers] = useState<Record<string, SavedAnswer>>(() => ({ ...answerStore }));
+  const saveAnswer = (key: string, a: SavedAnswer) => {
+    answerStore[key] = a;
+    setAnswers((m) => ({ ...m, [key]: a }));
+  };
   const [load, setLoad] = useState<Load>({ status: "loading", progress: null });
   const [run, setRun] = useState(0);
   const [view, setView] = useState<View>(initial?.view ?? "map");
@@ -210,6 +229,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
     if (!guide) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!activeRef.current) return;
       if (document.querySelector("dialog[open]")) return;
       const t = e.target as HTMLElement;
       if (t.closest("textarea, select, input")) return;
@@ -574,6 +594,48 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
 
   const entry = entryId ? g.entries.find((e) => e.id === entryId) : undefined;
   const nextEntry = entry ? g.entries[g.entries.indexOf(entry) + 1] ?? null : null;
+  // LLM 설명 대상(설계 7단계 7절). 이름과 구조는 지도에서, 코드는 메인이 커밋에서 읽는다
+  const answerKey = (kind: string, id: string) => `guide:${g.sha}:${g.dir ?? ""}:${kind}:${id}`;
+  const classTarget = (node: ClassNode): ExplainTarget => {
+    const near = neighbors(g, node.id);
+    const t = through[node.id];
+    return {
+      kind: "class", node, packageLabel: g.packages.find((p) => p.name === node.packageName)?.label ?? node.packageName,
+      callers: near.callers.map((n) => n.node.name), callees: near.callees.map((n) => n.node.name),
+      entries: (Array.isArray(t) ? t : node.entryIds).map((id) => g.entries.find((x) => x.id === id)?.label).filter((x): x is string => !!x),
+    };
+  };
+  const packageTarget = (name: string): ExplainTarget => {
+    const pkg = g.packages.find((p) => p.name === name)!;
+    const inPkg = new Set(pkg.classIds);
+    const labelOf = (id: string) => g.packages.find((p) => p.name === byId.get(id)?.packageName)?.label ?? "";
+    const sum = (pairs: Array<[string, number]>) =>
+      [...pairs.reduce((m, [l, c]) => m.set(l, (m.get(l) ?? 0) + c), new Map<string, number>())]
+        .map(([label, calls]) => ({ label, calls }))
+        .sort((a, b) => b.calls - a.calls)
+        .slice(0, 10);
+    return {
+      kind: "package", pkg, classes: pkg.classIds.map((id) => byId.get(id)!).filter(Boolean),
+      dependsOn: sum(g.links.filter((l) => inPkg.has(l.from) && !inPkg.has(l.to)).map((l) => [labelOf(l.to), l.calls])),
+      usedBy: sum(g.links.filter((l) => inPkg.has(l.to) && !inPkg.has(l.from)).map((l) => [labelOf(l.from), l.calls])),
+    };
+  };
+  const llmFor = (node: ClassNode) => {
+    const pkgLabel = g.packages.find((p) => p.name === node.packageName)?.label ?? node.packageName;
+    return (
+      <GuideLlm
+        enabled={llm ? llm.enabled : null}
+        className={node.name}
+        packageLabel={pkgLabel}
+        classAnswered={!!answers[answerKey("class", node.id)]}
+        packageAnswered={!!answers[answerKey("package", node.packageName)]}
+        onClass={() => setExplain({ key: answerKey("class", node.id), target: classTarget(node), title: `${node.name} 설명` })}
+        onPackage={() => setExplain({ key: answerKey("package", node.packageName), target: packageTarget(node.packageName), title: `${pkgLabel} 패키지 설명` })}
+        onSettings={onLlmSettings}
+      />
+    );
+  };
+
   const side =
     view === "map" ? (
       <ClassContext
@@ -589,6 +651,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         onOpenCode={(id) => setCodeOf(id)}
         onStartTour={startTour}
         onEmphasis={setEmphasis}
+        llm={selected ? llmFor(selected) : undefined}
       />
     ) : tour ? (
       <TourSide
@@ -649,6 +712,19 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         </main>
         {!narrow && <aside className="pane right" aria-label={view === "map" ? "맥락" : "호출 스택"}>{side}</aside>}
       </div>
+      {explain && (
+        <ExplainDialog
+          req={{ repo: req.repo, base: g.sha, head: g.sha, target: explain.target }}
+          fallbackTitle={explain.title}
+          saved={answers[explain.key] ?? null}
+          onAnswer={(a) => saveAnswer(explain.key, a)}
+          onClose={() => setExplain(null)}
+          onSettings={() => {
+            setExplain(null);
+            onLlmSettings();
+          }}
+        />
+      )}
       {view === "tour" && tour && (
         <footer className="bottombar">
           <button onClick={() => goStep(step - 1)} disabled={step <= 1}><Icon name="back" /> 이전</button>

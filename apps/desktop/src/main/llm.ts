@@ -4,7 +4,7 @@ import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { explain, listModels, LlmError, parseHeaders, preview, readEnvValue, type ExplainPayload, type LlmConfig, type Snippet } from "@callpath/llm";
-import { displayName, type Step, type SymbolRef } from "@callpath/core";
+import { displayName, indexFile, languageOf, parse, ROLE_LABEL, type ClassNode, type Step, type SymbolRef } from "@callpath/core";
 import type { ExplainPreview, ExplainTarget, LlmSaved, LlmSettingsInput, LlmSettingsView } from "../shared/api";
 import { readAt } from "./repo";
 import { decryptSecret, encryptSecret, isWeakStorage } from "./secrets";
@@ -193,13 +193,74 @@ async function stepSnippet(repo: string, base: string, head: string, s: Step): P
   return snip && s.change === "unchanged" ? { ...snip, unchanged: true } : snip;
 }
 
+const KIND_LABEL: Record<ClassNode["kind"], string> = {
+  class: "클래스", interface: "인터페이스", enum: "enum", record: "record", data: "data class", object: "object", annotation: "애노테이션", file: "Kotlin 파일",
+};
+/** 패키지 설명에 넣는 클래스당 공개 메서드 수 상한 */
+const MAX_METHODS_PER_CLASS = 20;
+
+/**
+ * 지도 칩 id에서 클래스 전체 이름. 같은 전체 이름이 두 파일에 있으면 id 끝에 "@경로"가 붙는다.
+ * 전체 이름에는 @가 들어갈 수 없어 첫 @에서 나눈다(경로 안의 @는 남는다). Kotlin 최상위 함수 파일 칩은 경로다
+ */
+const qualifiedNameOf = (n: ClassNode) => {
+  if (n.kind === "file") return n.id.replace(/^file:/, "");
+  const at = n.id.indexOf("@");
+  return at < 0 ? n.id : n.id.slice(0, at);
+};
+
+/** 패키지 설명용 공개 메서드 시그니처. 파일을 다시 색인해 이름과 매개변수 타입만 꺼낸다(본문은 꺼내지 않는다) */
+async function publicMethods(repo: string, ref: string, nodes: ClassNode[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  for (const path of [...new Set(nodes.map((n) => n.path))]) {
+    const lang = languageOf(path);
+    const text = lang ? await readAt(repo, ref, path) : null;
+    if (!lang || text === null) continue;
+    const index = indexFile(path, lang, await parse(lang, text));
+    for (const n of nodes.filter((x) => x.path === path)) {
+      // 최상위 함수 파일은 최상위 함수, 클래스는 그 클래스와 안쪽 클래스의 메서드
+      const mine = index.methods.filter((m) =>
+        n.kind === "file" ? m.classQualifiedName === null : m.classQualifiedName === qualifiedNameOf(n) || !!m.classQualifiedName?.startsWith(`${qualifiedNameOf(n)}.`),
+      );
+      // 생성자와 초기화 블록은 의존성 주입이나 값 채우기라 패키지가 맡는 일을 흐리므로 뺀다
+      const isCtor = (m: (typeof mine)[number]) => m.name === "constructor" || m.name === "init" || m.name === m.container?.split(".").pop();
+      const sigs = mine
+        .filter((m) => !m.synthetic && m.visibility === "public" && !isCtor(m))
+        .map((m) => `${displayName(m)}(${m.params.map((p) => p.display).join(", ")})`.replace(`${n.name}.`, ""));
+      out.set(n.id, [...new Set(sigs)].slice(0, MAX_METHODS_PER_CLASS));
+    }
+  }
+  return out;
+}
+
 export async function previewExplain(req: { repo: string; base: string; head: string; target: ExplainTarget }): Promise<ExplainPreview> {
   const s = await load();
   if (!s.enabled) throw new Error("LLM 설명이 꺼져 있습니다. LLM 설정에서 끝점을 등록하고 켜세요");
   for (const [id, p] of pending) if (Date.now() - p.created > PREVIEW_TTL_MS) pending.delete(id);
   const { repo, base, head, target } = req;
   let payload: ExplainPayload;
-  if (target.kind === "flow") {
+  if (target.kind === "class") {
+    // 둘러보기는 한 커밋이라 head가 그 커밋이다. 클래스 전체(최상위 함수 파일은 함수들) 범위를 보낸다
+    const n = target.node;
+    const text = await readAt(repo, head, n.path);
+    if (text === null) throw new Error("이 클래스의 코드를 읽지 못했습니다");
+    const lines = text.split("\n");
+    const snippet: Snippet = {
+      name: n.name, path: n.path, side: "head", current: true, startLine: n.range.startLine + 1, endLine: n.range.endLine + 1,
+      text: lines.slice(n.range.startLine, n.range.endLine + 1).join("\n"),
+    };
+    payload = preview({
+      kind: "class", name: n.name, qualifiedName: qualifiedNameOf(n), role: ROLE_LABEL[n.role], classKind: KIND_LABEL[n.kind], packageLabel: target.packageLabel,
+      snippet, callers: target.callers, callees: target.callees, entries: target.entries,
+    });
+  } else if (target.kind === "package") {
+    const methods = await publicMethods(repo, head, target.classes);
+    payload = preview({
+      kind: "package", name: target.pkg.name, label: target.pkg.label,
+      classes: target.classes.map((c) => ({ name: c.name, role: ROLE_LABEL[c.role], kind: KIND_LABEL[c.kind], methods: methods.get(c.id) ?? [] })),
+      dependsOn: target.dependsOn, usedBy: target.usedBy,
+    });
+  } else if (target.kind === "flow") {
     // 설계 6.3 전송 범위: 이 흐름에서 바뀐 메서드만. 앞 흐름에서 이미 나온 단계와 바뀌지 않은 경유 메서드는 코드를 보내지 않는다
     const steps = target.flow.steps.filter((x) => x.change !== "unchanged" && !x.refOf);
     const snippets = (await Promise.all(steps.map((x) => stepSnippet(repo, base, head, x)))).filter((x): x is Snippet => x !== null);

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ClassNode, RepoGuide, Tour, TourEntry } from "@callpath/core";
 import {
   ENTRY_KIND_LABEL, KIND_LABEL, ROLE_LABEL, ancestry, branchText, childSteps, foldName, implementorCallers, implementors, linkNote, neighbors, stepAt,
@@ -61,6 +62,8 @@ export function ClassContext(props: {
   onOpenCode: (id: string) => void;
   onStartTour: (entryId: string, classId: string) => void;
   onEmphasis: (id: string | null) => void;
+  /** 맥락 아래에 두는 LLM 설명 단추 */
+  llm?: ReactNode;
 }) {
   const { guide, node } = props;
   if (!node) {
@@ -149,7 +152,43 @@ export function ClassContext(props: {
         </p>
       )}
       <NeighborList guide={guide} title="부르는 것" items={near.callees} onSelect={props.onSelect} testId="callees" onEmphasis={props.onEmphasis} />
+      {props.llm}
     </>
+  );
+}
+
+/** 지도 맥락의 LLM 설명 단추(설계 7단계 7절). 꺼져 있으면 켜는 길만 보인다 */
+export function GuideLlm(props: {
+  enabled: boolean | null;
+  className: string;
+  packageLabel: string;
+  classAnswered: boolean;
+  packageAnswered: boolean;
+  onClass: () => void;
+  onPackage: () => void;
+  onSettings: () => void;
+}) {
+  if (props.enabled === null) return null;
+  if (!props.enabled) {
+    return (
+      <div className="llm-actions" data-testid="llm-off">
+        <h3 className="pane-title">LLM 설명</h3>
+        <p className="muted small">LLM 설명이 꺼져 있습니다. <button className="link small" onClick={props.onSettings}>LLM 설정</button></p>
+      </div>
+    );
+  }
+  const got = <span className="muted small nowrap"> (받음)</span>;
+  return (
+    <div className="llm-actions" data-testid="llm-actions">
+      <h3 className="pane-title">LLM 설명</h3>
+      <div className="row wrap">
+        <button onClick={props.onClass}><Breakable text={props.className} /> 설명{props.classAnswered && got}</button>
+        <button onClick={props.onPackage}>{props.packageLabel} 패키지 설명{props.packageAnswered && got}</button>
+      </div>
+      <p className="muted small">
+        누르면 보낼 내용을 먼저 보여 줍니다. 패키지 설명에는 메서드 본문을 넣지 않습니다. <button className="link small" onClick={props.onSettings}>LLM 설정</button>
+      </p>
+    </div>
   );
 }
 
