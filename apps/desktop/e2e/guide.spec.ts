@@ -51,7 +51,8 @@ test("B6 B7 B8 둘러보기: 지도에서 클래스를 고르고 투어로 따�
   // 고른 칩을 한 번 더 누르면 코드를 열고, Escape로 지도로 돌아간다
   await chip(page, "OrderService").click();
   await expect(page.getByTestId("code-view")).toBeVisible();
-  await expect(page.locator(".view-lines")).toContainText("public OrderResult placeOrder");
+  // 클래스 선언 줄을 보이게 연다(작은 창에서는 메서드 본문이 화면 밖일 수 있다)
+  await expect(page.locator(".view-lines")).toContainText("public class OrderService");
   await shot(app, "guide-04-class-code");
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("guide-map")).toBeVisible();
