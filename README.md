@@ -76,7 +76,7 @@ GitHub.com은 로그인된 gh CLI 계정을 그대로 쓸 수 있지만, GitHub 
 
 #### MiniMax
 
-"MiniMax로 채우기"를 누르면 끝점 `https://api.minimax.io/v1`, 모델 `MiniMax-M3.1-Flash`, 변수 이름 `MINIMAX_API_KEY`가 채워진다. MiniMax M Plan 키(`sk-cp-`로 시작)를 쓴다. 키 파일이 있으면 "이 컴퓨터의 키 파일에서 읽기"를 고르고 그 경로를 넣는다. 작성자의 맥에서는 `~/.config/seorilabs/minimax-api-key.env`다. MiniMax는 답 전에 생각 과정을 보내므로, 그동안 "모델이 답을 생각하는 중"이 보인다. 생각 과정은 답과 기록에 넣지 않는다.
+"MiniMax로 채우기"를 누르면 끝점 `https://api.minimax.io/v1`, 모델 `MiniMax-M3.1-Flash`, 변수 이름 `MINIMAX_API_KEY`가 채워진다. MiniMax M Plan 키(`sk-cp-`로 시작)를 쓴다. 키 파일이 있으면 "이 컴퓨터의 키 파일에서 읽기"를 고르고 그 경로를 넣는다. 예를 들어 `~/.config/keys/minimax-api-key.env`처럼 `export MINIMAX_API_KEY=…` 한 줄이 든 파일이다. MiniMax는 답 전에 생각 과정을 보내므로, 그동안 "모델이 답을 생각하는 중"이 보인다. 생각 과정은 답과 기록에 넣지 않는다.
 
 ### 확인한 범위
 
@@ -135,3 +135,7 @@ pnpm typecheck
 pnpm test
 pnpm --filter @callpath/desktop exec playwright test   # 데스크톱 E2E
 ```
+
+## 라이선스
+
+[MIT](LICENSE)

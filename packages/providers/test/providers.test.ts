@@ -8,7 +8,7 @@ import { GOOD_TOKEN, makeFixture, startMock, type Fixture, type MockServer } fro
 
 describe("주소 읽기", () => {
   it("GitHub, GHE, GitLab PR 주소", () => {
-    expect(parsePrUrl("https://github.com/seorilabs/lucid-chess/pull/32")).toEqual({ kind: "github", host: "github.com", repo: "seorilabs/lucid-chess", number: 32 });
+    expect(parsePrUrl("https://github.com/acme/order-service/pull/32")).toEqual({ kind: "github", host: "github.com", repo: "acme/order-service", number: 32 });
     expect(parsePrUrl("https://github.com/a/b/pull/7/files#diff-1")).toMatchObject({ repo: "a/b", number: 7 });
     expect(parsePrUrl("https://ghe.corp.io/team/svc/pull/3", { github: ["ghe.corp.io"], gitlab: [] })).toMatchObject({ kind: "github", host: "ghe.corp.io", number: 3 });
     expect(parsePrUrl("https://gitlab.com/g/sub/proj/-/merge_requests/12")).toEqual({ kind: "gitlab", host: "gitlab.com", repo: "g/sub/proj", number: 12 });
@@ -19,7 +19,7 @@ describe("주소 읽기", () => {
   });
 
   it("git 원격 주소", () => {
-    expect(parseRemote("git@github.com:seorilabs/lucid-chess.git")).toEqual({ host: "github.com", repo: "seorilabs/lucid-chess" });
+    expect(parseRemote("git@github.com:acme/order-service.git")).toEqual({ host: "github.com", repo: "acme/order-service" });
     expect(parseRemote("https://gitlab.com/g/sub/proj.git")).toEqual({ host: "gitlab.com", repo: "g/sub/proj" });
     expect(parseRemote("ssh://git@ghe.corp.io/team/svc.git")).toEqual({ host: "ghe.corp.io", repo: "team/svc" });
   });

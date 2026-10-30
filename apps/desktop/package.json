@@ -1,6 +1,7 @@
 {
   "name": "@callpath/desktop",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Callpath 데스크톱 앱",
   "main": "./out/main/index.mjs",
