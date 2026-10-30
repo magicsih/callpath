@@ -22,8 +22,41 @@ export function methodId(m: Pick<MethodSymbol, "path" | "qualifiedName" | "range
 export class CallGraph {
   readonly methods = new Map<string, MethodSymbol>();
   readonly classes = new Map<string, ClassSymbol>();
+  /** 파일 경로 → 패키지 이름 */
+  readonly packageOf = new Map<string, string>();
   private readonly out = new Map<string, Edge[]>();
   private readonly inc = new Map<string, Edge[]>();
+  private bySimpleName: Map<string, ClassSymbol[]> | null = null;
+
+  /** 상위 타입(단순 이름)에 해당하는 저장소 안 클래스. 같은 이름이 여러 패키지에 있으면 이 클래스와 같은 패키지의 것을 쓴다 */
+  supertypeClasses(c: ClassSymbol): ClassSymbol[] {
+    if (!this.bySimpleName) {
+      this.bySimpleName = new Map();
+      for (const x of this.classes.values()) push(this.bySimpleName, x.name, x);
+    }
+    const pkg = this.packageOf.get(c.path);
+    return c.supertypes.flatMap((s) => {
+      const all = (this.bySimpleName!.get(s) ?? []).filter((x) => x !== c);
+      const same = all.filter((x) => this.packageOf.get(x.path) === pkg);
+      return same.length ? same : all;
+    });
+  }
+
+  /** 클래스와 저장소 안 상위 클래스가 선언한 필드의 타입(단순 이름). 상속받은 필드로 부르는 호출의 수신자 타입을 정한다 */
+  fieldType(classQualifiedName: string | null, name: string): string | null {
+    const seen = new Set<string>();
+    const walk = (c: ClassSymbol | undefined): string | null => {
+      if (!c || seen.has(c.qualifiedName)) return null;
+      seen.add(c.qualifiedName);
+      if (name in c.fields) return c.fields[name]!;
+      for (const p of this.supertypeClasses(c)) {
+        const found = walk(p);
+        if (found) return found;
+      }
+      return null;
+    };
+    return walk(classQualifiedName ? this.classes.get(classQualifiedName) : undefined);
+  }
 
   outgoing(id: string): Edge[] {
     return this.out.get(id) ?? [];
@@ -85,8 +118,11 @@ export function buildCallGraph(files: FileIndex[]): CallGraph {
   const byClass = new Map<string, MethodSymbol[]>();
   const classesBySimpleName = new Map<string, ClassSymbol[]>();
   const implementors = new Map<string, ClassSymbol[]>();
+  const packageOf = new Map<string, string>();
 
   for (const f of files) {
+    packageOf.set(f.path, f.packageName);
+    g.packageOf.set(f.path, f.packageName);
     for (const c of f.classes) {
       g.classes.set(c.qualifiedName, c);
       push(classesBySimpleName, c.name, c);
@@ -108,17 +144,29 @@ export function buildCallGraph(files: FileIndex[]): CallGraph {
     seen.add(c.qualifiedName);
     const own = methodsOf(c, name);
     if (own.length) return own;
-    return c.supertypes.flatMap((s) => (classesBySimpleName.get(s) ?? []).flatMap((p) => lookupInHierarchy(p, name, seen)));
+    return g.supertypeClasses(c).flatMap((p) => lookupInHierarchy(p, name, seen));
   };
 
-  const resolveOnType = (type: string, name: string): { candidates: MethodSymbol[]; viaImplementors: boolean } | null => {
-    const classes = classesBySimpleName.get(type);
-    if (!classes) return null; // 저장소 밖 타입 (List, String 등)
+  const resolveIn = (classes: ClassSymbol[], type: string, name: string): { candidates: MethodSymbol[]; viaImplementors: boolean } => {
     const direct = classes.flatMap((c) => lookupInHierarchy(c, name));
     if (direct.some((m) => m.body)) return { candidates: direct, viaImplementors: false };
     // 인터페이스나 추상 메서드면 구현 클래스의 메서드로 잇는다
     const impls = (implementors.get(type) ?? []).flatMap((c) => methodsOf(c, name));
     return impls.length ? { candidates: impls, viaImplementors: true } : { candidates: direct, viaImplementors: false };
+  };
+
+  const resolveOnType = (type: string, name: string, callerPath: string): { candidates: MethodSymbol[]; viaImplementors: boolean } | null => {
+    const all = classesBySimpleName.get(type);
+    if (!all) return null; // 저장소 밖 타입 (List, String 등)
+    // 같은 단순 이름 클래스가 여러 패키지에 있으면 부르는 쪽과 같은 패키지의 것을 먼저 쓴다(import 없이 쓸 수 있는 타입).
+    // 그 클래스에 메서드가 없으면 import한 다른 패키지 타입일 수 있어 전체로 되돌아간다
+    const pkg = packageOf.get(callerPath);
+    const same = all.length > 1 ? all.filter((c) => packageOf.get(c.path) === pkg) : [];
+    if (same.length) {
+      const near = resolveIn(same, type, name);
+      if (near.candidates.length) return near;
+    }
+    return resolveIn(all, type, name);
   };
 
   for (const caller of g.methods.values()) {
@@ -161,12 +209,12 @@ export function buildCallGraph(files: FileIndex[]): CallGraph {
     if (call.receiver !== "?") {
       const r = call.receiver;
       const param = caller.params.find((p) => p.name === r)?.type;
-      type = caller.locals[r] ?? param ?? callerClass?.fields[r] ?? null;
+      type = caller.locals[r] ?? param ?? g.fieldType(caller.classQualifiedName, r);
       // 대문자 수신자는 정적 호출이나 object 선언으로 본다
       if (!type && /^[A-Z]/.test(r)) type = r;
     }
     if (type) {
-      const res = resolveOnType(type, call.name);
+      const res = resolveOnType(type, call.name, caller.path);
       if (!res) return none;
       return pick(res.candidates, call.arity, res.viaImplementors);
     }

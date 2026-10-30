@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseConfig } from "../src/config.js";
-import { guide, isGeneratedPath, isLargeRepo, listGuideFiles, MAX_TOUR_DEPTH, MAX_TOUR_STEPS, type GuideResult } from "../src/guide/guide.js";
+import { guide, isGeneratedPath, isLargeRepo, listGuideFiles, MAX_TOUR_DEPTH, MAX_TOUR_STEPS, suggestDirs, type GuideResult } from "../src/guide/guide.js";
 import { displayName } from "../src/names.js";
 import { DirectorySource, type FileSource } from "../src/source/fileSource.js";
 import { writeTree, type Tree } from "./helpers.js";
@@ -70,7 +70,8 @@ describe("둘러보기 지도 (B1)", () => {
     expect(link("OrderService", "CardPaymentClient")).toMatchObject({ calls: 1, confidence: "low" });
     expect(link("OrderService", "PaymentClient")).toBeUndefined();
     const fanIn = Object.fromEntries(g.classes.filter((c) => c.fanIn > 0).map((c) => [c.name, c.fanIn]));
-    expect(fanIn).toEqual({ Order: 2, CouponCalculator: 1, OrderEventPublisher: 1, OrderRepository: 1, CardPaymentClient: 0.5, PointPaymentClient: 0.5 });
+    // Order는 다른 패키지에서 getter만 불려(getId, getAmount) 많이 쓰이는 정도에 넣지 않는다
+    expect(fanIn).toEqual({ CouponCalculator: 1, OrderEventPublisher: 1, OrderRepository: 1, CardPaymentClient: 0.5, PointPaymentClient: 0.5 });
   });
 
   it(".callpath.yml roles가 기본 규칙보다 먼저다", async () => {
@@ -109,7 +110,9 @@ describe("투어 (B2)", () => {
     expect(t.truncated).toBe(false);
     expect(t.collapsed).toBe(9);
     const [, place, validate, findByCode, , , , , card, , point] = t.steps;
-    expect(place!.folded.map((f) => f.name)).toEqual(["OrderRequest.totalAmount", "Order 생성자", "Order.getId", "Order.getAmount"]);
+    // 선언 없는 생성자(record OrderResult)도 접은 메서드로, 물려받은 save와 record 접근자는 따로 보인다
+    expect(place!.folded.map((f) => f.name)).toEqual(["OrderRequest.totalAmount", "Order 생성자", "OrderResult 생성자", "Order.getId", "Order.getAmount"]);
+    expect([...new Set(place!.external.map((f) => f.name))]).toEqual(["OrderRequest.couponCode", "OrderRequest.items", "OrderRequest.customerId", "OrderRepository.save"]);
     // 한 줄 위임 find를 접고, 그 안의 findByCode는 validateCoupon의 find 호출 줄에서 이어진다
     expect(validate!.folded.map((f) => f.name)).toEqual(["CouponCalculator.find", "Coupon.isExpired"]);
     expect(findByCode!.parent).toBe(validate!.n);
@@ -118,6 +121,17 @@ describe("투어 (B2)", () => {
     // 두 구현이 함께 부르는 record는 한 번만 단계가 되고, 두 번째는 앞 단계를 가리킨다
     expect(point!.calls.filter((c) => c.back)).toEqual([{ line: expect.any(Number), to: 10, back: true }]);
     expect(place!.calls.map((c) => c.to)).toEqual([3, 6, 9, 11, 13]);
+    expect([card!.branch, place!.branch, place!.params]).toEqual(["implementations", null, ["OrderRequest"]]);
+    expect(validate!.folded[0]!.classId).toBe("com.example.shop.coupon.CouponCalculator");
+  });
+
+  it("한 클래스의 같은 이름 메서드(오버로드) 후보는 하나만 따라가고 후보 수를 남긴다", async () => {
+    const body = (s: string) => `        log(${s});\n        log(${s});\n`;
+    const r = await guideTree({
+      "src/main/java/p/Api.java": `package p;\n\n@RestController\npublic class Api {\n    @GetMapping("/a")\n    public void a(Object x) {\n        log(x);\n        help(x);\n    }\n    void help(int v) {\n${body("v")}    }\n    void help(String v) {\n${body("v")}    }\n    void log(Object o) {}\n}\n`,
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.slice(1).map((s) => [s.symbol.name, s.branch, s.alternatives, s.params])).toEqual([["help", "overloads", 2, ["int"]]]);
   });
 
   it("Kotlin: 최상위 함수 파일과 식 본문을 접고, 접은 메서드를 지나 이어진다", async () => {
@@ -175,6 +189,18 @@ describe("진입점 목록과 지연 계산 (B3)", () => {
     const label = (ids: string[]) => ids.map((id) => r.guide.entries.find((e) => e.id === id)!.label);
     expect(label(r.entriesThrough("com.example.shop.payment.PaymentAudit"))).toEqual(["POST /orders"]);
     expect(label(r.entriesThrough("com.example.shop.notification.MailSender"))).toEqual(["Kafka order-paid", "Scheduled UnpaidReminderJob.run"]);
+    // 접은 메서드(getter, 생성자, 한 줄 메서드)로만 닿는 클래스와, 구현 클래스가 단계로 나오는 인터페이스도 지난다
+    expect(label(r.entriesThrough("com.example.shop.order.OrderRequest"))).toEqual(["POST /orders"]);
+    expect(label(r.entriesThrough("com.example.shop.order.Order"))).toEqual(["POST /orders"]);
+    expect(label(r.entriesThrough("com.example.shop.payment.PaymentClient"))).toEqual(["POST /orders"]);
+    expect(r.entriesThrough("com.example.shop.config.ShopProperties")).toEqual([]);
+  });
+
+  it("구현 클래스는 저장소 안의 상위 타입을 안다", async () => {
+    const { guide: g } = await shop();
+    const by = (name: string) => g.classes.find((c) => c.name === name)!;
+    expect(by("CardPaymentClient").supertypeIds).toEqual(["com.example.shop.payment.PaymentClient"]);
+    expect(by("OrderRepository").supertypeIds).toEqual([]);
   });
 });
 
@@ -227,8 +253,8 @@ public class Table {
     });
     expect(r.guide.noEntries).toBe(true);
     expect(r.guide.stats.entries).toBe(0);
-    // 한 문장짜리 isBlank는 빼고, pad 오버로드는 가장 많이 불린 하나만 둔다
-    expect(r.guide.entries.map((e) => `${e.kind} ${e.label}`)).toEqual(["api TextUtils.pad", "api TextUtils.center"]);
+    // 한 문장짜리 isBlank는 빼고, pad 오버로드는 가장 많이 불린 하나만 두며 매개변수로 어느 것인지 적는다
+    expect(r.guide.entries.map((e) => `${e.kind} ${e.label}`)).toEqual(["api TextUtils.pad(String, int)", "api TextUtils.center"]);
     const center = r.tour(r.guide.entries[1]!.id);
     expect(center.steps.map((s) => displayName(s.symbol))).toEqual(["TextUtils.center", "TextUtils.pad"]);
     // 칩에서 투어를 시작할 수 있게 진입점을 붙이지만, 역할은 구조대로 둔다
@@ -254,6 +280,77 @@ public interface Shape {
       "src/main/java/lib/print/Printer.java": "package lib.print;\n\nimport lib.core.Shape;\n\npublic class Printer {\n    public String print(Shape s) {\n        return s.describe();\n    }\n}\n",
     });
     expect(r.guide.entries.map((e) => e.label)).toEqual(["Shape.describe"]);
+  });
+});
+
+describe("받는 쪽 타입을 모르는 호출", () => {
+  it("이름만 같은 저장소 메서드는 단계로 세지 않고 후보로 둔다", async () => {
+    const r = await guideTree({
+      "src/main/java/p/Api.java": `package p;\n\n@RestController\npublic class Api {\n    private final Repo repo;\n    @GetMapping("/a")\n    public boolean a(String s) {\n        log(s);\n        repo.load(s);\n        return s.chars().allMatch(c -> c > 0);\n    }\n    void log(String s) {}\n}\n`,
+      "src/main/java/p/Repo.java": "package p;\n\npublic class Repo {\n    public void load(String s) {\n        log(s);\n        log(s);\n    }\n    void log(String s) {}\n}\n",
+      "src/main/java/q/Stream.java": "package q;\n\npublic class Stream {\n    public boolean allMatch(Object p) {\n        int n = 1;\n        return n > 0;\n    }\n}\n",
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.map((s) => s.symbol.name)).toEqual(["a", "load"]);
+    expect(t.steps[0]!.guesses.map((g) => g.name)).toEqual(["Stream.allMatch"]);
+  });
+});
+
+describe("수신자 타입 해석", () => {
+  it("같은 패키지의 같은 이름 클래스에 메서드가 없으면 다른 패키지 클래스로 잇는다", async () => {
+    const r = await guideTree({
+      "src/main/java/com/a/Service.java": "package com.a;\n\npublic class Service {\n    public void doWork() {\n        int x = 1;\n        x++;\n    }\n}\n",
+      "src/main/java/com/b/Service.java": "package com.b;\n\npublic class Service {\n}\n",
+      "src/main/java/com/b/Api.java": "package com.b;\n\n@RestController\npublic class Api {\n    private final Service svc;\n    @GetMapping(\"/a\")\n    public void a() {\n        log();\n        svc.doWork();\n    }\n    void log() {}\n}\n",
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.map((s) => s.symbol.qualifiedName)).toEqual(["com.b.Api.a", "com.a.Service.doWork"]);
+  });
+
+  it("상위 클래스가 선언한 필드로 부르는 호출은 단계다", async () => {
+    const r = await guideTree({
+      "src/main/java/p/BaseApi.java": "package p;\n\npublic abstract class BaseApi {\n    protected Helper helper;\n}\n",
+      "src/main/java/p/Helper.java": "package p;\n\npublic class Helper {\n    public void doWork() {\n        int x = 1;\n        x++;\n    }\n}\n",
+      "src/main/java/p/Api.java": "package p;\n\n@RestController\npublic class Api extends BaseApi {\n    @GetMapping(\"/a\")\n    public void a() {\n        log();\n        helper.doWork();\n    }\n    void log() {}\n}\n",
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.map((s) => s.symbol.name)).toEqual(["a", "doWork"]);
+    expect(t.steps[0]!.guesses).toEqual([]);
+  });
+
+  it("상속 필드의 타입으로 이어, 같은 이름 메서드가 다른 곳에 있어도 갈래가 생기지 않고, 다른 패키지의 같은 이름 상위 클래스 필드는 섞지 않는다", async () => {
+    const work = (pkg: string, cls: string) => `package ${pkg};\n\npublic class ${cls} {\n    public void doWork() {\n        int x = 1;\n        x++;\n    }\n}\n`;
+    const r = await guideTree({
+      "src/main/java/com/a/Base.java": "package com.a;\n\npublic abstract class Base {\n    protected HelperA helper;\n}\n",
+      "src/main/java/com/b/Base.java": "package com.b;\n\npublic abstract class Base {\n    protected Other helper;\n}\n",
+      "src/main/java/com/a/HelperA.java": work("com.a", "HelperA"),
+      "src/main/java/com/b/Other.java": work("com.b", "Other"),
+      "src/main/java/com/a/Api.java": "package com.a;\n\n@RestController\npublic class Api extends Base {\n    @GetMapping(\"/a\")\n    public void a() {\n        log();\n        helper.doWork();\n    }\n    void log() {}\n}\n",
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.map((s) => s.symbol.qualifiedName)).toEqual(["com.a.Api.a", "com.a.HelperA.doWork"]);
+    expect(t.steps[1]!.alternatives).toBe(1);
+  });
+});
+
+describe("화면용 매개변수 타입", () => {
+  it("배열, 가변 인자, 널 가능 표시는 남기고 제네릭과 패키지는 뺀다", async () => {
+    const { displayType } = await import("../src/index/symbols.js");
+    expect(["char[]", "java.util.List<java.lang.String>", "Map<String, List<Integer>>", "@NonNull String", "Long?", "T[]"].map(displayType))
+      .toEqual(["char[]", "List", "Map", "String", "Long?", "T[]"]);
+  });
+});
+
+describe("공개 API 진입점 이름", () => {
+  it("다른 패키지의 같은 이름 중첩 클래스는 바깥 클래스 이름으로 구별한다", async () => {
+    const ops = (pkg: string, outer: string) => `package ${pkg};\n\npublic class ${outer} {\n    public static class Ops {\n        public int apply(int v) {\n            int w = v + 1;\n            return w * 2;\n        }\n    }\n}\n`;
+    const r = await guideTree({
+      "src/main/java/lib/x/Fx.java": ops("lib.x", "Fx"),
+      "src/main/java/lib/y/Fy.java": ops("lib.y", "Fy"),
+      "src/main/java/lib/z/Use.java": "package lib.z;\n\npublic class Use {\n    public int run(lib.x.Fx.Ops a) {\n        int v = a.apply(1);\n        return v + 1;\n    }\n}\n",
+    });
+    expect(r.guide.noEntries).toBe(true);
+    expect(r.guide.entries.map((e) => e.label).sort()).toEqual(["Fx.Ops.apply", "Fy.Ops.apply"]);
   });
 });
 
@@ -288,6 +385,13 @@ describe("생성 코드와 큰 저장소 (B5)", () => {
     expect(await at(3000)).toBe(false);
     expect(await at(3001)).toBe(true);
     expect((await listGuideFiles(fake(3))).generated).toBe(1);
+  });
+
+  it("좁힐 디렉터리 후보는 처음 갈라지는 곳의 하위 디렉터리다", () => {
+    const single = ["src/main/java/com/x/order/A.java", "src/main/java/com/x/order/B.java", "src/main/java/com/x/pay/C.java"];
+    expect(suggestDirs(single)).toEqual([{ path: "src/main/java/com/x/order", files: 2 }, { path: "src/main/java/com/x/pay", files: 1 }]);
+    const modules = ["api/src/main/java/A.java", "core/src/main/java/B.java", "core/src/main/java/C.java", "Root.java"];
+    expect(suggestDirs(modules)).toEqual([{ path: "core", files: 2 }, { path: "api", files: 1 }]);
   });
 
   it("디렉터리로 좁히면 그 아래 파일만 둘러본다", async () => {

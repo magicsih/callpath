@@ -1,4 +1,4 @@
-import type { ReviewSession } from "@callpath/core";
+import type { GuideProgress, RepoGuide, ReviewSession, Tour } from "@callpath/core";
 
 export interface RepoInfo {
   /** 저장소 최상위 경로 */
@@ -26,6 +26,47 @@ export interface FileRequest {
   /** 커밋 SHA */
   ref: string;
   path: string;
+}
+
+/** 둘러보기(설계 7단계): 한 커밋의 저장소 전체를 지도와 투어로 본다 */
+export interface GuideRequest {
+  repo: string;
+  /** 브랜치, 태그, 커밋 */
+  ref: string;
+  /** 좁혀 둘러볼 디렉터리 */
+  dir?: string;
+  /** 큰 저장소 경고를 보고도 저장소 전체를 둘러본다 */
+  force?: boolean;
+}
+
+/** large면 코드 파일이 많아 시작하기 전에 디렉터리로 좁힐지 묻는다 */
+export type GuideOutcome =
+  | { status: "ready"; guide: RepoGuide; cached: boolean }
+  | { status: "large"; files: number; sha: string; dirs: Array<{ path: string; files: number }> };
+
+export interface GuideProgressEvent {
+  req: GuideRequest;
+  progress: GuideProgress;
+}
+
+/** 이미 연 둘러보기. 투어와 클래스를 지나는 진입점을 물을 때 쓴다 */
+export interface GuideTarget {
+  repo: string;
+  sha: string;
+  dir: string | null;
+}
+
+/** 저장소별로 마지막에 둘러보던 곳 */
+export interface LastGuide {
+  ref: string;
+  dir: string | null;
+  /** 큰 저장소 경고를 보고 저장소 전체를 고름. 다시 열 때 경고를 건너뛴다 */
+  force?: boolean;
+  view: "map" | "tour";
+  classId: string | null;
+  entryId: string | null;
+  /** 투어 단계 번호 */
+  step: number | null;
 }
 
 export interface LastReview extends CompareRequest {
@@ -189,6 +230,10 @@ export interface UiState {
   prs: Record<string, PrMeta>;
   /** 최근 연 PR 주소 */
   recentPrs: Array<{ url: string; title: string }>;
+  /** 저장소 경로별 마지막 둘러보기 */
+  guides: Record<string, LastGuide>;
+  /** lastRepo를 리뷰로 열지 둘러보기로 열지 */
+  lastView: "review" | "guide";
 }
 
 /** ref: 비교할 브랜치나 커밋을 못 찾음(비교를 바꿔야 함), path: 경로 문제, auth: 토큰 거부, connection: 연결 설정이 없음, network: 호스트에 닿지 않음 */
@@ -253,8 +298,14 @@ export interface CallpathApi {
   postNotes(pr: PrMeta, plans: PostPlan[]): Promise<Result<PostResult[]>>;
   /** 정밀 분석 소식을 받는다. 돌려준 함수를 부르면 그만 받는다 */
   onAnalysisEvent(cb: (e: AnalysisEvent) => void): () => void;
+  /** 한 커밋의 저장소 지도와 진입점 목록. 진행은 onGuideProgress로 온다 */
+  guide(req: GuideRequest): Promise<Result<GuideOutcome>>;
+  onGuideProgress(cb: (e: GuideProgressEvent) => void): () => void;
+  tour(target: GuideTarget, entryId: string): Promise<Result<Tour>>;
+  /** 투어 단계에 이 클래스가 나오는 진입점 */
+  entriesThrough(target: GuideTarget, classId: string): Promise<Result<string[]>>;
   loadState(): Promise<UiState>;
   saveState(state: UiState): Promise<void>;
 }
 
-export const EMPTY_STATE: UiState = { recent: [], lastRepo: null, repos: {}, prs: {}, recentPrs: [] };
+export const EMPTY_STATE: UiState = { recent: [], lastRepo: null, repos: {}, prs: {}, recentPrs: [], guides: {}, lastView: "review" };

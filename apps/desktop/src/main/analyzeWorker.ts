@@ -4,9 +4,11 @@ import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { analyze, GitRefSource, mergeBase, type ReviewSession } from "@callpath/core";
+import {
+  analyze, GitRefSource, guide, isLargeRepo, listGuideFiles, mergeBase, suggestDirs, type GuideProgress, type GuideResult, type ReviewSession,
+} from "@callpath/core";
 import { createRefiner, JDTLS } from "@callpath/lsp";
-import type { CompareRequest } from "../shared/api";
+import type { CompareRequest, GuideOutcome, GuideRequest, GuideTarget } from "../shared/api";
 import { SessionCache } from "./cache";
 
 export type WorkerEvent =
@@ -14,7 +16,17 @@ export type WorkerEvent =
   | { id: number; kind: "fast"; ok: false; error: string }
   | { id: number; kind: "status"; message: string }
   | { id: number; kind: "precise"; ok: true; value: ReviewSession }
-  | { id: number; kind: "precise"; ok: false; error: string };
+  | { id: number; kind: "precise"; ok: false; error: string }
+  | { id: number; kind: "reply"; ok: true; value: unknown }
+  | { id: number; kind: "reply"; ok: false; error: string }
+  | { id: number; kind: "guide-progress"; progress: GuideProgress };
+
+/** 둘러보기 요청(설계 7단계). 답은 reply로 한 번 온다 */
+export type GuideAsk =
+  | { type: "guide"; req: GuideRequest }
+  | { type: "tour"; target: GuideTarget; entryId: string }
+  | { type: "through"; target: GuideTarget; classId: string };
+type GuideMessage = GuideAsk & { id: number };
 
 const { userData } = workerData as { userData: string };
 const lspDir = process.env.CALLPATH_LSP_CACHE ?? join(userData, "lsp");
@@ -52,8 +64,12 @@ function prune(dir: string, keep = 5): void {
   }
 }
 
-parentPort!.on("message", async (msg: { id: number; req: CompareRequest }) => {
-  const { id, req } = msg;
+parentPort!.on("message", (msg: { id: number; req: CompareRequest } | GuideMessage) => {
+  if ("type" in msg) void handleGuide(msg);
+  else void runAnalyze(msg.id, msg.req);
+});
+
+async function runAnalyze(id: number, req: CompareRequest): Promise<void> {
   let baseSha: string;
   let headSha: string;
   try {
@@ -80,7 +96,7 @@ parentPort!.on("message", async (msg: { id: number; req: CompareRequest }) => {
   preciseQueue = preciseQueue
     .then(() => runPrecise(id, req, baseSha, headSha, opts))
     .catch((e) => post({ id, kind: "precise", ok: false, error: e instanceof Error ? e.message : String(e) }));
-});
+}
 
 let preciseQueue: Promise<void> = Promise.resolve();
 
@@ -103,4 +119,70 @@ async function runPrecise(id: number, req: CompareRequest, baseSha: string, head
     prune(join(lspDir, "trees"));
     prune(join(lspDir, "work", "jdtls"));
   }
+}
+
+// ---------- 둘러보기 ----------
+
+/** 투어와 클래스를 지나는 진입점은 호출 그래프가 있어야 답할 수 있어, 최근 둘러본 2개를 메모리에 둔다 */
+const guides = new Map<string, Promise<GuideResult>>();
+
+function loadGuide(target: GuideTarget, onProgress?: (p: GuideProgress) => void): Promise<GuideResult> {
+  const key = [target.repo, target.sha, target.dir ?? ""].join("\u0000");
+  const hit = guides.get(key);
+  if (hit) return hit;
+  const p = guide(new GitRefSource(target.repo, target.sha), {
+    ref: target.sha, sha: target.sha, ...(target.dir ? { dir: target.dir } : {}), ...(onProgress ? { onProgress } : {}),
+  });
+  guides.set(key, p);
+  p.catch(() => guides.delete(key));
+  while (guides.size > 2) guides.delete(guides.keys().next().value!);
+  return p;
+}
+
+async function handleGuide(msg: GuideMessage): Promise<void> {
+  try {
+    let value: unknown;
+    if (msg.type === "guide") value = await openGuide(msg.id, msg.req);
+    else {
+      const result = await loadGuide(msg.target);
+      value = msg.type === "tour" ? result.tour(msg.entryId) : result.entriesThrough(msg.classId);
+    }
+    post({ id: msg.id, kind: "reply", ok: true, value });
+  } catch (e) {
+    post({ id: msg.id, kind: "reply", ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+async function openGuide(id: number, req: GuideRequest): Promise<GuideOutcome> {
+  const sha = await new GitRefSource(req.repo, req.ref).resolve();
+  const dir = req.dir?.trim().replace(/^\/+|\/+$/g, "") || null;
+  const target = { repo: req.repo, sha, dir };
+  // 큰 저장소 확인은 캐시보다 먼저 한다. 전체를 한 번 둘러봤어도 새로 열 때는 좁힐지 다시 묻는다(전체를 고른 자리로 돌아갈 때는 force)
+  if (!dir && !req.force) {
+    const { paths } = await listGuideFiles(new GitRefSource(req.repo, sha));
+    if (isLargeRepo(paths.length)) return { status: "large", files: paths.length, sha, dirs: suggestDirs(paths) };
+  }
+  const cached = cache.getGuide(req.repo, sha, dir);
+  if (cached) {
+    // 지도는 바로 그리고, 투어를 물을 때 바로 답하도록 호출 그래프는 뒤에서 다시 만든다
+    loadGuide(target).catch(() => undefined);
+    return { status: "ready", guide: { ...cached, ref: req.ref }, cached: true };
+  }
+  if (dir) {
+    // 오타로 없는 디렉터리를 넣으면 빈 지도 대신 이유를 알린다
+    const { paths, generated } = await listGuideFiles(new GitRefSource(req.repo, sha), dir);
+    if (paths.length === 0) {
+      throw new Error(generated ? `"${dir}" 아래에는 생성 코드만 있습니다.` : `이 커밋에는 "${dir}" 아래 Java, Kotlin 파일이 없습니다. 디렉터리 이름을 확인하세요.`);
+    }
+  }
+  let last = 0;
+  const result = await loadGuide(target, (progress) => {
+    // 파일 읽기 소식은 0.1초에 한 번만 보낸다
+    const now = Date.now();
+    if (progress.stage === "read" && progress.done < progress.total && now - last < 100) return;
+    last = now;
+    post({ id, kind: "guide-progress", progress });
+  });
+  cache.putGuide(req.repo, result.guide);
+  return { status: "ready", guide: { ...result.guide, ref: req.ref }, cached: false };
 }

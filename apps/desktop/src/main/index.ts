@@ -10,9 +10,12 @@ import { Worker } from "node:worker_threads";
 import workerPath from "./analyzeWorker?modulePath";
 import { inspectRepo, PathError, readAt } from "./repo";
 import { loadState, saveState } from "./state";
-import type { AnalysisEvent, CompareRequest, ConnectionInput, ErrorKind, ExplainTarget, FileRequest, LlmSettingsInput, NoteScope, PostPlan, PrMeta, Result, UiState } from "../shared/api";
-import type { WorkerEvent } from "./analyzeWorker";
-import type { ReviewSession } from "@callpath/core";
+import type {
+  AnalysisEvent, CompareRequest, ConnectionInput, ErrorKind, ExplainTarget, FileRequest, GuideOutcome, GuideRequest, GuideTarget, LlmSettingsInput, NoteScope, PostPlan,
+  PrMeta, Result, UiState,
+} from "../shared/api";
+import type { GuideAsk, WorkerEvent } from "./analyzeWorker";
+import type { ReviewSession, Tour } from "@callpath/core";
 
 // 테스트와 여러 프로필 실행을 위해 앱 데이터 폴더를 바꿀 수 있게 한다. ready 전에 정해야 한다
 if (process.env.CALLPATH_USER_DATA) app.setPath("userData", process.env.CALLPATH_USER_DATA);
@@ -26,7 +29,8 @@ function friendly(e: unknown): { error: string; kind: ErrorKind } {
   if (e instanceof LlmError) return { error: msg, kind: e.code === "auth" ? "auth" : e.code === "network" || e.code === "timeout" ? "network" : e.code === "cancelled" ? "cancelled" : "other" };
   if (e instanceof ProviderError) return { error: msg, kind: e.code === "auth" ? "auth" : e.code === "network" ? "network" : e.code === "cancelled" ? "cancelled" : "other" };
   if (/merge-base|unknown revision|bad revision|Not a valid object name|no merge base/i.test(msg)) {
-    const ref = /Not a valid object name ([^\s]+)/.exec(msg)?.[1] ?? /bad revision '([^']+)'/.exec(msg)?.[1] ?? /unknown revision[^']*'([^']+)'/.exec(msg)?.[1];
+    // git은 "ambiguous argument 'x': unknown revision … Use '--' to separate"처럼 말하므로 이름은 ambiguous argument에서 먼저 찾는다
+    const ref = /Not a valid object name ([^\s]+)/.exec(msg)?.[1] ?? /bad revision '([^']+)'/.exec(msg)?.[1] ?? /ambiguous argument '([^']+)'/.exec(msg)?.[1] ?? /unknown revision[^']*'([^']+)'/.exec(msg)?.[1];
     // merge-base는 공통 조상이 없으면 오류 문구 없이 종료 코드 1로 끝난다
     const what = ref
       ? `찾을 수 없는 이름: "${ref}".`
@@ -54,6 +58,9 @@ type WorkerReply = { ok: true; value: ReviewSession } | { ok: false; error: stri
 const pending = new Map<number, (r: WorkerReply | Result<ReviewSession>) => void>();
 /** 요청 번호별로, 정밀 분석 소식을 보낼 창과 요청 */
 const listeners = new Map<number, { sender: WebContents; req: CompareRequest }>();
+/** 둘러보기 요청의 답을 기다리는 곳과, 진행 소식을 보낼 창 */
+const replies = new Map<number, (r: Result<unknown>) => void>();
+const guideListeners = new Map<number, { sender: WebContents; req: GuideRequest }>();
 
 function forward(id: number, ev: AnalysisEvent): void {
   const l = listeners.get(id);
@@ -65,6 +72,17 @@ function getWorker(): Worker {
   const w = new Worker(workerPath, { workerData: { userData: app.getPath("userData") } });
   w.on("message", (m: WorkerEvent) => {
     const l = listeners.get(m.id);
+    if (m.kind === "reply") {
+      replies.get(m.id)?.(m.ok ? { ok: true, value: m.value } : { ok: false, ...friendly(new Error(m.error)) });
+      replies.delete(m.id);
+      guideListeners.delete(m.id);
+      return;
+    }
+    if (m.kind === "guide-progress") {
+      const g = guideListeners.get(m.id);
+      if (g && !g.sender.isDestroyed()) g.sender.send("guide-progress", { req: g.req, progress: m.progress });
+      return;
+    }
     if (m.kind === "fast") {
       pending.get(m.id)?.(m.ok ? { ok: true, value: m.value } : { ok: false, error: m.error });
       pending.delete(m.id);
@@ -79,6 +97,9 @@ function getWorker(): Worker {
   const fail = (message: string) => {
     for (const resolve of pending.values()) resolve({ ok: false, error: message, kind: "other" });
     pending.clear();
+    for (const resolve of replies.values()) resolve({ ok: false, error: message, kind: "other" });
+    replies.clear();
+    guideListeners.clear();
     // 빠른 분석은 끝났고 정밀 분석을 기다리던 화면도 멈추지 않게 알린다
     for (const [id, l] of listeners) forward(id, { req: l.req, kind: "precise-error", error: message });
     listeners.clear();
@@ -101,6 +122,24 @@ async function analyzeInWorker(req: CompareRequest, sender: WebContents): Promis
     pending.set(id, (r) => resolve(r.ok ? r : { ok: false, ...friendly(new Error(r.error)) }));
     getWorker().postMessage({ id, req });
   });
+}
+
+/** 둘러보기 요청을 워커에 보내고 답을 기다린다 */
+function askWorker<T>(msg: GuideAsk, progressTo?: { sender: WebContents; req: GuideRequest }): Promise<Result<T>> {
+  const id = nextId++;
+  if (progressTo) guideListeners.set(id, progressTo);
+  return new Promise((resolve) => {
+    replies.set(id, (r) => resolve(r as Result<T>));
+    getWorker().postMessage({ ...msg, id });
+  });
+}
+
+async function openGuide(req: GuideRequest, sender: WebContents): Promise<Result<GuideOutcome>> {
+  const delay = Number(process.env.CALLPATH_ANALYZE_DELAY_MS ?? 0);
+  if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+  const r = await askWorker<GuideOutcome>({ type: "guide", req }, { sender, req });
+  // 브랜치를 못 찾았을 때 비교 화면 문구가 아니라 둘러보기에 맞는 안내를 준다
+  return r.ok || r.kind !== "ref" ? r : { ...r, error: r.error.replace("비교를 다시 고르세요.", "둘러볼 브랜치나 커밋을 다시 고르세요.") };
 }
 
 // ---------- IPC ----------
@@ -138,6 +177,9 @@ ipcMain.handle("discardExplain", (_e, id: string) => discardExplain(id));
 ipcMain.handle("showLlmLog", () => showLlmLog());
 // 입력 중인 경로와 이름으로 키 파일 상태만 본다(값은 돌려주지 않는다)
 ipcMain.handle("checkKeyFile", (_e, k: { path: string; name: string }) => keyFileStatus(k));
+ipcMain.handle("guide", (e, req: GuideRequest) => openGuide(req, e.sender));
+ipcMain.handle("tour", (_e, target: GuideTarget, entryId: string) => askWorker<Tour>({ type: "tour", target, entryId }));
+ipcMain.handle("entriesThrough", (_e, target: GuideTarget, classId: string) => askWorker<string[]>({ type: "through", target, classId }));
 ipcMain.handle("loadState", () => loadState());
 ipcMain.handle("saveState", (_e, s: UiState) => saveState(s));
 

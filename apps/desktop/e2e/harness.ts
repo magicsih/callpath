@@ -65,6 +65,35 @@ export function makeRepoWithHeadEdit(file: string, edit: (text: string) => strin
   return dir;
 }
 
+/** 둘러보기 표본(fixtures/shop)을 main 브랜치 커밋 하나로 둔 저장소 */
+export function makeShopRepo(): string {
+  const dir = temp("callpath-e2e-shop-");
+  const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  cpSync(join(FIXTURES, "shop"), dir, { recursive: true });
+  git("add", "-A");
+  git("commit", "-qm", "shop");
+  return dir;
+}
+
+/** 큰 저장소 판정(코드 파일 3,000개 초과)을 볼 합성 저장소. 모듈 api, core */
+export function makeLargeRepo(): string {
+  const dir = temp("callpath-e2e-large-");
+  const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=e2e@callpath.test", "-c", "user.name=e2e", ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  for (const mod of ["api", "core"]) {
+    for (let i = 0; i < 1501; i++) {
+      const pkg = `p${Math.floor(i / 100)}`;
+      const path = join(dir, mod, "src/main/java/com/example", mod, pkg);
+      mkdirSync(path, { recursive: true });
+      writeFileSync(join(path, `C${i}.java`), `package com.example.${mod}.${pkg};\n\npublic class C${i} {\n    public int run(int x) {\n        int y = x + 1;\n        return y * 2;\n    }\n}\n`);
+    }
+  }
+  git("add", "-A");
+  git("commit", "-qm", "large");
+  return dir;
+}
+
 export function makeTempDir(prefix: string): string {
   return temp(prefix);
 }
@@ -82,6 +111,9 @@ export async function launch(userData: string, env: Record<string, string> = {})
   });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
+  // CI 맥 화면처럼 작은 창에서 돌려 보려면 E2E_WINDOW=1024x645처럼 준다
+  const size = /^(\d+)x(\d+)$/.exec(process.env.E2E_WINDOW ?? "");
+  if (size) await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0]!.setContentSize(w, h), [Number(size[1]), Number(size[2])] as const);
   return { app, page };
 }
 

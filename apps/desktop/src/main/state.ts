@@ -14,6 +14,8 @@ export async function loadState(): Promise<UiState> {
       repos: raw.repos && typeof raw.repos === "object" ? raw.repos : {},
       prs: raw.prs && typeof raw.prs === "object" ? raw.prs : {},
       recentPrs: Array.isArray(raw.recentPrs) ? raw.recentPrs.slice(0, 10) : [],
+      guides: raw.guides && typeof raw.guides === "object" ? raw.guides : {},
+      lastView: raw.lastView === "guide" ? "guide" : "review",
     };
   } catch {
     return EMPTY_STATE;

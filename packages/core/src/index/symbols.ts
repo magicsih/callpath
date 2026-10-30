@@ -42,7 +42,8 @@ export interface MethodSymbol extends SymbolRef {
   visibility: "public" | "protected" | "private" | "internal" | "package";
   isStatic: boolean;
   isOverride: boolean;
-  params: Array<{ name: string; type: string }>;
+  /** type은 수신자 타입 추론용 단순 이름, display는 화면에 보일 이름(배열, 가변 인자, 널 가능 표시를 남기고 제네릭과 패키지를 뺌) */
+  params: Array<{ name: string; type: string; display: string }>;
   /** 지역 변수 이름 → 단순 타입 이름 */
   locals: Record<string, string>;
   /** 소속 클래스의 qualifiedName. Kotlin 최상위 함수면 null */
@@ -65,6 +66,16 @@ const KOTEST_SPECS = new Set([
 ]);
 
 /** 단순 타입 이름. 제네릭, 널 가능 표시, 배열, 패키지 경로를 뗀다. */
+/** 화면에 보일 매개변수 타입. 예: java.util.List<String> → List, char[] → char[], String... → String..., Long? → Long? */
+export function displayType(text: string): string {
+  let t = text.replace(/@\w+(\([^)]*\))?\s*/g, "").trim();
+  for (let prev = ""; prev !== t; ) {
+    prev = t;
+    t = t.replace(/<[^<>]*>/g, "");
+  }
+  return t.replace(/\b(?:[a-z_]\w*\.)+(?=[A-Za-z])/g, "").replace(/\s+/g, "");
+}
+
 export function simpleType(text: string): string {
   let t = text.trim();
   const lt = t.indexOf("<");
@@ -227,11 +238,12 @@ const JAVA: LanguageSpec = {
     const modifiers = firstChildOfType(n, ["modifiers"]);
     const mods = modifiers ? modifiers.children.filter((c) => !c.isNamed || c.type === "modifier").map((c) => c.text) : [];
     const annotations = javaAnnotations(modifiers);
-    const params: Array<{ name: string; type: string }> = [];
+    const params: MethodSymbol["params"] = [];
     for (const p of childrenOfType(n.childForFieldName("parameters"), ["formal_parameter", "spread_parameter"])) {
       const name = p.childForFieldName("name")?.text ?? firstChildOfType(p, ["variable_declarator"])?.childForFieldName("name")?.text;
       const typeNode = p.childForFieldName("type") ?? p.namedChildren.find((c) => c.type.endsWith("type") || c.type === "type_identifier");
-      if (name && typeNode) params.push({ name, type: simpleType(typeNode.text) });
+      const spread = p.type === "spread_parameter" ? "..." : "";
+      if (name && typeNode) params.push({ name, type: simpleType(typeNode.text), display: displayType(typeNode.text) + spread });
     }
     const locals: Record<string, string> = {};
     if (body) {
@@ -339,11 +351,11 @@ const KOTLIN: LanguageSpec = {
     const modifiers = firstChildOfType(n, ["modifiers"]);
     const vis = firstChildOfType(modifiers, ["visibility_modifier"])?.text;
     const memberMods = childrenOfType(modifiers, ["member_modifier", "inheritance_modifier", "function_modifier"]).map((c) => c.text);
-    const params: Array<{ name: string; type: string }> = [];
+    const params: MethodSymbol["params"] = [];
     for (const p of childrenOfType(firstChildOfType(n, ["function_value_parameters"]), ["parameter"])) {
       const name = firstChildOfType(p, ["identifier"])?.text;
       const type = firstChildOfType(p, ["user_type", "nullable_type", "function_type"])?.text;
-      if (name && type) params.push({ name, type: simpleType(type) });
+      if (name && type) params.push({ name, type: simpleType(type), display: displayType(type) });
     }
     const locals: Record<string, string> = {};
     if (body) {
