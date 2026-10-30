@@ -296,6 +296,29 @@ describe("받는 쪽 타입을 모르는 호출", () => {
   });
 });
 
+describe("수신자 타입 해석", () => {
+  it("같은 패키지의 같은 이름 클래스에 메서드가 없으면 다른 패키지 클래스로 잇는다", async () => {
+    const r = await guideTree({
+      "src/main/java/com/a/Service.java": "package com.a;\n\npublic class Service {\n    public void doWork() {\n        int x = 1;\n        x++;\n    }\n}\n",
+      "src/main/java/com/b/Service.java": "package com.b;\n\npublic class Service {\n}\n",
+      "src/main/java/com/b/Api.java": "package com.b;\n\n@RestController\npublic class Api {\n    private final Service svc;\n    @GetMapping(\"/a\")\n    public void a() {\n        log();\n        svc.doWork();\n    }\n    void log() {}\n}\n",
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.map((s) => s.symbol.qualifiedName)).toEqual(["com.b.Api.a", "com.a.Service.doWork"]);
+  });
+
+  it("상위 클래스가 선언한 필드로 부르는 호출은 단계다", async () => {
+    const r = await guideTree({
+      "src/main/java/p/BaseApi.java": "package p;\n\npublic abstract class BaseApi {\n    protected Helper helper;\n}\n",
+      "src/main/java/p/Helper.java": "package p;\n\npublic class Helper {\n    public void doWork() {\n        int x = 1;\n        x++;\n    }\n}\n",
+      "src/main/java/p/Api.java": "package p;\n\n@RestController\npublic class Api extends BaseApi {\n    @GetMapping(\"/a\")\n    public void a() {\n        log();\n        helper.doWork();\n    }\n    void log() {}\n}\n",
+    });
+    const t = r.tour(r.guide.entries[0]!.id);
+    expect(t.steps.map((s) => s.symbol.name)).toEqual(["a", "doWork"]);
+    expect(t.steps[0]!.guesses).toEqual([]);
+  });
+});
+
 describe("화면용 매개변수 타입", () => {
   it("배열, 가변 인자, 널 가능 표시는 남기고 제네릭과 패키지는 뺀다", async () => {
     const { displayType } = await import("../src/index/symbols.js");

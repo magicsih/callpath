@@ -48,12 +48,22 @@ export function CodeView({ text, language, firstLine, reveal, highlight, marks, 
     };
   }, []);
 
+  // 글이 바뀔 때만 내용을 바꾸고 스크롤을 정한다. 다른 이유로 다시 그려질 때 읽던 위치가 처음으로 튀지 않게 한다
   useEffect(() => {
     const e = editor.current!;
     const model = e.getModel()!;
     monaco.editor.setModelLanguage(model, language);
-    model.setValue(text);
+    if (model.getValue() !== text) model.setValue(text);
     e.updateOptions({ lineNumbers: (n: number) => String(n + firstLine - 1), ariaLabel: label });
+    if (reveal !== null) {
+      e.revealLineNearTop(reveal - firstLine + 1);
+      e.setPosition({ lineNumber: reveal - firstLine + 1, column: 1 });
+    } else e.setScrollTop(0);
+  }, [text, language, firstLine, reveal, label]);
+
+  useEffect(() => {
+    const e = editor.current!;
+    const model = e.getModel()!;
     const local = (line: number) => line - firstLine + 1;
     tint.current!.set(
       highlight ? [{ range: new monaco.Range(local(highlight.from), 1, local(highlight.to), 1), options: { isWholeLine: true, linesDecorationsClassName: "range-bar" } }] : [],
@@ -75,11 +85,7 @@ export function CodeView({ text, language, firstLine, reveal, highlight, marks, 
         options: { isWholeLine: true, className: "tour-line-next" },
       })),
     ]);
-    if (reveal !== null) {
-      e.revealLineNearTop(local(reveal));
-      e.setPosition({ lineNumber: local(reveal), column: 1 });
-    } else e.setScrollTop(0);
-  }, [text, language, firstLine, reveal, highlight?.from, highlight?.to, marks, label]);
+  }, [text, firstLine, highlight?.from, highlight?.to, marks]);
 
   return <div className="diff" ref={host} data-testid="code-view" />;
 }

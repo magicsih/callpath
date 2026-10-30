@@ -286,6 +286,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   };
   const narrowMap = useNarrow("(max-width: 1100px)");
   const narrowTour = useNarrow("(max-width: 820px)");
+  // 표시는 단계가 바뀔 때만 다시 만든다(같은 배열이면 코드 보기가 장식을 다시 깔지 않는다)
+  const marks = useMemo(() => (tour ? tourMarks(tour, step, narrowTour) : []), [tour, step, narrowTour]);
 
   // 오류와 큰 저장소 안내가 뜨면 제목으로 초점을 옮겨 화면 읽기가 이유부터 읽게 한다
   useEffect(() => {
@@ -560,7 +562,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
             firstLine={s.symbol.range.startLine + 1}
             reveal={null}
             highlight={null}
-            marks={tourMarks(tour, s.n, narrowTour)}
+            marks={marks}
             label={`${s.n}단계 ${stepName(tour, s)} 코드`}
             onMarkClick={(to) => goStep(to)}
           />
