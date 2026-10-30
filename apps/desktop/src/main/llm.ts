@@ -199,8 +199,15 @@ const KIND_LABEL: Record<ClassNode["kind"], string> = {
 /** 패키지 설명에 넣는 클래스당 공개 메서드 수 상한 */
 const MAX_METHODS_PER_CLASS = 20;
 
-/** 지도 칩 id에서 클래스 전체 이름. 같은 전체 이름이 두 파일에 있으면 id 끝에 "@경로"가 붙어 있다 */
-const qualifiedNameOf = (n: ClassNode) => n.id.replace(/^file:/, "").replace(/@[^@]*$/, "");
+/**
+ * 지도 칩 id에서 클래스 전체 이름. 같은 전체 이름이 두 파일에 있으면 id 끝에 "@경로"가 붙는다.
+ * 전체 이름에는 @가 들어갈 수 없어 첫 @에서 나눈다(경로 안의 @는 남는다). Kotlin 최상위 함수 파일 칩은 경로다
+ */
+const qualifiedNameOf = (n: ClassNode) => {
+  if (n.kind === "file") return n.id.replace(/^file:/, "");
+  const at = n.id.indexOf("@");
+  return at < 0 ? n.id : n.id.slice(0, at);
+};
 
 /** 패키지 설명용 공개 메서드 시그니처. 파일을 다시 색인해 이름과 매개변수 타입만 꺼낸다(본문은 꺼내지 않는다) */
 async function publicMethods(repo: string, ref: string, nodes: ClassNode[]): Promise<Map<string, string[]>> {
