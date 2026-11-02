@@ -1,0 +1,15 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><title>코드 옆 구간 설명</title><style>body{margin:0;background:#f4f6fa;font:14px/1.6 system-ui;color:#263244}header{padding:18px 24px;background:white;border-bottom:1px solid #d9dfe8}main{display:grid;grid-template-columns:64% 6px 1fr;height:700px;margin:24px;background:white;border:1px solid #d9dfe8}pre{margin:0;padding:22px;overflow:auto;font:14px/2 monospace}.divider{background:#dce3ec}aside{padding:20px;overflow:auto}article{margin-bottom:24px}button{border:0;background:none;color:#2868b5;padding:0}p{margin:6px 0}.active{border-left:2px solid #3477c9;padding:8px;background:#edf4ff}</style><header>OrderService.java　 ☑ 설명 표시　 설명 준비됨　 다시 작성</header><main><pre>10  public class OrderService {
+11      private final StockService stock;
+12      private final PaymentClient payment;
+13
+14      public OrderResult placeOrder(OrderRequest request) {
+15          validate(request);
+16          int amount = totalAmount(request.items());
+17
+18          stock.decrease(request.items());
+19          Payment result = payment.approve(amount);
+20
+21          repository.save(request.orderId(), result);
+22          return new OrderResult(request.orderId(), amount);
+23      }
+24  }</pre><div class="divider"></div><aside><article><button>10줄</button><p>주문을 검증하고 재고와 결제 처리를 연결합니다. 처리 결과를 저장한 뒤 호출한 쪽에 주문 결과를 돌려줍니다.</p></article><article><button>14–16줄</button><p>주문 입력을 확인하고, 상품 목록에서 결제할 금액을 계산합니다.</p></article><article class="active"><button>18–19줄</button><p>재고를 먼저 차감한 뒤 계산한 금액으로 결제를 승인합니다. 결제가 실패했을 때 재고 변경이 복구되는지 확인할 구간입니다.</p></article><article><button>21–23줄</button><p>결제 결과를 저장하고 주문 번호와 결제 금액을 반환합니다.</p></article></aside></main></html>

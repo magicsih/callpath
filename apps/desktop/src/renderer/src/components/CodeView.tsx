@@ -1,11 +1,10 @@
 import { useEffect, useRef } from "react";
-import type { CodeNote } from "@callpath/llm";
-import { readingZones } from "../readingZones";
+import type { RegisterReadingEditor } from "./CodeExplanationSplit";
 import { EDITOR_OPTIONS, monaco } from "../monaco";
 import type { CodeMark } from "../guideNav";
 
 interface Props {
-  annotations?: CodeNote[];
+  onEditor?: RegisterReadingEditor;
   onVisibleLine?: (line: number) => void;
   text: string;
   language: string;
@@ -23,7 +22,7 @@ interface Props {
 }
 
 /** 둘러보기의 읽기 전용 코드 보기. 리뷰 화면의 한 열 보기와 같은 편집기 설정을 쓴다 */
-export function CodeView({ text, language, firstLine, reveal, highlight, marks, label, onMarkClick, annotations, onVisibleLine }: Props) {
+export function CodeView({ text, language, firstLine, reveal, highlight, marks, label, onMarkClick, onEditor, onVisibleLine }: Props) {
   const clickRef = useRef(onMarkClick);
   clickRef.current = onMarkClick;
   const host = useRef<HTMLDivElement>(null);
@@ -91,7 +90,7 @@ export function CodeView({ text, language, firstLine, reveal, highlight, marks, 
     ]);
   }, [text, firstLine, highlight?.from, highlight?.to, marks]);
 
-  useEffect(() => readingZones(editor.current!, annotations ?? [], "code", firstLine), [annotations, firstLine, text]);
+  useEffect(() => onEditor?.("code", editor.current!, firstLine), [onEditor, firstLine]);
   useEffect(() => {
     const e = editor.current!;
     const sub = e.onDidScrollChange(() => { const line = e.getVisibleRanges()[0]?.startLineNumber; if (line) onVisibleLine?.(line + firstLine - 1); });

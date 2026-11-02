@@ -5,7 +5,7 @@ import { launch, makeFixtureRepo, makeUserData, openAndAnalyze, shot } from "./h
 import { startMockLlm, type MockLlm } from "./mockLlm";
 
 const KEY = "sk-e2e-secret-key-9876";
-const chats = (m: MockLlm) => m.requests.filter((r) => r.url === "/v1/chat/completions" && !JSON.stringify(r.body).includes("CALLPATH_CODE_NOTES_V1"));
+const chats = (m: MockLlm) => m.requests.filter((r) => r.url === "/v1/chat/completions" && !JSON.stringify(r.body).includes("CALLPATH_CODE_NOTES_V2"));
 
 test("A10 LLM 추가 요약: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 내용으로 답을 받으며, 보낸 내용이 기록에 남는다", async () => {
   const mock = await startMockLlm();

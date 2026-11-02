@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "status": "approved-user-directed-revision",
+  "design": "README.md",
+  "level": "L3",
+  "redesign": true,
+  "environments": [
+    "macos-electron-dev",
+    "linux-ci",
+    "macos-packaged-arm64",
+    "macos-packaged-x64"
+  ],
+  "independentReviewRounds": 3,
+  "llmEnvironment": "local-mock-only",
+  "release": {
+    "markets": [
+      "macos-homebrew"
+    ],
+    "endpoint": "public",
+    "version": "0.1.1",
+    "basis": "기존 Homebrew 배포 요청과 현재 사용자 수정 지시를 이어서 적용"
+  },
+  "checks": [
+    "요청과 답이 겹치지 않는 의미 단위 구간을 사용하고 V1 캐시는 재사용하지 않는다",
+    "반복 제목과 코드 사이 view zone을 제거하고 코드 왼쪽 설명 오른쪽으로 분할한다",
+    "마우스와 키보드로 너비를 조절하고 작은 창과 확대에서도 좌우를 유지한다",
+    "코드 스크롤, 설명 줄 범위 이동과 강조, diff의 이전과 이후를 확인한다",
+    "원본 파일, 줄 번호, 코드 복사, 메모와 투어 이동을 유지한다",
+    "자동 생성, 캐시, 숨기기, 중단, 오류와 큰 파일 범위를 유지한다",
+    "전체 단위, 타입 검사와 데스크톱 E2E, 실제 실행 독립 검수 3회를 수행한다",
+    "서명한 배포 파일, 공개 다운로드와 Homebrew 설치본을 검증한다"
+  ]
+}

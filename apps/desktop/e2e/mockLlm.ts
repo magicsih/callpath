@@ -37,15 +37,18 @@ export async function startMockLlm(): Promise<MockLlm> {
           return res.end(JSON.stringify({ error: { message: "bad key" } }));
         }
         const body = JSON.parse(raw) as { messages: Array<{ content: string }> };
-        if (body.messages[0]?.content.includes("CALLPATH_CODE_NOTES_V1")) {
+        if (body.messages[0]?.content.includes("CALLPATH_CODE_NOTES_V2")) {
           const data = JSON.parse(body.messages[1]!.content) as { sources: Array<{ id: string; firstLine: number; text: string }>; steps: Array<{ n: number; label: string }> };
           const notes = data.steps.length ? data.steps.map(s => ({ step: s.n, text: `${s.label}에서 다음 작업을 호출해 이 흐름을 이어갑니다.` })) : data.sources.flatMap(s => {
             const lines = s.text.split("\n").map(l => { const m = /^(\d+): (.*)$/.exec(l)!; return { line: Number(m[1]), text: m[2]! }; });
             const classLine = lines.find(l => /\b(class|interface|record|object)\s/.test(l.text))?.line ?? s.firstLine;
-            return [
-              { source: s.id, line: classLine, kind: "class", text: "이 클래스는 주문 처리에 참여하며 필요한 값을 읽고 다음 작업을 호출합니다." },
-              ...lines.filter(l => l.text.trim() && !/^\s*(import |package |[{}]+\s*$|\/\/)/.test(l.text)).map(l => ({ source: s.id, line: l.line, kind: "line", text: l.text.includes("decrease") ? "주문 항목의 재고를 차감합니다. 다음 결제 호출보다 먼저 실행됩니다." : l.text.includes("approve") ? "계산한 금액으로 결제 승인을 요청합니다." : l.text.includes("return") ? "처리 결과를 호출한 쪽으로 돌려줍니다." : "이 줄의 값을 준비하고 이어지는 코드에서 사용합니다." })),
-            ];
+            const meaningful = lines.filter(l => l.text.trim() && !/^\s*(import |package |[{}]+\s*$|\/\/|@)/.test(l.text) && !/\b(class|interface|record|object)\s/.test(l.text));
+            const blocks = [];
+            for (let i = 0; i < meaningful.length; i += 5) {
+              const group = meaningful.slice(i, i + 5), code = group.map(l => l.text).join("\n");
+              blocks.push({ source: s.id, line: group[0]!.line, endLine: group.at(-1)!.line, kind: "block", text: code.includes("decrease") ? "주문 항목의 재고를 차감합니다. 계산한 금액으로 이어지는 결제를 준비합니다." : code.includes("approve") ? "계산한 금액으로 결제 승인을 요청하고 결과를 다음 작업에 전달합니다." : code.includes("return") ? "처리 결과를 조합해 호출한 쪽으로 돌려줍니다." : "이 구간에서 필요한 입력과 참조값을 준비해 다음 작업에 전달합니다." });
+            }
+            return [{ source: s.id, line: classLine, endLine: classLine, kind: "class", text: "이 클래스는 주문 처리에 참여하며 필요한 값을 읽고 다음 작업을 호출합니다." }, ...blocks];
           });
           const reply = mock.automaticReply ?? notes.map(n => JSON.stringify(n)).join("\n") + "\n";
           mock.automaticActive++; mock.maxAutomaticActive = Math.max(mock.maxAutomaticActive, mock.automaticActive);

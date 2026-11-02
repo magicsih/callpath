@@ -546,8 +546,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         ) : fileText === null ? (
           <p className="placeholder" role="status">코드를 읽는 중</p>
         ) : (
-          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: codeNode.path, from: codeNode.range.startLine + 1, to: fileText.split("\n").length }] }} settings={llm} active={active} onSettings={onLlmSettings}>{(annotations, onVisibleLine) => <CodeView
-            annotations={annotations}
+          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: codeNode.path, from: codeNode.range.startLine + 1, to: fileText.split("\n").length }] }} settings={llm} active={active} onSettings={onLlmSettings}>{(onVisibleLine, register) => <CodeView
+            onEditor={register}
             onVisibleLine={line => onVisibleLine("code", line)}
             text={fileText}
             language={languageFor(codeNode.path)}
@@ -590,8 +590,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         ) : fileText === null ? (
           <p className="placeholder" role="status">코드를 읽는 중</p>
         ) : (
-          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: s.symbol.path, from: s.symbol.range.startLine + 1, to: s.symbol.range.endLine + 1 }] }} settings={llm} active={active} onSettings={onLlmSettings}>{(annotations, onVisibleLine) => <CodeView
-            annotations={annotations}
+          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: s.symbol.path, from: s.symbol.range.startLine + 1, to: s.symbol.range.endLine + 1 }] }} settings={llm} active={active} onSettings={onLlmSettings}>{(onVisibleLine, register) => <CodeView
+            onEditor={register}
             onVisibleLine={line => onVisibleLine("code", line)}
             text={fileText.split("\n").slice(s.symbol.range.startLine, s.symbol.range.endLine + 1).join("\n")}
             language={languageFor(s.symbol.path)}

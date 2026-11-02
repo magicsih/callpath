@@ -163,7 +163,7 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
         <section className="banner" aria-labelledby="llm-scope-title" data-testid="llm-scope">
           <h2 id="llm-scope-title" className="section-title">무엇이 어디로 나가는지</h2>
           <ul className="plain">
-            <li>코드를 열면 현재 코드 구간을 자동으로 보내 가상 주석을 작성합니다. 지도에서는 선택한 흐름을 설명합니다. 추가 요약 버튼은 보낼 내용을 먼저 확인합니다.</li>
+            <li>코드를 열면 현재 구간을 자동으로 보내 코드 옆에 의미 단위의 설명을 작성합니다. 지도에서는 선택한 흐름을 설명합니다. 추가 요약 버튼은 보낼 내용을 먼저 확인합니다.</li>
             <li>자동 설명은 현재 클래스와 메서드 구간, 선택한 흐름의 코드와 호출 구조를 보냅니다. 저장소 전체나 미커밋 변경은 보내지 않습니다.</li>
             <li>보낸 내용과 답은 이 컴퓨터의 기록 파일에 남습니다. 키와 헤더 값은 남기지 않습니다.</li>
           </ul>
