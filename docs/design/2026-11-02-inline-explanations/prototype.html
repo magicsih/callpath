@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Callpath 가상 주석 설계 v1</title>
+<style>
+:root{color-scheme:light;--bg:#fff;--side:#f5f6f8;--fg:#24272e;--muted:#626d7f;--border:#d8dce5;--blue:#2f6cf6;--blue-bg:#edf3ff;--comment:#25684b;--comment-bg:#f0f8f3}*{box-sizing:border-box}body{margin:0;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--fg);background:var(--bg)}button,select{font:inherit;color:inherit}button{cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px}button:hover{background:var(--blue-bg)}button:focus-visible,select:focus-visible{outline:3px solid #a8c4ff;outline-offset:2px}button[aria-selected=true],button.primary{background:var(--blue);color:white;border-color:var(--blue)}header{height:49px;display:flex;gap:14px;align-items:center;padding:0 17px;border-bottom:1px solid var(--border)}header strong{font-size:16px}code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.muted{color:var(--muted)}.tag{font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 6px}.design-tag{margin-left:auto;color:var(--muted)}.shell{display:grid;grid-template-columns:190px minmax(0,1fr) 265px;min-height:calc(100vh - 49px)}nav,aside{background:var(--side);padding:16px;border-right:1px solid var(--border)}aside{border-right:0;border-left:1px solid var(--border)}.tabs{display:flex;gap:6px;margin-bottom:25px}.tabs button{flex:1}nav h2,aside h2{font-size:12px;margin:22px 0 10px}nav p{margin:12px 0}.selected-file{background:var(--blue-bg);color:#1749b7;padding:8px;border-radius:5px;margin:0 -8px!important;overflow-wrap:anywhere}.content{min-width:0}.file-head{padding:16px 20px 12px;border-bottom:1px solid var(--border)}.file-head h1{font-size:18px;margin:0 0 9px}.toolbar{display:flex;align-items:center;gap:12px;margin-top:13px;flex-wrap:wrap;font-size:12px}.toolbar label{display:flex;align-items:center;gap:5px}.status{color:var(--comment)}.scope{padding:9px 20px;font-size:11px;background:var(--side);color:var(--muted);border-bottom:1px solid var(--border);overflow-wrap:anywhere}.code{padding:12px 0 40px;font:13px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}.source{display:grid;grid-template-columns:50px minmax(570px,1fr);padding-right:20px}.source .ln{color:#537789;text-align:right;padding-right:15px;user-select:none}.source code{white-space:pre}.annotation{margin:2px 20px 5px 50px;padding:5px 12px;background:var(--comment-bg);border-left:2px solid #92bea2;color:var(--comment);font:12px/1.65 -apple-system,BlinkMacSystemFont,sans-serif;max-width:780px}.annotation.class-note{padding:11px 13px;margin-top:10px;margin-bottom:10px}.annotation b{font-weight:650}.annotation p{margin:4px 0}.virtual-label{font-size:10px;color:#568267;font-weight:500;margin-right:8px}.kw{color:#7a4196}.fold{padding:4px 20px 7px 50px;color:var(--muted);font-size:12px}.side-title{font:600 14px ui-monospace,SFMono-Regular,monospace;margin:0 0 9px}aside p{line-height:1.65;font-size:12px}.route-list{list-style:none;padding:0;margin:0}.route-list li{margin:9px 0}.route-list button{background:transparent;border:0;text-align:left;width:100%;padding:7px 5px;font-size:12px;line-height:1.5;display:flex;gap:9px}.route-list button.active{background:var(--blue-bg);color:#1749b7}.num{background:#e6ebf3;border-radius:100%;width:20px;min-width:20px;height:20px;display:inline-grid;place-items:center;font-size:10px;color:#3b506a}.route-list small{display:block;color:var(--muted);font-size:11px}.summary{border-top:1px solid var(--border);padding-top:16px;margin-top:24px}.map-screen{display:none}.flow-head{padding:18px 20px;border-bottom:1px solid var(--border)}.flow-head h1{font-size:18px;margin:0 0 12px}.flow-head select{max-width:100%;padding:7px;border:1px solid var(--border);border-radius:5px;background:white}.map-grid{padding:22px;display:grid;grid-template-columns:90px repeat(3,minmax(145px,1fr));gap:0;overflow:auto}.map-label{color:var(--muted);font-size:11px;padding:12px 5px;border-bottom:1px solid var(--border)}.cell{min-height:126px;padding:20px 12px;border-bottom:1px solid var(--border);position:relative;display:flex;flex-direction:column;gap:12px;justify-content:center}.row-name{font-size:12px;color:var(--muted);justify-content:flex-start;padding-top:26px}.node{position:relative;border:1px solid var(--border);border-left:3px solid #7b8fac;border-radius:5px;padding:9px;font:12px ui-monospace,SFMono-Regular,monospace;background:white;text-align:left;display:flex;align-items:center;gap:7px;white-space:normal;overflow-wrap:anywhere}.node.current{border:2px solid var(--blue);background:var(--blue-bg);padding:8px}.node .num{background:var(--blue);color:white}.map-note{margin:0 22px;padding:16px 0;border-top:1px solid var(--border);font-size:12px;line-height:1.7}.map-note strong{display:block;margin-bottom:5px}.jump{display:flex;justify-content:space-between;gap:10px;margin-top:16px}.jump button{font-size:12px}.notice{padding:12px 20px;color:#8b5c08;background:#fff8e8;font-size:12px;display:none}.hidden-comments .annotation{display:none}.hidden-comments .status::after{content:' · 주석 숨김'}.map-mode .code-screen{display:none}.map-mode .map-screen{display:block}@media(max-width:1000px){.shell{grid-template-columns:150px minmax(0,1fr)}aside{grid-column:2;border-top:1px solid var(--border);border-left:0}.route-list{display:flex;flex-wrap:wrap}.route-list li{flex:1 1 180px}.source{grid-template-columns:42px minmax(550px,1fr)}.annotation{margin-left:42px}.map-grid{grid-template-columns:65px repeat(3,minmax(130px,1fr));padding:12px}header{font-size:12px;gap:9px}}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#1e2229;--side:#252a33;--fg:#e5e8ee;--muted:#a9b3c3;--border:#3d4655;--blue:#5b8fff;--blue-bg:#293d62;--comment:#b1dbbe;--comment-bg:#253b30}.node,.flow-head select{background:var(--bg)}button.primary{color:#101b2f}.node .num{color:#111f35}.route-list button.active,.selected-file{color:#c5d8ff}.kw{color:#d6adeb}.virtual-label{color:#9abfa5}.num{background:#39465b;color:#d0d9e6}.notice{background:#43381c;color:#f1d69f}}
+</style>
+<header><strong>Callpath</strong><span class="mono">shop</span><span class="tag mono">main@addbef8</span><span class="design-tag">설계 v1 · 화면 예시</span></header>
+<div class="shell" id="app">
+<nav><div class="tabs" role="tablist" aria-label="설계 화면"><button id="code-tab" role="tab" aria-selected="true">코드</button><button id="map-tab" role="tab" aria-selected="false">지도</button></div><h2>패키지 6</h2><p>shop</p><p>config</p><p>coupon</p><p>notification</p><p class="selected-file">order</p><p>payment</p><h2>현재 클래스</h2><p class="mono selected-file">OrderService</p><p class="muted" style="font-size:12px;line-height:1.7">클래스 위에서 역할을 읽고,<br>줄 사이 설명으로 이어 읽기</p></nav>
+<main class="content">
+<section class="code-screen" aria-label="코드 가상 주석 시안">
+<div class="file-head"><h1 class="mono">OrderService.java</h1><span class="muted" style="font-size:12px">src/main/java/com/example/shop/order</span><div class="toolbar"><label><input id="comments" type="checkbox" checked>가상 주석</label><span class="status" id="status" role="status">설명 준비됨 · 저장된 설명</span><button id="regenerate">다시 작성</button></div></div>
+<div class="scope">전송: gateway.example.com · example-model · 이 클래스 9~45줄 · 기록 보기</div><div class="notice" id="loading">설명 작성 중입니다. 코드는 계속 읽을 수 있습니다. <button id="stop">멈추기</button></div>
+<div class="code" id="code">
+<div class="annotation class-note"><span class="virtual-label">가상 주석 · 클래스</span><b>주문 생성 과정을 조율합니다.</b><p>주문 금액과 쿠폰을 확인하고, 재고 차감과 결제 승인, 주문 저장을 차례로 요청합니다. 저장한 주문은 이벤트로 알리고 주문 번호와 금액을 반환합니다.</p></div>
+<div class="source"><span class="ln">9</span><code>@Service</code></div>
+<div class="source"><span class="ln">10</span><code><span class="kw">public class</span> OrderService {</code></div>
+<div class="annotation"><span class="virtual-label">가상 주석</span>쿠폰, 재고, 결제, 저장소, 이벤트 발행을 담당하는 객체를 받아 사용합니다.</div>
+<div class="source"><span class="ln">11</span><code>    <span class="kw">private final</span> CouponCalculator coupons;</code></div>
+<div class="source"><span class="ln">12</span><code>    <span class="kw">private final</span> StockService stock;</code></div>
+<div class="source"><span class="ln">13</span><code>    <span class="kw">private final</span> PaymentClient payment;</code></div>
+<div class="fold">… 필드와 생성자 접힘</div>
+<div class="annotation"><span class="virtual-label">가상 주석 · 메서드</span>주문 요청을 받아 새 주문을 만듭니다. 아래 외부 작업은 코드에 적힌 순서대로 호출합니다.</div>
+<div class="source"><span class="ln">25</span><code>    @Transactional</code></div>
+<div class="source"><span class="ln">26</span><code>    <span class="kw">public</span> OrderResult placeOrder(OrderRequest request) {</code></div>
+<div class="annotation"><span class="virtual-label">가상 주석</span>요청의 총금액을 읽습니다. 쿠폰 계산과 결제 금액 계산에 쓰입니다.</div>
+<div class="source"><span class="ln">27</span><code>        <span class="kw">long</span> amount = request.totalAmount();</code></div>
+<div class="annotation"><span class="virtual-label">가상 주석</span>쿠폰 코드와 총금액으로 할인액을 구합니다. 쿠폰 검증의 세부 규칙은 호출 대상에서 확인합니다.</div>
+<div class="source"><span class="ln">28</span><code>        <span class="kw">long</span> discount = coupons.validateCoupon(request.couponCode(), amount);</code></div>
+<div class="annotation"><span class="virtual-label">가상 주석</span>주문 항목의 재고를 먼저 차감합니다. 다음 줄의 결제 승인보다 앞서 실행됩니다.</div>
+<div class="source"><span class="ln">29</span><code>        stock.decrease(request.items());</code></div>
+<div class="annotation"><span class="virtual-label">가상 주석</span>할인액을 뺀 금액으로 결제 승인을 요청합니다. 실제 구현은 주입된 PaymentClient에 따라 달라집니다.</div>
+<div class="source"><span class="ln">30</span><code>        payment.approve(request.customerId(), amount - discount);</code></div>
+<div class="annotation"><span class="virtual-label">가상 주석</span>결제 요청 뒤 새 주문을 저장합니다. 반환된 주문 객체를 이벤트와 응답에 사용합니다.</div>
+<div class="source"><span class="ln">31</span><code>        Order order = orders.save(<span class="kw">new</span> Order(request.customerId(), amount - discount));</code></div>
+<div class="annotation"><span class="virtual-label">가상 주석</span>저장한 주문을 이벤트 발행 객체에 전달합니다. 누가 이 이벤트를 받는지는 수신 클래스에서 확인합니다.</div>
+<div class="source"><span class="ln">32</span><code>        events.publishPlaced(order);</code></div>
+<div class="annotation"><span class="virtual-label">가상 주석</span>생성된 주문의 번호와 최종 금액을 호출한 쪽에 돌려줍니다.</div>
+<div class="source"><span class="ln">33</span><code>        <span class="kw">return new</span> OrderResult(order.getId(), order.getAmount());</code></div>
+<div class="source"><span class="ln">34</span><code>    }</code></div>
+</div></section>
+<section class="map-screen" aria-label="지도 흐름 설명 시안">
+<div class="flow-head"><h1>흐름 읽기</h1><label for="entry" class="muted">진입점 </label><select id="entry"><option>POST /orders · 주문 생성</option></select><span class="tag" style="margin-left:8px">분석된 호출 순서</span></div>
+<div class="scope">설명 예시 · 코드에서 확인된 단계에 설명을 붙입니다. 확인되지 않은 실행 경로는 확정하지 않습니다.</div>
+<div class="map-grid">
+<div class="map-label">패키지</div><div class="map-label">진입</div><div class="map-label">서비스와 외부 연동</div><div class="map-label">데이터와 이벤트</div>
+<div class="cell row-name">order</div><div class="cell"><button class="node" data-step="0"><span class="num">1</span>OrderController</button></div><div class="cell"><button class="node current" data-step="1"><span class="num">2</span>OrderService</button></div><div class="cell"><button class="node" data-step="5"><span class="num">6</span>OrderRepository</button></div>
+<div class="cell row-name">coupon</div><div class="cell"></div><div class="cell"><button class="node" data-step="2"><span class="num">3</span>CouponCalculator</button></div><div class="cell"></div>
+<div class="cell row-name">order, payment</div><div class="cell"></div><div class="cell"><button class="node" data-step="3"><span class="num">4</span>StockService</button><button class="node" data-step="4"><span class="num">5</span>PaymentClient</button></div><div class="cell"></div>
+<div class="cell row-name">notification</div><div class="cell"></div><div class="cell"></div><div class="cell"><button class="node" data-step="6"><span class="num">7</span>OrderEventPublisher</button></div>
+</div><div class="map-note"><strong id="map-current">2. OrderService</strong><span id="map-description">쿠폰 확인부터 재고 차감, 결제, 주문 저장과 이벤트 발행을 차례로 요청합니다.</span><div class="jump"><button id="open-code" class="primary">OrderService 코드 예시</button><button id="next">다음 단계</button></div></div>
+</section>
+</main>
+<aside><h2 style="margin-top:0">선택한 흐름</h2><p class="mono">POST /orders</p><ol class="route-list" id="steps"></ol><div class="summary"><h2>추가 요약</h2><p class="muted">기존 오른쪽 설명은 더 자세한 요약을 받을 때 사용합니다.</p><button id="summary">흐름 요약</button><p id="summary-note" role="status"></p></div></aside>
+</div>
+<script>
+const root=document.getElementById('app');
+const byId=id=>document.getElementById(id);
+const steps=[['OrderController','주문 요청을 받아 서비스에 전달합니다.'],['OrderService','쿠폰 확인부터 재고 차감, 결제, 주문 저장과 이벤트 발행을 차례로 요청합니다.'],['CouponCalculator','쿠폰 코드와 금액으로 할인액을 구합니다.'],['StockService','주문 항목의 재고 차감을 요청합니다.'],['PaymentClient','할인 후 금액의 결제 승인을 요청합니다. 실제 구현은 주입된 객체에 따라 달라집니다.'],['OrderRepository','새 주문을 저장하고 주문 객체를 돌려줍니다.'],['OrderEventPublisher','저장된 주문을 전달받아 주문 생성 이벤트를 발행합니다.']];
+let current=1,timer=null;
+function selectStep(n){current=n;byId('map-current').textContent=`${n+1}. ${steps[n][0]}`;byId('map-description').textContent=steps[n][1];root.querySelectorAll('[data-step]').forEach(b=>{const active=Number(b.dataset.step)===n;b.classList.toggle('current',active);b.classList.toggle('active',active);if(active)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')})}
+steps.forEach(([name,desc],n)=>{const li=document.createElement('li');const b=document.createElement('button');b.dataset.step=n;const num=document.createElement('span');num.className='num';num.textContent=n+1;const label=document.createElement('span');label.textContent=name;const small=document.createElement('small');small.textContent=desc;label.append(small);b.append(num,label);b.onclick=()=>selectStep(n);li.append(b);byId('steps').append(li)});
+function setView(map){root.classList.toggle('map-mode',map);byId('map-tab').setAttribute('aria-selected',String(map));byId('code-tab').setAttribute('aria-selected',String(!map))}
+byId('code-tab').onclick=()=>setView(false);byId('map-tab').onclick=()=>setView(true);
+byId('comments').onchange=e=>root.classList.toggle('hidden-comments',!e.target.checked);
+byId('next').onclick=()=>selectStep((current+1)%steps.length);
+byId('open-code').onclick=()=>{selectStep(1);setView(false)};
+function stop(){clearTimeout(timer);byId('loading').style.display='none';byId('status').textContent='작성을 멈췄습니다 · 기존 설명 유지'}
+byId('stop').onclick=stop;
+byId('regenerate').onclick=()=>{clearTimeout(timer);byId('loading').style.display='block';byId('status').textContent='설명 작성 중';timer=setTimeout(()=>{byId('loading').style.display='none';byId('status').textContent='설명 준비됨 · 방금 작성'},1800)};
+byId('summary').onclick=()=>byId('summary-note').textContent='추가 요약은 기존처럼 보낼 내용을 먼저 확인합니다.';
+selectStep(1);
+</script>
+</html>
