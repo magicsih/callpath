@@ -168,8 +168,8 @@ describe("추가 헤더", () => {
 
 describe("키 파일", () => {
   it("export 줄과 따옴표, 주석을 정리해 값을 읽고, 없으면 null", () => {
-    const text = "# 주석\nexport MINIMAX_API_KEY=sk-cp-abc\nOTHER=\"q v\" # 꼬리\nEMPTY=";
-    expect(readEnvValue(text, "MINIMAX_API_KEY")).toBe("sk-cp-abc");
+    const text = "# 주석\nexport LLM_API_KEY=sk-test-abc\nOTHER=\"q v\" # 꼬리\nEMPTY=";
+    expect(readEnvValue(text, "LLM_API_KEY")).toBe("sk-test-abc");
     expect(readEnvValue(text, "OTHER")).toBe("q v");
     expect(readEnvValue(text, "EMPTY")).toBeNull();
     expect(readEnvValue(text, "NONE")).toBeNull();
@@ -244,7 +244,7 @@ describe("전송", () => {
     expect(seen[0]!.headers["x-gateway"]).toBe("gw-secret-456");
   });
 
-  it("reasoning_content로 오는 생각 과정은 답에 넣지 않고 생각 중이라고 알린다(MiniMax 형식)", async () => {
+  it("reasoning_content로 오는 생각 과정은 답에 넣지 않고 생각 중이라고 알린다", async () => {
     const { cfg } = await serve((_req, _b, res) => {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { role: "assistant", reasoning_content: "사용자가 묻는 것은…" } }] })}\n\n`);

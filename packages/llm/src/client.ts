@@ -253,7 +253,7 @@ export async function* explain(
           continue;
         }
         if (j.error) throw new LlmError(redact(`끝점이 오류를 보냈습니다. 서버 응답: ${j.error.message ?? ""}`, cfg), "other");
-        // 생각 과정은 reasoning_content로 따로 오거나(MiniMax 등) 본문에 <think>로 섞여 온다. 둘 다 답에 넣지 않는다
+        // 생각 과정은 reasoning_content로 따로 오거나 본문에 <think>로 섞여 온다. 둘 다 답에 넣지 않는다
         if (j.choices?.[0]?.delta?.reasoning_content) opts.onThinking?.();
         const raw = j.choices?.[0]?.delta?.content ?? j.choices?.[0]?.message?.content ?? "";
         if (!raw) continue;

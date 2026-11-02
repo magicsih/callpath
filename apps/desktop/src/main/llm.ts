@@ -19,7 +19,7 @@ interface Stored {
   headers?: string;
   headerNames?: string[];
   /**
-   * 키를 앱에 두지 않고 이 컴퓨터의 파일에서 읽는다(예: ~/.config/…/minimax-api-key.env의 MINIMAX_API_KEY).
+   * 키를 앱에 두지 않고 이 컴퓨터의 파일에서 읽는다(예: ~/.config/…/api-key.env의 LLM_API_KEY).
    * 쓸 때마다 읽으므로 파일의 키를 바꾸면 바로 반영되고, 앱 설정 파일에는 경로와 이름만 남는다
    */
   keyFile?: { path: string; name: string };
@@ -127,7 +127,7 @@ export async function saveLlmSettings(input: LlmSettingsInput, requestId?: strin
     const name = k?.name.trim() ?? "";
     if (!path) throw new Error("키 파일 경로를 넣으세요");
     if (!isAbsolute(expandHome(path))) throw new Error("키 파일 경로는 /나 ~/로 시작하는 전체 경로여야 합니다");
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error("변수 이름은 영문, 숫자, 밑줄만 쓸 수 있습니다(예: MINIMAX_API_KEY)");
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error("변수 이름은 영문, 숫자, 밑줄만 쓸 수 있습니다(예: LLM_API_KEY)");
     next.keyFile = { path, name };
   }
   if (input.headers === undefined) {
