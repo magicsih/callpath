@@ -46,7 +46,7 @@ export function CodeExplanationSplit({ notes, enabled, children }: {
     const active = container?.querySelector<HTMLElement>('[data-active="true"]');
     if (!container || !active) return;
     const top = active.offsetTop, bottom = top + active.offsetHeight;
-    if (top < container.scrollTop) container.scrollTop = top;
+    if (top < container.scrollTop || active.offsetHeight > container.clientHeight) container.scrollTop = top;
     else if (bottom > container.scrollTop + container.clientHeight) container.scrollTop = bottom - container.clientHeight;
   }, [activeKey, enabled]);
   useEffect(() => {

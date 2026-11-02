@@ -139,3 +139,23 @@ test("자동 설명: diff 이전과 이후를 구분하고 끈 상태에서는 �
     await expect(page.getByTestId("diff")).toBeVisible();
   } finally { await app.close(); await mock.close(); }
 });
+
+test("창보다 긴 구간 설명으로 이동해도 첫 문장과 줄 범위부터 읽는다", async () => {
+  const mock = await startMockLlm();
+  mock.automaticReply = [
+    { source: "code", line: 10, endLine: 10, kind: "class", text: "주문을 처리합니다." },
+    { source: "code", line: 11, endLine: 38, kind: "block", text: "입력 확인부터 결제 결과 저장까지 처리합니다. ".repeat(30) },
+  ].map(n => JSON.stringify(n)).join("\n") + "\n";
+  const { app, page } = await launch(makeUserData());
+  try {
+    await configure(page, mock.endpoint); await guide(page, makeShopRepo());
+    const chip = page.locator('[data-testid="map-chip"][data-class-id$=".OrderService"]');
+    await chip.click(); await chip.click();
+    await expect(page.getByTestId("automatic-status")).toHaveText("설명 준비됨");
+    await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]!; w.setContentSize(900, 600); w.webContents.setZoomFactor(1.5); });
+    const range = page.getByRole("button", { name: "11–38줄 코드로 이동", exact: true });
+    await range.click();
+    await expect(range).toBeInViewport();
+    await shot(app, "split-long-active");
+  } finally { await app.close(); await mock.close(); }
+});
