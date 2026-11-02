@@ -12,9 +12,9 @@ type Choice = { title: string; target: NavigationScope; items: NavigationClass[]
 const empty: NavigationReply = { items: [], total: 0 };
 
 /** 원래 보기와 편집기를 보존한 채 타입 코드를 따라 읽는다. */
-export function ClassNavigation({ targets, active, settings, onSettings, onCoveredChange, children }: {
+export function ClassNavigation({ targets, active, settings, onSettings, onCoveredChange, children, pendingMessage }: {
   targets: NavigationScope[]; active: boolean; settings: LlmSettingsView | null; onSettings: () => void;
-  onCoveredChange: (covered: boolean) => void; children: ReactNode;
+  onCoveredChange: (covered: boolean) => void; children: ReactNode; pendingMessage?: string;
 }) {
   const bindings = useRef(new Map<string, EditorBinding>()), focused = useRef<EditorBinding | null>(null);
   const targetsRef = useRef(targets); targetsRef.current = targets;
@@ -31,7 +31,16 @@ export function ClassNavigation({ targets, active, settings, onSettings, onCover
   const dialog = useRef<HTMLDialogElement>(null), input = useRef<HTMLInputElement>(null), before = useRef<HTMLElement | null>(null);
   const listId = useId();
   const scopeKey = JSON.stringify(targets);
-  const target = targets.find(t => t.source === source) ?? targets.at(-1)!;
+  const previousScope = useRef(scopeKey);
+  useEffect(()=>{
+    if (!targets.length) return;
+    if (previousScope.current!=="[]" && previousScope.current!==scopeKey) {
+      epoch.current++; history.current=[null]; cursor.current=0; origin.current=null; setSearching(false); setChoice(null); setMessage(null); refresh(n=>n+1);
+    }
+    previousScope.current=scopeKey;
+  },[scopeKey]);
+  const target = targets.find(t => t.source === source) ?? targets.at(-1);
+  const pickerTarget = choice?.target ?? target;
   const searchKey = JSON.stringify([target,query,limit]);
   const runRef = useRef<(binding: EditorBinding, kind: "definition" | "implementations") => void>(() => {});
   const targetFor = useCallback((id: string) => targetsRef.current.find(t => t.source === id) ?? targetsRef.current.at(-1), [scopeKey]);
@@ -71,7 +80,7 @@ export function ClassNavigation({ targets, active, settings, onSettings, onCover
   const search = () => {
     if (!activeRef.current) return;
     before.current = document.activeElement as HTMLElement;
-    setSource((history.current[cursor.current]?.target ?? focused.current?.target ?? targetsRef.current.at(-1)!).source);
+    setSource((history.current[cursor.current]?.target ?? focused.current?.target ?? targetsRef.current.at(-1))?.source ?? "code");
     setSearching(true); setChoice(null); setQuery(""); setSelection(0); setLimit(100); setPickerError(null);
   };
   const close = () => { epoch.current++; setSearching(false); setChoice(null); setLoading(false); setPickerError(null); before.current?.isConnected && before.current.focus(); };
@@ -145,13 +154,13 @@ export function ClassNavigation({ targets, active, settings, onSettings, onCover
     window.addEventListener("keydown", onKey, true); return () => window.removeEventListener("keydown", onKey, true);
   }, [scopeKey]);
   const pickerOpen = searching || !!choice;
-  useEffect(() => { if (pickerOpen && !dialog.current!.open) { dialog.current!.showModal(); requestAnimationFrame(() => input.current?.focus()); } else if (!pickerOpen && dialog.current!.open) dialog.current!.close(); }, [pickerOpen]);
+  useEffect(() => { const d=dialog.current;if(!d)return;if (pickerOpen && !d.open) { d.showModal(); requestAnimationFrame(() => input.current?.focus()); } else if (!pickerOpen && d.open) d.close(); }, [pickerOpen]);
   useEffect(() => {
-    if (!searching) return;
+    if (!searching || !target) return;
     let alive = true; setLoading(true); setPickerError(null); setSelection(0);
     const timer = setTimeout(() => { void ask(target, {kind:"search",query,limit}).then(r => { if (alive) { setResult(r); setResultKey(searchKey); setLoading(false); } }, e => { if (alive) { setResult(empty); setResultKey(searchKey); setPickerError(String(e.message ?? e)); setLoading(false); } }); }, 100);
     return () => { alive = false; clearTimeout(timer); };
-  }, [searching, query, target.sha, target.dir, limit]);
+  }, [searching, searchKey]);
   const isLoading = loading || searching && resultKey !== searchKey;
   const shown = choice ? choice.items.filter(c => `${c.name} ${c.qualifiedName} ${c.path}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) : resultKey === searchKey ? result.items : [];
   const pick = async (c: NavigationClass) => {
@@ -159,7 +168,7 @@ export function ClassNavigation({ targets, active, settings, onSettings, onCover
       const id = ++epoch.current; setLoading(true);
       try { const r = await ask(choice.target, {kind:"implementors",id:c.id}); if (id === epoch.current) { setLoading(false); if (!r.items.length) setPickerError("현재 범위에 확인된 구현체가 없습니다. 다른 타입을 선택하려면 검색어를 바꾸세요."); else chooseReply(r,choice.target,"implementations"); } }
       catch (e) { if (id === epoch.current) { setLoading(false); setPickerError(String(e)); } }
-    } else open(c, choice?.target ?? target);
+    } else if (pickerTarget) open(c, pickerTarget);
   };
   useEffect(() => { document.getElementById(`${listId}-${selection}`)?.scrollIntoView({block:"nearest"}); }, [selection]);
   return <CodeNavigationContext.Provider value={controller}>
@@ -179,13 +188,13 @@ export function ClassNavigation({ targets, active, settings, onSettings, onCover
         if(e.key==="Enter"&&(e.target===input.current||(e.target as HTMLElement).getAttribute("role")==="option")&&shown[selection]&&!isLoading){e.preventDefault();void pick(shown[selection]!);}
       }}>
         <div className="class-picker-head"><h2 id={`${listId}-title`}>{choice?.title??"클래스 검색"}</h2><button onClick={close} aria-label="클래스 검색 닫기">×</button></div>
-        <div className="class-picker-scope">{!choice&&targets.length>1?<select aria-label="검색할 코드 시점" value={target.source} onChange={e=>{setSource(e.target.value as NavigationScope["source"]);setLimit(100);}}>{targets.map(t=><option key={t.source} value={t.source}>{t.label}@{t.sha.slice(0,7)}</option>)}</select>:<span>{(choice?.target??target).label}@{(choice?.target??target).sha.slice(0,7)}</span>}<span>{(choice?.target??target).dir??"저장소 전체"}</span></div>
+        <div className="class-picker-scope">{!choice&&targets.length>1?<select aria-label="검색할 코드 시점" value={target?.source} onChange={e=>{setSource(e.target.value as NavigationScope["source"]);setLimit(100);}}>{targets.map(t=><option key={t.source} value={t.source}>{t.label}@{t.sha.slice(0,7)}</option>)}</select>:<span>{pickerTarget?`${pickerTarget.label}@${pickerTarget.sha.slice(0,7)}`:"분석 대기"}</span>}<span>{pickerTarget?.dir??"저장소 전체"}</span></div>
         <input ref={input} role="combobox" aria-expanded={pickerOpen} aria-autocomplete="list" aria-label="클래스 이름, 패키지 또는 경로" placeholder="클래스 이름, 패키지 또는 경로" value={query} onChange={e=>{epoch.current++;setLoading(false);setPickerError(null);setQuery(e.target.value);setSelection(0);setLimit(100);}} aria-controls={listId} aria-activedescendant={shown.length?`${listId}-${selection}`:undefined} autoComplete="off"/>
-        <div className="class-picker-results" id={listId} role="listbox" aria-label="클래스 목록" aria-busy={isLoading}>
-          {isLoading?<p className="placeholder" role="status">클래스를 찾는 중</p>:pickerError?<p className="placeholder error-text" role="alert">{pickerError}</p>:!shown.length?<p className="placeholder">일치하는 클래스가 없습니다</p>:shown.map((c,i)=><button key={c.id} id={`${listId}-${i}`} role="option" tabIndex={selection===i?0:-1} aria-selected={selection===i} className={`class-picker-result${selection===i?" selected":""}`} onClick={()=>void pick(c)} onFocus={()=>setSelection(i)}><span><strong>{c.name}</strong><span className="chip">{KIND_LABEL[c.kind]}{c.abstract&&c.kind!=="interface"?", 추상":""}{c.test?", 테스트":""}</span></span><small>{c.packageName||"기본 패키지"}</small><small>{c.path}:{c.namePos.line+1}</small></button>)}
+        <div className="class-picker-results" id={listId} role="listbox" aria-label="클래스 목록" aria-busy={!!target&&isLoading}>
+          {!target?<p className="placeholder" role="status">{pendingMessage??"저장소를 분석하는 중입니다. 완료되면 입력한 이름으로 찾습니다."}</p>:isLoading?<p className="placeholder" role="status">클래스를 찾는 중</p>:pickerError?<p className="placeholder error-text" role="alert">{pickerError}</p>:!shown.length?<p className="placeholder">일치하는 클래스가 없습니다</p>:shown.map((c,i)=><button key={c.id} id={`${listId}-${i}`} role="option" tabIndex={selection===i?0:-1} aria-selected={selection===i} className={`class-picker-result${selection===i?" selected":""}`} onClick={()=>void pick(c)} onFocus={()=>setSelection(i)}><span><strong>{c.name}</strong><span className="chip">{KIND_LABEL[c.kind]}{c.abstract&&c.kind!=="interface"?", 추상":""}{c.test?", 테스트":""}</span></span><small>{c.packageName||"기본 패키지"}</small><small>{c.path}:{c.namePos.line+1}</small></button>)}
           {!choice&&!isLoading&&result.total>result.items.length&&<button onClick={()=>setLimit(n=>n+100)}>100개 더 보기</button>}
         </div>
-        <footer><span>↑ ↓ 선택　Enter 열기　Esc 취소</span><span>{isLoading?"찾는 중":`${choice?shown.length:result.total}개${!choice&&result.total>result.items.length?`, ${result.items.length}개 표시`:""}`}</span></footer>
+        <footer><span>↑ ↓ 선택　Enter 열기　Esc 취소</span><span>{!target?"분석 대기":isLoading?"찾는 중":`${choice?shown.length:result.total}개${!choice&&result.total>result.items.length?`, ${result.items.length}개 표시`:""}`}</span></footer>
       </dialog>
     </div>
   </CodeNavigationContext.Provider>;

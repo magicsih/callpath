@@ -101,3 +101,16 @@ test("클래스 탐색: 100개를 넘는 결과와 선택 항목의 키보드 �
     await page.getByRole("button",{name:"다음 코드 위치",exact:true}).click();await expect(reader(page).getByRole("heading",{level:2})).toHaveText("SearchCase001");
   } finally {await app.close();}
 });
+
+test("클래스 탐색: 처음 분석 중 입력한 검색어를 완료 후에도 유지한다",async()=>{
+  for(const mode of ["review","guide"] as const) {
+    const {app,page}=await launch(makeUserData(),{CALLPATH_ANALYZE_DELAY_MS:"1600"});
+    try {
+      await page.getByLabel("저장소 경로").fill(mode==="review"?compare:repo);await page.getByLabel("저장소 경로").press("Enter");
+      await page.getByRole("button",{name:mode==="review"?"흐름 분석":"둘러보기",exact:true}).click();
+      await expect(page.getByTestId(mode==="review"?"state-loading":"guide-loading")).toBeVisible();
+      await search(page,"OrderService");await expect(picker(page).getByRole("status")).toContainText("분석");
+      await choose(page,"OrderService");await expect(page.getByLabel("클래스 이름, 패키지 또는 경로")).not.toBeVisible();
+    } finally {await app.close();}
+  }
+});

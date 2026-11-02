@@ -327,18 +327,20 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
     if (load.status === "error" || load.status === "large") stateTitle.current?.focus();
   }, [load.status]);
 
+  const withNavigation = (children: React.ReactNode) => <ClassNavigation targets={guide?[{repo:req.repo,sha:guide.sha,dir:guide.dir,source:"code",label:req.ref}]:[]} active={active} settings={llm} onSettings={onLlmSettings} onCoveredChange={setNavigationCovered} pendingMessage={load.status==="error"?"저장소 분석에 실패했습니다. 원래 화면에서 다시 시도하세요.":load.status==="large"?"원래 화면에서 둘러볼 디렉터리를 고르거나 전체 둘러보기를 선택하세요.":undefined}>{children}</ClassNavigation>;
   if (load.status === "loading") {
-    return (
+    return withNavigation(
       <main className="state" aria-busy="true" data-testid="guide-loading">
         <div className="spinner" aria-hidden="true" />
         <p className="state-title" role="status">{progressText(load.progress)}</p>
         <p className="muted">{repoName} {req.ref}{req.dir ? `, ${req.dir}` : ""}</p>
+        <ClassSearchButton/>
         <button onClick={onBack}>비교로</button>
       </main>
     );
   }
   if (load.status === "error") {
-    return (
+    return withNavigation(
       <main className="state" data-testid="guide-error">
         <h1 className="state-title" tabIndex={-1} ref={stateTitle}><Icon name="warn" /> 둘러보지 못했습니다</h1>
         <p className="muted" role="alert">{load.message}</p>
@@ -352,7 +354,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
     );
   }
   if (load.status === "large") {
-    return (
+    return withNavigation(
       <main className="state large" data-testid="guide-large">
         <h1 className="state-title" tabIndex={-1} ref={stateTitle}>코드 파일이 {load.files.toLocaleString()}개입니다</h1>
         <p className="muted small">{repoName} {req.ref}</p>
@@ -699,8 +701,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
       ? selected && `${selected.name}, 부르는 쪽 ${g.links.filter((l) => l.to === selected.id).length}, 부르는 것 ${g.links.filter((l) => l.from === selected.id).length}`
       : currentStep && tour && `${step}단계 ${stepName(tour, currentStep)}, 이어지는 단계 ${childSteps(tour, step).length}`;
   const st = g.stats;
-  return (
-    <ClassNavigation targets={[{repo:req.repo,sha:g.sha,dir:g.dir,source:"code",label:req.ref}]} active={active} settings={llm} onSettings={onLlmSettings} onCoveredChange={setNavigationCovered}>
+  return withNavigation(
     <div className="review guide" data-testid="guide" data-cached={load.cached}>
       <header className="toolbar">
         <span className="brand">Callpath</span>
@@ -759,6 +760,5 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         </footer>
       )}
     </div>
-    </ClassNavigation>
   );
 }

@@ -311,7 +311,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
         </span>
       )}
       <span className="spacer" />
-      {session && <ClassSearchButton/>}
+      <ClassSearchButton/>
       {session && (
         <button
           ref={notesToggle}
@@ -334,8 +334,9 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
     </header>
   );
 
+  const withNavigation = (children: ReactNode) => <ClassNavigation targets={session?[{repo:req.repo,sha:session.base,dir:null,source:"base",label:"이전 코드"},{repo:req.repo,sha:session.head,dir:null,source:"head",label:"이후 코드"}]:[]} active={active} settings={llm} onSettings={()=>onLlmSettings(current?.key??selectedKey,showTests)} onCoveredChange={setNavigationCovered} pendingMessage={analysis.status==="error"?"저장소 분석에 실패했습니다. 원래 화면에서 다시 시도하세요.":undefined}>{children}</ClassNavigation>;
   if (analysis.status === "loading") {
-    return (
+    return withNavigation(
       <div className="review">
         {head}
         <div className="state" role="status" data-testid="state-loading">
@@ -347,7 +348,7 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
     );
   }
   if (analysis.status === "error") {
-    return (
+    return withNavigation(
       <div className="review">
         {head}
         <div className="state" role="alert" data-testid="state-error">
@@ -369,7 +370,6 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
       </div>
     );
   }
-  const withNavigation = (children: ReactNode) => <ClassNavigation targets={[{repo:req.repo,sha:session!.base,dir:null,source:"base",label:"이전 코드"},{repo:req.repo,sha:session!.head,dir:null,source:"head",label:"이후 코드"}]} active={active} settings={llm} onSettings={()=>onLlmSettings(current?.key??selectedKey,showTests)} onCoveredChange={setNavigationCovered}>{children}</ClassNavigation>;
   // 테스트 코드만 바뀌었는데 테스트를 숨겨 둔 경우: 바뀐 것이 없다고 하지 않고 테스트 표시를 안내한다
   if (!current && session && !showTests && session.otherTests.length > 0) {
     return withNavigation(
