@@ -1,8 +1,12 @@
 import { useEffect, useRef } from "react";
+import type { CodeNote } from "@callpath/llm";
+import { readingZones } from "../readingZones";
 import { EDITOR_OPTIONS, monaco } from "../monaco";
 import type { CodeMark } from "../guideNav";
 
 interface Props {
+  annotations?: CodeNote[];
+  onVisibleLine?: (line: number) => void;
   text: string;
   language: string;
   /** text의 첫 줄이 파일의 몇 번째 줄인지(1부터) */
@@ -19,7 +23,7 @@ interface Props {
 }
 
 /** 둘러보기의 읽기 전용 코드 보기. 리뷰 화면의 한 열 보기와 같은 편집기 설정을 쓴다 */
-export function CodeView({ text, language, firstLine, reveal, highlight, marks, label, onMarkClick }: Props) {
+export function CodeView({ text, language, firstLine, reveal, highlight, marks, label, onMarkClick, annotations, onVisibleLine }: Props) {
   const clickRef = useRef(onMarkClick);
   clickRef.current = onMarkClick;
   const host = useRef<HTMLDivElement>(null);
@@ -86,6 +90,13 @@ export function CodeView({ text, language, firstLine, reveal, highlight, marks, 
       })),
     ]);
   }, [text, firstLine, highlight?.from, highlight?.to, marks]);
+
+  useEffect(() => readingZones(editor.current!, annotations ?? [], "code", firstLine), [annotations, firstLine, text]);
+  useEffect(() => {
+    const e = editor.current!;
+    const sub = e.onDidScrollChange(() => { const line = e.getVisibleRanges()[0]?.startLineNumber; if (line) onVisibleLine?.(line + firstLine - 1); });
+    return () => sub.dispose();
+  }, [onVisibleLine, firstLine]);
 
   return <div className="diff" ref={host} data-testid="code-view" />;
 }

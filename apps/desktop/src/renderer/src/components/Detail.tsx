@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CallOrderDiff, ReviewSession, Range, Step, SymbolRef } from "@callpath/core";
-import type { Note } from "../../../shared/api";
+import { AutomaticReading } from "./AutomaticReading";
+import type { AutomaticRequest, LlmSettingsView, Note } from "../../../shared/api";
 import { CHANGE_LABEL, describeMoves, shortName, type NavItem } from "../nav";
 import { languageFor } from "../monaco";
 import { DiffView, type DiffInput, type Highlight } from "./DiffView";
@@ -109,6 +110,9 @@ export interface Crumbs {
 }
 
 interface Props {
+  llm: LlmSettingsView | null;
+  active: boolean;
+  onLlmSettings: () => void;
   item: NavItem;
   session: ReviewSession;
   onGoRef: (() => void) | null;
@@ -140,7 +144,7 @@ export function noteTarget(item: NavItem): { path: string; line: number } | null
   return s ? { path: s.path, line: s.range.startLine + 1 } : null;
 }
 
-export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddNote, noteRequest, reveal, onComposeStart, onShowNotes, headExtra }: Props) {
+export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddNote, noteRequest, reveal, onComposeStart, onShowNotes, headExtra, llm, active, onLlmSettings }: Props) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [chip, setChip] = useState<Highlight | null>(null);
   const target = noteTarget(item);
@@ -204,7 +208,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
       if (!orderToggled.current) setOrderOpen(window.innerHeight >= 560);
     };
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+  return () => window.removeEventListener("resize", onResize);
   }, []);
 
   useEffect(() => {
@@ -251,6 +255,15 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
                 ? `단계에 붙지 않은 테스트 변경 ${item.file.hunks.length}곳을 강조했습니다. 나머지 테스트는 각 단계 아래에서 봅니다.`
                 : null;
 
+  const codePath = item.kind === "file" ? item.file.path : item.kind === "test" ? item.test.symbol.path : item.step.symbol.path;
+  const basePath = item.kind === "file" ? codePath : item.kind === "test" ? item.test.baseSymbol?.path ?? codePath : item.step.baseSymbol?.path ?? codePath;
+  const automaticRequest: AutomaticRequest | null = load.status === "ready" && load.input.language !== "plaintext" ? {
+    kind: "code", repo: session.repo,
+    sources: [
+      ...(load.input.original ? [{ id: "base", ref: session.base, path: basePath, from: load.input.originalStart, to: load.input.originalStart + load.input.original.split("\n").length - 1 }] : []),
+      ...(load.input.modified ? [{ id: "head", ref: session.head, path: codePath, from: load.input.modifiedStart, to: load.input.modifiedStart + load.input.modified.split("\n").length - 1 }] : []),
+    ],
+  } : null;
   return (
     <section className="pane center" aria-label="변경 내용">
       <header className="detail-head">
@@ -408,7 +421,9 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
         {load.status === "loading" && <div className="placeholder" role="status">코드를 읽는 중</div>}
         {load.status === "error" && <div className="placeholder error-text" role="alert"><Icon name="warn" /> 코드를 읽지 못했습니다: {load.message}</div>}
         {load.status === "ready" && (
-          <DiffView
+          <AutomaticReading request={automaticRequest} settings={llm} active={active} onSettings={onLlmSettings}>{(annotations, onVisibleLine) => <DiffView
+            annotations={annotations}
+            onVisibleLine={onVisibleLine}
             input={load.input}
             highlight={chip ?? load.highlight}
             label={`${title} 비교`}
@@ -420,7 +435,7 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
             onNoteRequest={(l) => openComposer(l)}
             focusNonce={focusNonce}
             onNoteGlyph={onShowNotes}
-          />
+          />}</AutomaticReading>
         )}
       </div>
     </section>

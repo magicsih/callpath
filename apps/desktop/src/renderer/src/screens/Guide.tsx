@@ -4,6 +4,8 @@ import type { ErrorKind, ExplainTarget, GuideRequest, GuideTarget, LastGuide, Ll
 import { ExplainDialog, type SavedAnswer } from "../components/Explain";
 import { GuideMap } from "../components/GuideMap";
 import { ClassContext, GuideLlm, TourSide } from "../components/GuideSide";
+import { AutomaticReading } from "../components/AutomaticReading";
+import { FlowReading } from "../components/FlowReading";
 import { CodeView } from "../components/CodeView";
 import { Icon } from "../components/Icon";
 import { languageFor } from "../monaco";
@@ -62,6 +64,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   const [run, setRun] = useState(0);
   const [view, setView] = useState<View>(initial?.view ?? "map");
   const [classId, setClassId] = useState<string | null>(initial?.classId ?? null);
+  const [readingStep, setReadingStep] = useState(1);
   const [codeOf, setCodeOf] = useState<string | null>(null);
   const [entryId, setEntryId] = useState<string | null>(initial?.entryId ?? null);
   const [step, setStep] = useState<number>(initial?.step ?? 1);
@@ -103,6 +106,9 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   const target: GuideTarget | null = guide ? { repo: req.repo, sha: guide.sha, dir: guide.dir } : null;
   const byId = useMemo(() => new Map(guide?.classes.map((c) => [c.id, c]) ?? []), [guide]);
 
+  useEffect(() => {
+    if (active && llm?.enabled && guide && !entryId && guide.entries[0]) setEntryId(guide.entries[0].id);
+  }, [active, llm?.enabled, guide, entryId]);
   // 저장해 둔 자리가 이 커밋에 없으면(클래스가 사라짐 등) 처음 자리로 돌린다
   useEffect(() => {
     if (!guide) return;
@@ -115,6 +121,9 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
 
   const tourState = entryId ? tours[entryId] : undefined;
   const tour = tourState?.status === "ready" ? tourState.tour : null;
+  useEffect(() => {
+    if (active && llm?.enabled && view === "map" && !classId && tour?.steps[0]?.classId) setClassId(tour.steps[0].classId);
+  }, [active, llm?.enabled, view, classId, tour]);
   useEffect(() => {
     if (!target || !entryId || tours[entryId]) return;
     setTours((m) => ({ ...m, [entryId]: { status: "loading" } }));
@@ -518,6 +527,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
     </div>
   );
 
+  const readingCodeStep = tour?.steps.find(s => s.n === readingStep && s.classId === codeNode?.id);
   const fileText = typeof file === "string" ? file : null;
   const fileError = file && typeof file !== "string" && file.error ? file.error : null;
   const mapCenter = codeNode ? (
@@ -536,21 +546,24 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         ) : fileText === null ? (
           <p className="placeholder" role="status">코드를 읽는 중</p>
         ) : (
-          <CodeView
+          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: codeNode.path, from: codeNode.range.startLine + 1, to: fileText.split("\n").length }] }} settings={llm} active={active} onSettings={onLlmSettings}>{(annotations, onVisibleLine) => <CodeView
+            annotations={annotations}
+            onVisibleLine={line => onVisibleLine("code", line)}
             text={fileText}
             language={languageFor(codeNode.path)}
             firstLine={1}
-            reveal={codeNode.range.startLine + 1}
+            reveal={(readingCodeStep?.symbol.range.startLine ?? codeNode.range.startLine) + 1}
             highlight={{ from: codeNode.range.startLine + 1, to: codeNode.range.endLine + 1 }}
             marks={[]}
             label={`${codeNode.name} 코드`}
-          />
+          />}</AutomaticReading>
         )}
       </div>
     </>
   ) : (
     <>
-      <GuideMap guide={g} selected={classId} onSelect={setClassId} onOpen={(id) => setCodeOf(id)} focusRequest={focusRequest} emphasis={emphasis} />
+      <FlowReading guide={g} target={{ repo: req.repo, sha: g.sha, dir: g.dir }} entryId={entryId} tour={tour} step={readingStep} settings={llm} active={active && !codeOf} onEntry={id => { setEntryId(id); setReadingStep(1); setClassId(null); }} onStep={s => { setReadingStep(s.n); if (s.classId) setClassId(s.classId); }} onCode={s => { setReadingStep(s.n); if (s.classId) { setClassId(s.classId); setCodeOf(s.classId); } }} />
+      <GuideMap flow={llm?.enabled ? tour : null} guide={g} selected={classId} onSelect={setClassId} onOpen={(id) => setCodeOf(id)} focusRequest={focusRequest} emphasis={emphasis} />
     </>
   );
 
@@ -577,7 +590,9 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         ) : fileText === null ? (
           <p className="placeholder" role="status">코드를 읽는 중</p>
         ) : (
-          <CodeView
+          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: s.symbol.path, from: s.symbol.range.startLine + 1, to: s.symbol.range.endLine + 1 }] }} settings={llm} active={active} onSettings={onLlmSettings}>{(annotations, onVisibleLine) => <CodeView
+            annotations={annotations}
+            onVisibleLine={line => onVisibleLine("code", line)}
             text={fileText.split("\n").slice(s.symbol.range.startLine, s.symbol.range.endLine + 1).join("\n")}
             language={languageFor(s.symbol.path)}
             firstLine={s.symbol.range.startLine + 1}
@@ -586,7 +601,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
             marks={marks}
             label={`${s.n}단계 ${stepName(tour, s)} 코드`}
             onMarkClick={(to) => goStep(to)}
-          />
+          />}</AutomaticReading>
         )}
       </div>
     </>

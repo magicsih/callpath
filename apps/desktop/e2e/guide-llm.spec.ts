@@ -5,7 +5,7 @@ import { launch, makeShopRepo, makeUserData, shot } from "./harness";
 import { startMockLlm, type MockLlm } from "./mockLlm";
 
 const KEY = "sk-e2e-guide-key-4321";
-const chats = (m: MockLlm) => m.requests.filter((r) => r.url === "/v1/chat/completions");
+const chats = (m: MockLlm) => m.requests.filter((r) => r.url === "/v1/chat/completions" && !JSON.stringify(r.body).includes("CALLPATH_CODE_NOTES_V1"));
 
 test("B11 둘러보기 LLM 설명: 미리보기 없이는 보내지 않고, 패키지 설명에는 메서드 본문이 없다", async () => {
   const mock = await startMockLlm();
@@ -73,7 +73,7 @@ test("B11 둘러보기 LLM 설명: 미리보기 없이는 보내지 않고, 패�
 
     // 기록에는 둘 다 남고 키는 없다
     const log = readFileSync(join(data, "llm-log.jsonl"), "utf8");
-    const kinds = log.trim().split("\n").map((l) => JSON.parse(l)).filter((l) => l.status === "sent").map((l) => l.kind);
+    const kinds = log.trim().split("\n").map((l) => JSON.parse(l)).filter((l) => l.status === "sent" && l.mode !== "automatic").map((l) => l.kind);
     expect(kinds).toEqual(["class", "package"]);
     expect(log).not.toContain(KEY);
   } finally {

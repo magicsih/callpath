@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 const APP_DIR = resolve(__dirname, "..");
 const EXECUTABLE = execFileSync(process.execPath, [join(APP_DIR, "scripts/ensure-electron.mjs"), "--print-path"], { encoding: "utf8" }).trim();
 const FIXTURES = resolve(__dirname, "../../../fixtures");
-export const EVIDENCE = resolve(__dirname, "../test-results/evidence");
+export const EVIDENCE = process.env.CALLPATH_EVIDENCE_DIR ? resolve(process.env.CALLPATH_EVIDENCE_DIR) : resolve(__dirname, "../test-results/evidence");
 
 // 테스트가 만든 임시 저장소와 앱 데이터 폴더는 실행이 끝나면 지운다
 const created: string[] = [];

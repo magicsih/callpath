@@ -5,9 +5,9 @@ import { launch, makeFixtureRepo, makeUserData, openAndAnalyze, shot } from "./h
 import { startMockLlm, type MockLlm } from "./mockLlm";
 
 const KEY = "sk-e2e-secret-key-9876";
-const chats = (m: MockLlm) => m.requests.filter((r) => r.url === "/v1/chat/completions");
+const chats = (m: MockLlm) => m.requests.filter((r) => r.url === "/v1/chat/completions" && !JSON.stringify(r.body).includes("CALLPATH_CODE_NOTES_V1"));
 
-test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 내용으로 답을 받으며, 보낸 내용이 기록에 남는다", async () => {
+test("A10 LLM 추가 요약: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 내용으로 답을 받으며, 보낸 내용이 기록에 남는다", async () => {
   const mock = await startMockLlm();
   const data = makeUserData();
   const { app, page } = await launch(data);
@@ -86,7 +86,7 @@ test("A10 LLM: 미리보기 없이는 보내지 않고, 확인하면 보낸 그 
 
     // 기록: 보내기 전 한 줄(보낸 내용), 끝난 뒤 한 줄(답). 키는 없다
     const log = readFileSync(join(data, "llm-log.jsonl"), "utf8");
-    const lines = log.trim().split("\n").map((l) => JSON.parse(l));
+    const lines = log.trim().split("\n").map((l) => JSON.parse(l)).filter(l => l.mode !== "automatic");
     expect(lines.map((l) => l.status)).toEqual(["sent", "done"]);
     expect(lines[0].messages.map((m: { content: string }) => m.content)).toEqual(shown);
     expect(lines[1].answer).toBe("**재고 차감**이 결제 승인 앞으로 옮겨졌습니다.\n\n- 확인할 점: `approve` 실패 시 되돌림\n- **`decrease` 먼저** 호출");

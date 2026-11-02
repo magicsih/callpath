@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { RepoGuide } from "@callpath/core";
+import type { RepoGuide, Tour } from "@callpath/core";
 import { KIND_LABEL, ROLE_LABEL, implementorCallers, implementors, mapColumns, neighbors } from "../guideNav";
 import { Breakable } from "./Breakable";
 
 interface Props {
+  flow?: Tour | null;
   guide: RepoGuide;
   selected: string | null;
   onSelect: (id: string) => void;
@@ -36,7 +37,7 @@ const DENSE_LINES = 15;
  * 설계 7단계 3.1 지도. 행은 패키지, 열은 역할인 표에 클래스를 칩으로 놓는다(D17).
  * 고른 칩의 연결만 선으로 잇는다. 칩은 하나만 Tab으로 들어가고 화살표로 옮긴다
  */
-export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emphasis }: Props) {
+export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emphasis, flow }: Props) {
   const cols = useMemo(() => mapColumns(guide), [guide]);
   const byId = useMemo(() => new Map(guide.classes.map((c) => [c.id, c])), [guide]);
   // 열마다 그 열 칩 이름의 가장 긴 단어가 끊기지 않는 폭(최소 100px, 최대 170px)을 기본으로 하고,
@@ -358,6 +359,7 @@ export function GuideMap({ guide, selected, onSelect, onOpen, focusRequest, emph
                                 onClick={() => (c.id === selected ? onOpen(c.id) : onSelect(c.id))}
                               >
                                 {c.entryIds.length > 0 && <span className="chip-entry" aria-hidden="true">▶</span>}
+                                {flow && flow.steps.some(s => s.classId === c.id) && <span className="map-flow-numbers" aria-label="흐름 단계">{flow.steps.filter(s => s.classId === c.id).map(s => s.n).join(",")}</span>}
                                 <Breakable text={c.name} />
                                 {c.entryIds.length > 0 && <span className="sr-only">, {guide.noEntries ? "공개 API 투어 있음" : "진입점 있음"}</span>}
                                 {how === "callee" && <span className="sr-only">, 고른 클래스가 부름</span>}
