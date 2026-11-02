@@ -1,13 +1,20 @@
 {
   "version": 1,
-  "status": "proposed",
+  "status": "approved",
   "design": "README.md",
   "level": "L3",
   "redesign": true,
-  "environments": ["macos-electron-dev", "linux-ci"],
+  "environments": [
+    "macos-electron-dev",
+    "linux-ci"
+  ],
   "independentReviewRounds": 3,
   "llmEnvironment": "local-mock-only",
-  "release": { "markets": [], "endpoint": "ready-pr", "reason": "데스크톱 개발 기능 변경. 마켓 배포 없음" },
+  "release": {
+    "markets": [],
+    "endpoint": "ready-pr",
+    "reason": "데스크톱 개발 기능 변경. 마켓 배포 없음"
+  },
   "checks": [
     "LLM이 꺼져 있거나 주소와 모델이 없으면 자동 전송하지 않는다",
     "설정된 코드 화면은 사용자 클릭 없이 자동 요청하고 소스 식별자에 맞는 가상 주석을 표시한다",
@@ -20,5 +27,6 @@
     "900x600과 150% 확대, 키보드 이동, 화면 읽기에서 가상 설명을 확인한다",
     "기존 단위 테스트와 전체 데스크톱 E2E를 실행한다",
     "실제 렌더링과 코드 불변, 네트워크 요청 근거를 독립 검수 3회에 남긴다"
-  ]
+  ],
+  "approvedAt": "2026-11-02"
 }
