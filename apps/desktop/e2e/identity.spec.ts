@@ -17,7 +17,7 @@ test("앱, 창, macOS에 Callpath 이름을 표시한다", async () => {
         const running = $.NSRunningApplication.runningApplicationWithProcessIdentifier(${pid});
         JSON.stringify({ name: ObjC.unwrap(running.localizedName), id: ObjC.unwrap(running.bundleIdentifier) });
       `], { encoding: "utf8" });
-      expect(JSON.parse(identity)).toEqual({ name: "Callpath", id: "io.github.magicsih.callpath.dev" });
+      expect(JSON.parse(identity)).toEqual({ name: "Callpath", id: `io.github.magicsih.callpath${process.env.CALLPATH_E2E_EXECUTABLE ? "" : ".dev"}` });
     }
   } finally {
     await app.close();
