@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(desktop, "../..");
@@ -34,6 +35,12 @@ if (identity) {
 }
 try {
   execFileSync("pnpm", ["--filter", "@callpath/desktop", "--prod", "deploy", "--ignore-scripts", join(stage, "app")], { cwd: root, stdio: "inherit" });
+  const stagedRequire = createRequire(join(stage, "app/package.json"));
+  const coreRequire = createRequire(stagedRequire.resolve("@callpath/core"));
+  // 분석기는 WASM 문법만 쓴다. 사용하지 않는 플랫폼별 Node 확장은 universal 병합에서 제외한다.
+  for (const wasm of ["tree-sitter-java/tree-sitter-java.wasm", "@tree-sitter-grammars/tree-sitter-kotlin/tree-sitter-kotlin.wasm"]) {
+    rmSync(join(dirname(coreRequire.resolve(wasm)), "prebuilds"), { recursive: true, force: true });
+  }
   const [built] = await packager({
     dir: join(stage, "app"), out: join(stage, "packaged"), name: "Callpath",
     platform: "darwin", arch, electronVersion: pkg.devDependencies.electron,
