@@ -34,7 +34,7 @@ if (identity) {
   writeFileSync(join(out, "ci.json"), JSON.stringify(ci, null, 2) + "\n");
 }
 try {
-  execFileSync("pnpm", ["--filter", "@callpath/desktop", "--prod", "deploy", "--ignore-scripts", join(stage, "app")], { cwd: root, stdio: "inherit" });
+  execFileSync("pnpm", ["--config.node-linker=hoisted", "--filter", "@callpath/desktop", "--prod", "deploy", "--ignore-scripts", join(stage, "app")], { cwd: root, stdio: "inherit" });
   const stagedRequire = createRequire(join(stage, "app/package.json"));
   const coreRequire = createRequire(stagedRequire.resolve("@callpath/core"));
   // 분석기는 WASM 문법만 쓴다. 사용하지 않는 플랫폼별 Node 확장은 universal 병합에서 제외한다.
@@ -45,7 +45,7 @@ try {
     dir: join(stage, "app"), out: join(stage, "packaged"), name: "Callpath",
     platform: "darwin", arch, electronVersion: pkg.devDependencies.electron,
     appBundleId: "io.github.magicsih.callpath", appVersion: pkg.version, buildVersion: pkg.version,
-    asar: false, prune: false, derefSymlinks: false,
+    asar: false, prune: false,
     // 배포된 production 의존성만 복사한다. WASM과 worker의 파일 경로를 보존한다.
     osxSign: identity ? {
       identity, continueOnError: false, preAutoEntitlements: false,
