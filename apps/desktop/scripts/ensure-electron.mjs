@@ -43,7 +43,9 @@ if (process.platform === "darwin") {
         CFBundleName: "Callpath",
         CFBundleIdentifier: "io.github.magicsih.callpath.dev",
       })) execFileSync("/usr/bin/plutil", ["-replace", key, "-string", value, plist]);
-      execFileSync("/usr/bin/codesign", ["--force", "--sign", "-", copy], { stdio: "pipe" });
+      // Intel 배포본의 helper는 서명이 없을 수 있어 개발 사본 전체를 ad-hoc 서명한다.
+      // 공개 배포 서명은 package-macos.mjs의 Developer ID 절차를 사용한다.
+      execFileSync("/usr/bin/codesign", ["--force", "--deep", "--sign", "-", copy], { stdio: "pipe" });
       try {
         renameSync(copy, bundle);
       } catch (e) {
