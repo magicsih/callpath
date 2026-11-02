@@ -22,7 +22,9 @@ CALLPATH_E2E_EXECUTABLE="$PWD/release/0.1.0/Callpath.app/Contents/MacOS/Callpath
 python3 scripts/finalize-macos.py prepare release/0.1.0
 ```
 
-`pnpm deploy --prod`로 workspace 의존성을 포함한 독립 폴더를 만든다. WASM과 worker 경로를 보존하기 위해 ASAR로 묶지 않는다. 출력 폴더는 새로 만들어야 하며 기존 후보를 덮어쓰지 않는다. 서명 오류는 빌드를 실패시킨다. 서명에는 hardened runtime과 JIT 실행 권한만 부여한다.
+`pnpm deploy --prod`와 `node-linker=hoisted`로 workspace 의존성을 포함한 독립 폴더를 만든다. WASM과 worker 경로를 보존하기 위해 ASAR로 묶지 않는다. 출력 폴더는 새로 만들어야 하며 기존 후보를 덮어쓰지 않는다. 서명 오류는 빌드를 실패시킨다. 서명에는 hardened runtime과 JIT 실행 권한만 부여한다.
+
+macOS E2E는 `--use-mock-keychain`으로 테스트 키와 사용자의 키체인을 분리한다. 이는 테스트 실행 인자이며 배포 앱의 일반 실행에는 적용하지 않는다. E2E 결과가 실제 키체인 권한 승인을 검증한 것으로 해석되어서는 안 된다.
 
 ## 공증과 공개
 
