@@ -21,6 +21,18 @@ AI가 한 번에 고쳐 올린 PR을 파일 순서가 아니라 호출 흐름 �
 
 ## 새 PC에서 시작하기
 
+### macOS 앱 설치
+
+macOS 13 이상에서 Apple Silicon과 Intel을 지원한다.
+
+```sh
+brew install --cask magicsih/tap/callpath
+```
+
+설치 후 응용 프로그램에서 Callpath를 연다. Node와 pnpm은 개발할 때만 필요하다. Git 저장소 분석에는 Git이 필요하고, Java 정밀 분석은 JDK 21 이상이 있으면 켜진다. 새 버전은 `brew update` 후 `brew upgrade --cask callpath`로 받는다.
+
+[최신 릴리스](https://github.com/magicsih/callpath/releases/latest)에서 ZIP을 직접 받아 설치할 수도 있다. [배포와 검증 절차](docs/releasing.md)를 별도로 기록한다.
+
 ### 준비물
 
 | 필요한 것 | 쓰는 곳 |

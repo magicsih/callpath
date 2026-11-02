@@ -5,6 +5,7 @@
   "license": "MIT",
   "packageManager": "pnpm@12.15.0",
   "scripts": {
+    "package:macos": "pnpm --filter @callpath/desktop exec node scripts/package-macos.mjs",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"

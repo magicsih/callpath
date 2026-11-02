@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         # 공개 저장소라 GitHub 호스트 러너가 무료다. PR에서도 macOS를 함께 돌린다(CI macOS 창은 1024x645라 한 열 diff가 기본)
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     env:
       # JDT LS를 한 번 내려받아 단위, 통합, E2E 테스트가 함께 쓴다
@@ -44,6 +44,14 @@ jobs:
         run: xvfb-run -a pnpm --filter @callpath/desktop exec playwright test
       - name: 데스크톱 E2E (macOS)
         if: runner.os == 'macOS'
+        run: pnpm --filter @callpath/desktop exec playwright test
+      - name: macOS 배포 패키지 만들기
+        if: runner.os == 'macOS'
+        run: pnpm package:macos "$RUNNER_TEMP/callpath-package" "$(node -p 'process.arch')"
+      - name: 설치 패키지 전체 E2E (macOS)
+        if: runner.os == 'macOS'
+        env:
+          CALLPATH_E2E_EXECUTABLE: ${{ runner.temp }}/callpath-package/Callpath.app/Contents/MacOS/Callpath
         run: pnpm --filter @callpath/desktop exec playwright test
       - name: E2E 실패 화면
         if: failure()

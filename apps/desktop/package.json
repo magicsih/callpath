@@ -6,6 +6,7 @@
   "private": true,
   "description": "Callpath 데스크톱 앱",
   "main": "./out/main/index.mjs",
+  "files": ["out"],
   "scripts": {
     "ensure-electron": "node scripts/ensure-electron.mjs",
     "dev": "node --import ./scripts/ensure-electron.mjs ./node_modules/electron-vite/bin/electron-vite.js dev",
@@ -21,6 +22,7 @@
     "@callpath/providers": "workspace:*"
   },
   "devDependencies": {
+    "@electron/packager": "20.3.0",
     "@playwright/test": "1.64.1",
     "@types/node": "^24.0.0",
     "@types/react": "19.3.0",
