@@ -421,8 +421,8 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
         {load.status === "loading" && <div className="placeholder" role="status">코드를 읽는 중</div>}
         {load.status === "error" && <div className="placeholder error-text" role="alert"><Icon name="warn" /> 코드를 읽지 못했습니다: {load.message}</div>}
         {load.status === "ready" && (
-          <AutomaticReading request={automaticRequest} settings={llm} active={active} onSettings={onLlmSettings}>{(annotations, onVisibleLine) => <DiffView
-            annotations={annotations}
+          <AutomaticReading request={automaticRequest} settings={llm} active={active} onSettings={onLlmSettings}>{(onVisibleLine, register) => <DiffView
+            onEditor={register}
             onVisibleLine={onVisibleLine}
             input={load.input}
             highlight={chip ?? load.highlight}

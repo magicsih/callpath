@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CodeNote } from "@callpath/llm";
 import type { AutomaticRequest, LlmSettingsView } from "../../../shared/api";
 import { useAutomatic } from "../useAutomatic";
+import { CodeExplanationSplit, type RegisterReadingEditor } from "./CodeExplanationSplit";
 
 type CodeRequest = Extract<AutomaticRequest, { kind: "code" }>;
 export function AutomaticReading({ request, settings, active, onSettings, children }: {
   request: CodeRequest | null; settings: LlmSettingsView | null; active: boolean; onSettings: () => void;
-  children: (notes: CodeNote[], onVisibleLine: (source: string, line: number) => void) => ReactNode;
+  children: (onVisibleLine: (source: string, line: number) => void, register: RegisterReadingEditor) => ReactNode;
 }) {
   const identity = JSON.stringify(request);
   const [anchors, setAnchors] = useState<Record<string, number>>({});
@@ -18,7 +19,11 @@ export function AutomaticReading({ request, settings, active, onSettings, childr
   useEffect(() => {
     const notes = state.notes.filter((n): n is CodeNote => "source" in n);
     if (!notes.length) return;
-    setCollected(old => ({ identity, notes: [...new Map([...(old.identity === identity ? old.notes : []), ...notes].map(n => [`${n.source}:${n.line}:${n.kind}`, n])).values()] }));
+    setCollected(old => {
+      let merged = old.identity === identity ? old.notes : [];
+      for (const note of notes) merged = [...merged.filter(n => n.source !== note.source || n.kind !== note.kind || (n.kind === "class" ? n.line !== note.line : n.endLine < note.line || note.endLine < n.line)), note];
+      return { identity, notes: merged };
+    });
   }, [state.notes]);
   const visible = (source: string, line: number) => {
     const scope = state.info?.scopes.find(s => s.id === source);
@@ -33,7 +38,7 @@ export function AutomaticReading({ request, settings, active, onSettings, childr
   return <div className="automatic-reading">
     {settings?.enabled && request && <div className="automatic-bar" data-testid="automatic-bar">
       <div className="automatic-controls">
-        <label><input type="checkbox" checked={shown} onChange={e => setShown(e.target.checked)} />가상 주석</label>
+        <label><input type="checkbox" checked={shown} onChange={e => setShown(e.target.checked)} />설명 표시</label>
         <span role="status" data-testid="automatic-status">{state.status === "loading" ? "설명 작성 중" : state.status === "error" ? "설명 작성 실패" : state.status === "stopped" ? "설명 작성 중단" : state.status === "ready" ? state.cached ? "저장된 설명" : "설명 준비됨" : "설명 대기"}</span>
         {state.status === "loading" ? <button className="small" onClick={state.stop}>멈추기</button> : <button className="small" onClick={state.retry}>다시 작성</button>}
         <button className="link small" onClick={onSettings}>LLM 설정</button>
@@ -41,7 +46,6 @@ export function AutomaticReading({ request, settings, active, onSettings, childr
       <div className="automatic-scope muted">{state.info ? `${state.info.endpointHost} · ${state.info.model} · ${state.info.scopes.map(s => `${s.id === "base" ? "이전 " : s.id === "head" ? "이후 " : ""}${s.path.split("/").pop()}:${s.from}~${s.to}${s.truncated ? " (이 구간 설명)" : ""}`).join(", ")}` : "현재 코드 구간을 설정된 모델로 보내 설명합니다."} <button className="link" onClick={() => void window.callpath.showLlmLog()}>기록 보기</button></div>
       {state.status === "error" && <p className="error-text small" role="alert">{state.error} {collected.notes.length > 0 && "아래에는 작성이 끝난 구간만 표시합니다."}</p>}
     </div>}
-    {notes.length > 0 && <section className="sr-only" aria-label="코드 가상 주석"><ol>{notes.map(n => <li key={`${n.source}:${n.line}:${n.kind}`}>{n.source === "base" ? "이전 코드" : n.source === "head" ? "이후 코드" : "현재 코드"} {n.line}줄 {n.kind === "class" ? "클래스 설명" : "설명"}: {n.text}</li>)}</ol></section>}
-    <div className="automatic-content">{children(notes, visible)}</div>
+    <div className="automatic-content"><CodeExplanationSplit notes={notes} enabled={!!(shown && settings?.enabled && request)}>{register => children(visible, register)}</CodeExplanationSplit></div>
   </div>;
 }
