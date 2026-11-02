@@ -61,12 +61,16 @@ test("지도 흐름: 단계 설명과 지도 표시를 잇고 선택한 단계 �
     await expect(page.getByTestId("context-title")).toHaveText("OrderService");
     await expect(page.locator('.map-flow-numbers').first()).toBeVisible();
     await shot(app, "inline-02-map-flow");
+    mock.automaticDelay = 25;
     await panel.getByRole("button", { name: "이 단계 코드 읽기", exact: true }).click();
     await expect(page.getByTestId("automatic-status")).toHaveText(/설명 준비됨|저장된 설명/);
     await expect(page.locator(".reading-note:visible").first()).toBeVisible();
+    await expect(page.locator('.view-line').filter({ hasText: /public.*OrderResult.*placeOrder/ }).first()).toBeInViewport();
+    await expect(page.getByRole("region", { name: "코드 가상 주석", exact: true })).toContainText("이 클래스는 주문 처리");
     await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]!; w.setContentSize(900, 600); w.webContents.setZoomFactor(1.5); });
     await expect(page.getByLabel("가상 주석", { exact: true })).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect.poll(() => page.locator('.automatic-content').evaluate(el => el.querySelector('.monaco-editor')!.getBoundingClientRect().width <= el.getBoundingClientRect().width + 1)).toBe(true);
     await expect.poll(() => page.locator('.reading-note:visible').evaluateAll(nodes =>
       nodes.every(n => n.firstElementChild!.getBoundingClientRect().height <= n.getBoundingClientRect().height),
     )).toBe(true);

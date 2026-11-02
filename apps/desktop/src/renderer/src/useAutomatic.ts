@@ -6,13 +6,12 @@ export function useAutomatic(request: AutomaticRequest | null, settings: LlmSett
   const [state, setState] = useState<{ key: string; status: "off" | "loading" | "ready" | "stopped" | "error"; notes: ReadingNote[]; info: Omit<AutomaticResult, "notes" | "cached"> | null; cached: boolean; error: string }>({ key: "", status: "off", notes: [], info: null, cached: false, error: "" });
   const [run, setRun] = useState(0);
   const stopCurrent = useRef<(() => void) | null>(null);
-  const current = useRef<string | null>(null);
   const force = useRef(false);
   const signature = JSON.stringify(request);
   const enabled = !!(settings?.enabled && settings.endpoint.trim() && settings.model.trim());
   useEffect(() => {
     if (!active || !enabled || !request) { setState(s => ({ ...s, status: "off" })); return; }
-    const id = crypto.randomUUID(); current.current = id;
+    const id = crypto.randomUUID();
     let alive = true;
     const forceThis = force.current; force.current = false;
     setState({ key: signature, status: "loading", notes: [], info: null, cached: false, error: "" });
@@ -28,7 +27,7 @@ export function useAutomatic(request: AutomaticRequest | null, settings: LlmSett
         else setState(s => ({ ...s, status: r.kind === "cancelled" ? "stopped" : "error", error: r.error }));
       });
     }, 400);
-    const stop = () => { alive = false; clearTimeout(timer); off(); void window.callpath.cancelAutomatic(id); if (current.current === id) current.current = null; };
+    const stop = () => { alive = false; clearTimeout(timer); off(); void window.callpath.cancelAutomatic(id); };
     stopCurrent.current = stop;
     return () => { stop(); if (stopCurrent.current === stop) stopCurrent.current = null; };
   }, [signature, enabled, settings?.endpoint, settings?.model, active, run]);

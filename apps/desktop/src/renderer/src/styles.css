@@ -529,7 +529,7 @@ button.link.small { color: var(--accent-ink); }
 .automatic-bar p { margin: 5px 0 0; }
 .reading-note { user-select: text; overflow: visible; }
 .reading-note-content { margin: 3px 12px 3px 0; padding: 5px 10px; border-left: 2px solid #8dbd9f; background: #eff8f1; color: #285e42; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-.reading-note.class .reading-note-content { padding: 9px 12px; }
+.reading-note.class .reading-note-content, .reading-measure.class .reading-note-content { padding: 9px 12px; }
 .reading-label { display: inline-block; margin-right: 8px; font-size: 10px; font-weight: 600; }
 @media (prefers-color-scheme: dark) { .reading-note-content { background: #253b30; color: #b9dfc5; border-left-color: #6e9d7e; } }
 

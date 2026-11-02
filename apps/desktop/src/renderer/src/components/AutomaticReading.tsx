@@ -41,6 +41,7 @@ export function AutomaticReading({ request, settings, active, onSettings, childr
       <div className="automatic-scope muted">{state.info ? `${state.info.endpointHost} · ${state.info.model} · ${state.info.scopes.map(s => `${s.id === "base" ? "이전 " : s.id === "head" ? "이후 " : ""}${s.path.split("/").pop()}:${s.from}~${s.to}${s.truncated ? " (이 구간 설명)" : ""}`).join(", ")}` : "현재 코드 구간을 설정된 모델로 보내 설명합니다."} <button className="link" onClick={() => void window.callpath.showLlmLog()}>기록 보기</button></div>
       {state.status === "error" && <p className="error-text small" role="alert">{state.error} {collected.notes.length > 0 && "아래에는 작성이 끝난 구간만 표시합니다."}</p>}
     </div>}
+    {notes.length > 0 && <section className="sr-only" aria-label="코드 가상 주석"><ol>{notes.map(n => <li key={`${n.source}:${n.line}:${n.kind}`}>{n.source === "base" ? "이전 코드" : n.source === "head" ? "이후 코드" : "현재 코드"} {n.line}줄 {n.kind === "class" ? "클래스 설명" : "설명"}: {n.text}</li>)}</ol></section>}
     <div className="automatic-content">{children(notes, visible)}</div>
   </div>;
 }
