@@ -82,7 +82,7 @@ export interface SavedAnswer {
 type Phase =
   | { s: "preparing" }
   | { s: "preview"; p: ExplainPreview }
-  /** thinking: 모델이 답 전에 생각 과정을 보내는 중(MiniMax 등). 내용은 보이지 않는다 */
+  /** thinking: 모델이 답 전에 생각 과정을 보내는 중. 내용은 보이지 않는다 */
   | { s: "streaming"; p: ExplainPreview; text: string; started: number; thinking?: boolean }
   /** fromSaved: 지난번에 받아 둔 답을 다시 보이는 것 */
   | { s: "done"; title: string; text: string; stopped?: boolean; fromSaved?: boolean }

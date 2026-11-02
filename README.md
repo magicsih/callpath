@@ -36,6 +36,8 @@ AI가 한 번에 고쳐 올린 PR을 파일 순서가 아니라 호출 흐름 �
 - Electron 실행 파일: 처음 `dev`를 띄울 때 GitHub에서 받는다. 사내망에서 막히면 `ELECTRON_MIRROR`로 미러를 지정한 뒤 다시 띄운다. 미리 받아 두려면 `pnpm --filter @callpath/desktop run ensure-electron`을 실행한다.
 - JDT LS 1.61.0(약 50MB): JDK가 있을 때 처음 분석하면서 Eclipse 배포처에서 받는다. 막히면 미리 풀어 둔 폴더를 `CALLPATH_JDTLS_DIR`로 주거나 `CALLPATH_PRECISE=off`로 끈다.
 
+macOS 개발 실행은 `node_modules/.cache/callpath`에 `Callpath.app` 사본을 만들어 Dock과 앱 전환기에도 Callpath로 표시한다. 설치된 Electron 원본은 바꾸지 않는다. E2E도 같은 사본을 사용한다.
+
 ### 설치와 실행
 
 ```sh
@@ -74,15 +76,13 @@ GitHub.com은 로그인된 gh CLI 계정을 그대로 쓸 수 있지만, GitHub 
 
 보낸 내용과 답은 앱 데이터 폴더의 `llm-log.jsonl`에 남는다. 키와 헤더 값은 남기지 않는다.
 
-#### MiniMax
-
-"MiniMax로 채우기"를 누르면 끝점 `https://api.minimax.io/v1`, 모델 `MiniMax-M3.1-Flash`, 변수 이름 `MINIMAX_API_KEY`가 채워진다. MiniMax M Plan 키(`sk-cp-`로 시작)를 쓴다. 키 파일이 있으면 "이 컴퓨터의 키 파일에서 읽기"를 고르고 그 경로를 넣는다. 예를 들어 `~/.config/keys/minimax-api-key.env`처럼 `export MINIMAX_API_KEY=…` 한 줄이 든 파일이다. MiniMax는 답 전에 생각 과정을 보내므로, 그동안 "모델이 답을 생각하는 중"이 보인다. 생각 과정은 답과 기록에 넣지 않는다.
+키 파일은 `~/.config/keys/api-key.env`처럼 `export LLM_API_KEY=…` 한 줄이 든 파일을 쓸 수 있다. 답 전에 생각 과정을 보내는 모델은 그동안 "모델이 답을 생각하는 중"이 보인다. 생각 과정은 답과 기록에 넣지 않는다.
 
 ### 확인한 범위
 
 - macOS와 Ubuntu에서 시험했다(CI). Windows에서는 시험하지 않았다.
 - 실제 PR 게시는 GitHub.com에서 확인했다. GitHub Enterprise와 GitLab은 모의 서버로만 시험했다.
-- LLM은 모의 끝점과 실제 MiniMax로 시험했다.
+- LLM은 모의 끝점과 실제 OpenAI 호환 끝점으로 시험했다.
 - 회사망에서 프록시를 거쳐야 할 때 앱의 API 요청이 시스템 프록시를 따르는지는 확인하지 않았다.
 
 ## 정밀 분석

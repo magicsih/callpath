@@ -1,5 +1,6 @@
 {
   "name": "@callpath/desktop",
+  "productName": "Callpath",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
@@ -7,7 +8,7 @@
   "main": "./out/main/index.mjs",
   "scripts": {
     "ensure-electron": "node scripts/ensure-electron.mjs",
-    "dev": "node scripts/ensure-electron.mjs && electron-vite dev",
+    "dev": "node --import ./scripts/ensure-electron.mjs ./node_modules/electron-vite/bin/electron-vite.js dev",
     "build": "electron-vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

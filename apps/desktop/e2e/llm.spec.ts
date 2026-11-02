@@ -172,7 +172,7 @@ test("LLM 설정: 저장 못 하는 이유, 헤더를 바꾼다는 안내, 저�
   }
 });
 
-test("LLM 키 파일: 키를 앱에 두지 않고 이 컴퓨터의 파일에서 쓸 때마다 읽고, MiniMax로 채우기와 생각 중 표시", async () => {
+test("LLM 키 파일: 키를 앱에 두지 않고 이 컴퓨터의 파일에서 쓸 때마다 읽고, 생각 중 표시", async () => {
   const mock = await startMockLlm();
   const data = makeUserData();
   // 시험용 키 파일은 이 시험의 데이터 폴더 안에 두고 끝나면 지운다
@@ -182,12 +182,9 @@ test("LLM 키 파일: 키를 앱에 두지 않고 이 컴퓨터의 파일에서 
   try {
     await page.getByRole("button", { name: "LLM 설정" }).click();
     await page.getByLabel("LLM 설명 쓰기").check();
-    // MiniMax로 채우기는 공식 OpenAI 호환 주소와 최신 모델, 키 변수 이름을 채운다
     await page.getByLabel("이 컴퓨터의 키 파일에서 읽기").check();
-    await page.getByTestId("preset-minimax").click();
-    await expect(page.getByLabel("끝점 주소")).toHaveValue("https://api.minimax.io/v1");
-    await expect(page.getByLabel("모델")).toHaveValue("MiniMax-M3.1-Flash");
-    await expect(page.getByLabel("변수 이름")).toHaveValue("MINIMAX_API_KEY");
+    await expect(page.getByRole("button", { name: /로 채우기/ })).toHaveCount(0);
+    await expect(page.getByLabel("변수 이름")).toHaveAttribute("placeholder", "LLM_API_KEY");
     // 시험은 모의 끝점과 시험용 키 파일로 한다
     await page.getByLabel("끝점 주소").fill(mock.endpoint);
     await page.getByLabel("모델").fill("test-model");

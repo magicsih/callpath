@@ -199,21 +199,6 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
             <span className="hint" id="llm-endpoint-hint">
               /chat/completions 앞까지의 주소입니다. 사내 게이트웨이나 로컬 모델(예: http://localhost:11434/v1)도 됩니다
             </span>
-            <span className="row presets">
-              <span className="muted small">자주 쓰는 끝점</span>
-              <button
-                type="button"
-                className="small"
-                data-testid="preset-minimax"
-                onClick={() => {
-                  setEndpoint("https://api.minimax.io/v1");
-                  setModel("MiniMax-M3.1-Flash");
-                  if (!keyName.trim()) setKeyName("MINIMAX_API_KEY");
-                }}
-              >
-                MiniMax로 채우기
-              </button>
-            </span>
           </div>
           <div className="ref">
             <label htmlFor="llm-model">모델</label>
@@ -235,7 +220,7 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
               <label htmlFor="llm-key-path">키 파일 경로</label>
               <input id="llm-key-path" ref={keyPathInput} value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="~/.config/…/api-key.env" spellCheck={false} aria-describedby="llm-key-path-hint" />
               <label htmlFor="llm-key-name">변수 이름</label>
-              <input id="llm-key-name" value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="MINIMAX_API_KEY" spellCheck={false} />
+              <input id="llm-key-name" value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="LLM_API_KEY" spellCheck={false} />
               <span className="hint" id="llm-key-path-hint">
                 "export 이름=값" 또는 "이름=값" 줄이 있는 파일입니다. 앱에는 경로와 이름만 저장하고, 쓸 때마다 이 파일을 읽습니다. 키는 화면에 보이지 않습니다.
               </span>

@@ -10,7 +10,7 @@ export interface MockLlm {
   pieces: string[];
   /** 대화 요청을 401로 거절 */
   rejectChat: boolean;
-  /** 답 전에 생각 과정(reasoning_content)을 잠시 보낸다(MiniMax 형식) */
+  /** 답 전에 생각 과정(reasoning_content)을 잠시 보낸다 */
   reasoning: boolean;
   close(): Promise<void>;
 }
