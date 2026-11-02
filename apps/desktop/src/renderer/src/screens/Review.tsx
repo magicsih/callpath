@@ -462,6 +462,9 @@ export function Review({ req, repoName, pr, onRefreshPr, initialSelection, initi
           registerRow={(k, el) => (el ? rows.current.set(k, el) : rows.current.delete(k))}
         />
         <Detail
+          llm={llm}
+          active={active}
+          onLlmSettings={openLlmSettings}
           item={current}
           session={session!}
           onGoRef={target ? () => select(target) : null}

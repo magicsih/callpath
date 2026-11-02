@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import type { CodeNote } from "@callpath/llm";
+import { readingZones } from "../readingZones";
 import { EDITOR_OPTIONS, monaco } from "../monaco";
 
 /**
@@ -28,6 +30,8 @@ export interface Highlight {
 }
 
 interface Props {
+  annotations?: CodeNote[];
+  onVisibleLine?: (source: string, line: number) => void;
   input: DiffInput;
   highlight: Highlight | null;
   label: string;
@@ -92,7 +96,7 @@ export function DiffView(props: Props) {
   return props.input.kind === "diff" ? <SideBySide {...props} /> : <SingleView {...props} />;
 }
 
-function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph }: Props) {
+function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph, annotations, onVisibleLine }: Props) {
   const startRef = useRef(input.modifiedStart);
   startRef.current = input.modifiedStart;
   const baseStartRef = useRef(input.originalStart);
@@ -186,10 +190,23 @@ function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteReques
     editor.current?.getModifiedEditor().focus();
   }, [focusNonce]);
 
+  useEffect(() => {
+    const e = editor.current!;
+    const a = readingZones(e.getOriginalEditor(), annotations ?? [], "base", input.originalStart);
+    const b = readingZones(e.getModifiedEditor(), annotations ?? [], "head", input.modifiedStart);
+    return () => { a(); b(); };
+  }, [annotations, input]);
+  useEffect(() => {
+    const e = editor.current!;
+    const a = e.getOriginalEditor().onDidScrollChange(() => { const line = e.getOriginalEditor().getVisibleRanges()[0]?.startLineNumber; if (line) onVisibleLine?.("base", line + input.originalStart - 1); });
+    const b = e.getModifiedEditor().onDidScrollChange(() => { const line = e.getModifiedEditor().getVisibleRanges()[0]?.startLineNumber; if (line) onVisibleLine?.("head", line + input.modifiedStart - 1); });
+    return () => { a.dispose(); b.dispose(); };
+  }, [onVisibleLine, input]);
+
   return <div className="diff" ref={host} data-testid="diff" data-view="diff" />;
 }
 
-function SingleView({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph }: Props) {
+function SingleView({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph, annotations, onVisibleLine }: Props) {
   const cbs = useRef({ onCursorLine, onNoteRequest, onNoteGlyph });
   cbs.current = { onCursorLine, onNoteRequest, onNoteGlyph };
   const noteDecos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
@@ -246,6 +263,13 @@ function SingleView({ input, highlight, label, notes, onCursorLine, onNoteReques
     handledFocus.current = focusNonce;
     editor.current?.focus();
   }, [focusNonce]);
+
+  useEffect(() => readingZones(editor.current!, annotations ?? [], removed ? "base" : "head", start), [annotations, input, start, removed]);
+  useEffect(() => {
+    const e = editor.current!;
+    const sub = e.onDidScrollChange(() => { const line = e.getVisibleRanges()[0]?.startLineNumber; if (line) onVisibleLine?.(removed ? "base" : "head", line + start - 1); });
+    return () => sub.dispose();
+  }, [onVisibleLine, start, removed]);
 
   return <div className="diff" ref={host} data-testid="diff" data-view={input.kind} />;
 }

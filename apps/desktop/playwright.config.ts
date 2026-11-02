@@ -5,5 +5,5 @@ export default defineConfig({
   timeout: 90_000,
   workers: 1,
   reporter: [["list"]],
-  outputDir: "test-results/playwright",
+  outputDir: process.env.CALLPATH_E2E_OUTPUT_DIR ?? "test-results/playwright",
 });

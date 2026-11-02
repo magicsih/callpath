@@ -223,6 +223,16 @@ export interface ExplainPreview {
 
 export type LlmEvent = { id: string; type: "chunk"; text: string } | { id: string; type: "thinking" } | { id: string; type: "done" } | { id: string; type: "error"; error: string; kind: string };
 
+export type AutomaticRequest =
+  | { kind: "code"; repo: string; sources: Array<{ id: string; ref: string; path: string; from: number; to: number }> }
+  | { kind: "route"; target: GuideTarget; entryId: string };
+export interface AutomaticScope { id: string; path: string; sha: string; from: number; to: number; requestedTo: number; truncated: boolean }
+export interface AutomaticResult { notes: import("@callpath/llm").ReadingNote[]; scopes: AutomaticScope[]; endpointHost: string; model: string; cached: boolean }
+export type AutomaticEvent =
+  | { id: string; type: "scope"; scopes: AutomaticScope[]; endpointHost: string; model: string }
+  | { id: string; type: "thinking" }
+  | { id: string; type: "notes"; notes: import("@callpath/llm").ReadingNote[] };
+
 export interface UiState {
   recent: string[];
   /** 마지막으로 리뷰 화면에 있던 저장소. 시작 화면으로 나가면 null */
@@ -289,6 +299,9 @@ export interface CallpathApi {
   /** 보내지 않고 닫은 미리보기를 버린다 */
   discardExplain(id: string): Promise<void>;
   onLlmEvent(cb: (e: LlmEvent) => void): () => void;
+  automaticExplain(req: AutomaticRequest, id: string, force: boolean): Promise<Result<AutomaticResult>>;
+  cancelAutomatic(id: string): Promise<void>;
+  onAutomaticEvent(cb: (e: AutomaticEvent) => void): () => void;
   showLlmLog(): Promise<void>;
   /** 키 파일에서 그 이름의 값을 찾을 수 있는지. 값은 돌려주지 않는다 */
   checkKeyFile(k: { path: string; name: string }): Promise<"found" | "missing-file" | "missing-name">;

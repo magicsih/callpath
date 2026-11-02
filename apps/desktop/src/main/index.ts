@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
+import { automaticExplain, cancelAutomatic } from "./automatic";
 import { ProviderError } from "@callpath/providers";
 import { LlmError } from "@callpath/llm";
 import { cancelConnectionCheck, deleteConnection, listConnections, saveConnection } from "./connections";
@@ -11,7 +12,7 @@ import workerPath from "./analyzeWorker?modulePath";
 import { inspectRepo, PathError, readAt } from "./repo";
 import { loadState, saveState } from "./state";
 import type {
-  AnalysisEvent, CompareRequest, ConnectionInput, ErrorKind, ExplainTarget, FileRequest, GuideOutcome, GuideRequest, GuideTarget, LlmSettingsInput, NoteScope, PostPlan,
+  AutomaticRequest, AnalysisEvent, CompareRequest, ConnectionInput, ErrorKind, ExplainTarget, FileRequest, GuideOutcome, GuideRequest, GuideTarget, LlmSettingsInput, NoteScope, PostPlan,
   PrMeta, Result, UiState,
 } from "../shared/api";
 import type { GuideAsk, WorkerEvent } from "./analyzeWorker";
@@ -174,6 +175,12 @@ ipcMain.handle("previewExplain", (_e, req: { repo: string; base: string; head: s
 ipcMain.handle("sendExplain", (e, id: string) => wrap(() => sendExplain(id, e.sender)));
 ipcMain.handle("cancelExplain", (_e, id: string) => cancelExplain(id));
 ipcMain.handle("discardExplain", (_e, id: string) => discardExplain(id));
+ipcMain.handle("automaticExplain", (e, req: AutomaticRequest, id: string, force: boolean) => wrap(() => automaticExplain(req, id, force, e.sender, async (target, entryId) => {
+  const r = await askWorker<Tour>({ type: "tour", target, entryId });
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
+})));
+ipcMain.handle("cancelAutomatic", (e, id: string) => cancelAutomatic(id, e.sender.id));
 ipcMain.handle("showLlmLog", () => showLlmLog());
 // 입력 중인 경로와 이름으로 키 파일 상태만 본다(값은 돌려주지 않는다)
 ipcMain.handle("checkKeyFile", (_e, k: { path: string; name: string }) => keyFileStatus(k));

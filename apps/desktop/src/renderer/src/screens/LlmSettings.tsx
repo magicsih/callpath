@@ -163,8 +163,8 @@ export function LlmSettings({ onBack, backLabel = "돌아가기" }: { onBack: ()
         <section className="banner" aria-labelledby="llm-scope-title" data-testid="llm-scope">
           <h2 id="llm-scope-title" className="section-title">무엇이 어디로 나가는지</h2>
           <ul className="plain">
-            <li>"이 흐름 요약", "이 메서드 설명"을 누르면 보낼 내용을 먼저 보여 주고, 확인해야 보냅니다. 저절로 보내는 일은 없습니다.</li>
-            <li>보내는 것은 지금 보는 흐름이나 메서드의 바뀐 코드와 호출 구조뿐입니다. 저장소 전체나 다른 흐름은 보내지 않습니다.</li>
+            <li>코드를 열면 현재 코드 구간을 자동으로 보내 가상 주석을 작성합니다. 지도에서는 선택한 흐름을 설명합니다. 추가 요약 버튼은 보낼 내용을 먼저 확인합니다.</li>
+            <li>자동 설명은 현재 클래스와 메서드 구간, 선택한 흐름의 코드와 호출 구조를 보냅니다. 저장소 전체나 미커밋 변경은 보내지 않습니다.</li>
             <li>보낸 내용과 답은 이 컴퓨터의 기록 파일에 남습니다. 키와 헤더 값은 남기지 않습니다.</li>
           </ul>
           <button className="link" onClick={() => void window.callpath.showLlmLog()} data-testid="llm-log">

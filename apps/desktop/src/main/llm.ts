@@ -279,12 +279,12 @@ export async function previewExplain(req: { repo: string; base: string; head: st
   return { id, payload, endpointHost: new URL(s.endpoint).host, model: s.model };
 }
 
-async function log(entry: Record<string, unknown>): Promise<void> {
+export async function recordLlm(entry: Record<string, unknown>): Promise<void> {
   await mkdir(app.getPath("userData"), { recursive: true });
   await appendFile(logPath(), `${JSON.stringify(entry)}\n`, { mode: 0o600 });
 }
 
-/** 미리보기에서 확인한 그 내용만 보낸다. 미리보기 없이 보내는 길은 없다(설계 3.4, 인수조건 A10) */
+/** 미리보기에서 확인한 그 내용만 보낸다. 보조 설명은 이 경로를 쓰고 코드 자동 설명은 별도 경로를 쓴다 */
 export async function sendExplain(id: string, sender: WebContents): Promise<void> {
   const held = pending.get(id);
   pending.delete(id);
@@ -295,8 +295,8 @@ export async function sendExplain(id: string, sender: WebContents): Promise<void
   const emit = (e: Record<string, unknown>) => !sender.isDestroyed() && sender.send("llm-event", { id, ...e });
   let answer = "";
   // 보내기 전에 무엇을 어디로 보내는지 먼저 남긴다. 앱이 도중에 꺼져도 나간 내용은 기록에 있다(키와 헤더 값은 남기지 않는다)
-  await log({ id, time: new Date().toISOString(), status: "sent", endpoint: p.cfg.endpoint, model: p.cfg.model, kind: p.payload.kind, title: p.payload.title, scope: p.payload.scope, messages: p.payload.messages });
-  const result = (r: Record<string, unknown>) => log({ id, time: new Date().toISOString(), ...r });
+  await recordLlm({ id, time: new Date().toISOString(), status: "sent", endpoint: p.cfg.endpoint, model: p.cfg.model, kind: p.payload.kind, title: p.payload.title, scope: p.payload.scope, messages: p.payload.messages });
+  const result = (r: Record<string, unknown>) => recordLlm({ id, time: new Date().toISOString(), ...r });
   // 답은 기다리지 않고 조각마다 보내고, 끝나면 결과를 한 줄 더 남긴다
   void (async () => {
     try {
@@ -334,4 +334,10 @@ export function cancelExplain(id: string): void {
 
 export function showLlmLog(): void {
   shell.showItemInFolder(logPath());
+}
+
+/** main의 자동 설명에서만 사용하며 키는 렌더러에 보내지 않는다 */
+export async function automaticConfig(): Promise<LlmConfig | null> {
+  const s = await load();
+  return s.enabled && s.endpoint.trim() && s.model.trim() ? configOf(s) : null;
 }

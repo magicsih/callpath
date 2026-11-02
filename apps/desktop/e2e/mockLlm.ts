@@ -12,12 +12,16 @@ export interface MockLlm {
   rejectChat: boolean;
   /** 답 전에 생각 과정(reasoning_content)을 잠시 보낸다 */
   reasoning: boolean;
+  automaticDelay: number;
+  automaticReply?: string;
+  automaticActive: number;
+  maxAutomaticActive: number;
   close(): Promise<void>;
 }
 
 /** OpenAI 호환 끝점을 흉내 낸다. /v1/models와 스트리밍 /v1/chat/completions */
 export async function startMockLlm(): Promise<MockLlm> {
-  const mock = { requests: [], pieces: ["**재고 차감**이 ", "결제 승인 앞으로 ", "옮겨졌습니다.\n\n- 확인할 점: `approve` 실패 시 되돌림\n- **`decrease` 먼저** 호출"], rejectChat: false, reasoning: false } as unknown as MockLlm;
+  const mock = { requests: [], pieces: ["**재고 차감**이 ", "결제 승인 앞으로 ", "옮겨졌습니다.\n\n- 확인할 점: `approve` 실패 시 되돌림\n- **`decrease` 먼저** 호출"], rejectChat: false, reasoning: false, automaticDelay: 0, automaticActive: 0, maxAutomaticActive: 0 } as unknown as MockLlm;
   const server: Server = createServer((req, res) => {
     let raw = "";
     req.on("data", (d) => (raw += d));
@@ -31,6 +35,30 @@ export async function startMockLlm(): Promise<MockLlm> {
         if (mock.rejectChat) {
           res.writeHead(401, { "content-type": "application/json" });
           return res.end(JSON.stringify({ error: { message: "bad key" } }));
+        }
+        const body = JSON.parse(raw) as { messages: Array<{ content: string }> };
+        if (body.messages[0]?.content.includes("CALLPATH_CODE_NOTES_V1")) {
+          const data = JSON.parse(body.messages[1]!.content) as { sources: Array<{ id: string; firstLine: number; text: string }>; steps: Array<{ n: number; label: string }> };
+          const notes = data.steps.length ? data.steps.map(s => ({ step: s.n, text: `${s.label}에서 다음 작업을 호출해 이 흐름을 이어갑니다.` })) : data.sources.flatMap(s => {
+            const lines = s.text.split("\n").map(l => { const m = /^(\d+): (.*)$/.exec(l)!; return { line: Number(m[1]), text: m[2]! }; });
+            const classLine = lines.find(l => /\b(class|interface|record|object)\s/.test(l.text))?.line ?? s.firstLine;
+            return [
+              { source: s.id, line: classLine, kind: "class", text: "이 클래스는 주문 처리에 참여하며 필요한 값을 읽고 다음 작업을 호출합니다." },
+              ...lines.filter(l => l.text.trim() && !/^\s*(import |package |[{}]+\s*$|\/\/)/.test(l.text)).map(l => ({ source: s.id, line: l.line, kind: "line", text: l.text.includes("decrease") ? "주문 항목의 재고를 차감합니다. 다음 결제 호출보다 먼저 실행됩니다." : l.text.includes("approve") ? "계산한 금액으로 결제 승인을 요청합니다." : l.text.includes("return") ? "처리 결과를 호출한 쪽으로 돌려줍니다." : "이 줄의 값을 준비하고 이어지는 코드에서 사용합니다." })),
+            ];
+          });
+          const reply = mock.automaticReply ?? notes.map(n => JSON.stringify(n)).join("\n") + "\n";
+          mock.automaticActive++; mock.maxAutomaticActive = Math.max(mock.maxAutomaticActive, mock.automaticActive);
+          res.writeHead(200, { "content-type": "text/event-stream" });
+          try {
+            for (const p of reply.match(/.{1,170}/gs) ?? []) {
+              if (mock.automaticDelay) await new Promise(r => setTimeout(r, mock.automaticDelay));
+              if (res.destroyed) break;
+              res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: p } }] })}\n\n`);
+            }
+            res.end("data: [DONE]\n\n");
+          } finally { mock.automaticActive--; }
+          return;
         }
         res.writeHead(200, { "content-type": "text/event-stream" });
         if (mock.reasoning)

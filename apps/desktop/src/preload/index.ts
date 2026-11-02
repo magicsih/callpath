@@ -35,6 +35,13 @@ const api: CallpathApi = {
     ipcRenderer.on("llm-event", h);
     return () => ipcRenderer.removeListener("llm-event", h);
   },
+  automaticExplain: (req, id, force) => ipcRenderer.invoke("automaticExplain", req, id, force),
+  cancelAutomatic: (id) => ipcRenderer.invoke("cancelAutomatic", id),
+  onAutomaticEvent: (cb) => {
+    const h = (_e: unknown, ev: Parameters<typeof cb>[0]) => cb(ev);
+    ipcRenderer.on("automatic-event", h);
+    return () => ipcRenderer.removeListener("automatic-event", h);
+  },
   showLlmLog: () => ipcRenderer.invoke("showLlmLog"),
   checkKeyFile: (k) => ipcRenderer.invoke("checkKeyFile", k),
   listNotes: (scope) => ipcRenderer.invoke("listNotes", scope),
