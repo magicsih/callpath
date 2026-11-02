@@ -1,9 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
+import { useNavigationEditor, useNavigationUri, type NavigationDocument } from "../codeNavigation";
 import type { RegisterReadingEditor } from "./CodeExplanationSplit";
 import { EDITOR_OPTIONS, monaco } from "../monaco";
 import type { CodeMark } from "../guideNav";
 
 interface Props {
+  navigation?: NavigationDocument;
+  initialState?: monaco.editor.ICodeEditorViewState | null;
+  autoFocus?: boolean;
+  revealColumn?: number;
   onEditor?: RegisterReadingEditor;
   onVisibleLine?: (line: number) => void;
   text: string;
@@ -22,7 +27,8 @@ interface Props {
 }
 
 /** 둘러보기의 읽기 전용 코드 보기. 리뷰 화면의 한 열 보기와 같은 편집기 설정을 쓴다 */
-export function CodeView({ text, language, firstLine, reveal, highlight, marks, label, onMarkClick, onEditor, onVisibleLine }: Props) {
+export function CodeView({ text, language, firstLine, reveal, highlight, marks, label, onMarkClick, onEditor, onVisibleLine, navigation, initialState, autoFocus, revealColumn }: Props) {
+  const uri = useNavigationUri(navigation, firstLine, useId());
   const clickRef = useRef(onMarkClick);
   clickRef.current = onMarkClick;
   const host = useRef<HTMLDivElement>(null);
@@ -31,7 +37,7 @@ export function CodeView({ text, language, firstLine, reveal, highlight, marks, 
   const markDecos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
 
   useEffect(() => {
-    const e = monaco.editor.create(host.current!, { ...EDITOR_OPTIONS, model: monaco.editor.createModel("", "plaintext") });
+    const e = monaco.editor.create(host.current!, { ...EDITOR_OPTIONS, model: monaco.editor.createModel("", "plaintext", uri) });
     editor.current = e;
     tint.current = e.createDecorationsCollection();
     markDecos.current = e.createDecorationsCollection();
@@ -60,9 +66,9 @@ export function CodeView({ text, language, firstLine, reveal, highlight, marks, 
     e.updateOptions({ lineNumbers: (n: number) => String(n + firstLine - 1), ariaLabel: label });
     if (reveal !== null) {
       e.revealLineNearTop(reveal - firstLine + 1);
-      e.setPosition({ lineNumber: reveal - firstLine + 1, column: 1 });
+      e.setPosition({ lineNumber: reveal - firstLine + 1, column: revealColumn ?? 1 });
     } else e.setScrollTop(0);
-  }, [text, language, firstLine, reveal, label]);
+  }, [text, language, firstLine, reveal, revealColumn, label]);
 
   useEffect(() => {
     const e = editor.current!;
@@ -97,5 +103,7 @@ export function CodeView({ text, language, firstLine, reveal, highlight, marks, 
     return () => sub.dispose();
   }, [onVisibleLine, firstLine]);
 
+  useNavigationEditor(editor, navigation, firstLine);
+  useEffect(() => { if (initialState) editor.current?.restoreViewState(initialState); if (autoFocus) editor.current?.focus(); }, [initialState, autoFocus]);
   return <div className="diff" ref={host} data-testid="code-view" />;
 }

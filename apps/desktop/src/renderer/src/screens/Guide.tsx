@@ -9,6 +9,8 @@ import { FlowReading } from "../components/FlowReading";
 import { CodeView } from "../components/CodeView";
 import { Icon } from "../components/Icon";
 import { languageFor } from "../monaco";
+import { ClassNavigation } from "../components/ClassNavigation";
+import { ClassSearchButton } from "../codeNavigation";
 import { Breakable } from "../components/Breakable";
 import { ENTRY_KIND_LABEL, KIND_LABEL, branchText, childSteps, implementors, neighbors, stepAt, stepName, topClasses, tourMarks } from "../guideNav";
 
@@ -47,8 +49,9 @@ interface Props {
 }
 
 export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, initialDir, active, answerStore, onLlmSettings }: Props) {
+  const [navigationCovered, setNavigationCovered] = useState(false);
   const activeRef = useRef(active);
-  activeRef.current = active;
+  activeRef.current = active && !navigationCovered;
   // LLM 설명: 설정(켜짐 여부), 열린 설명 대화상자, 받은 답
   const [llm, setLlm] = useState<LlmSettingsView | null>(null);
   useEffect(() => {
@@ -107,8 +110,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   const byId = useMemo(() => new Map(guide?.classes.map((c) => [c.id, c]) ?? []), [guide]);
 
   useEffect(() => {
-    if (active && llm?.enabled && guide && !entryId && guide.entries[0]) setEntryId(guide.entries[0].id);
-  }, [active, llm?.enabled, guide, entryId]);
+    if (active && !navigationCovered && llm?.enabled && guide && !entryId && guide.entries[0]) setEntryId(guide.entries[0].id);
+  }, [active, navigationCovered, llm?.enabled, guide, entryId]);
   // 저장해 둔 자리가 이 커밋에 없으면(클래스가 사라짐 등) 처음 자리로 돌린다
   useEffect(() => {
     if (!guide) return;
@@ -122,8 +125,8 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
   const tourState = entryId ? tours[entryId] : undefined;
   const tour = tourState?.status === "ready" ? tourState.tour : null;
   useEffect(() => {
-    if (active && llm?.enabled && view === "map" && !classId && tour?.steps[0]?.classId) setClassId(tour.steps[0].classId);
-  }, [active, llm?.enabled, view, classId, tour]);
+    if (active && !navigationCovered && llm?.enabled && view === "map" && !classId && tour?.steps[0]?.classId) setClassId(tour.steps[0].classId);
+  }, [active, navigationCovered, llm?.enabled, view, classId, tour]);
   useEffect(() => {
     if (!target || !entryId || tours[entryId]) return;
     setTours((m) => ({ ...m, [entryId]: { status: "loading" } }));
@@ -324,18 +327,20 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
     if (load.status === "error" || load.status === "large") stateTitle.current?.focus();
   }, [load.status]);
 
+  const withNavigation = (children: React.ReactNode) => <ClassNavigation targets={guide?[{repo:req.repo,sha:guide.sha,dir:guide.dir,source:"code",label:req.ref}]:[]} active={active} settings={llm} onSettings={onLlmSettings} onCoveredChange={setNavigationCovered} pendingMessage={load.status==="error"?"저장소 분석에 실패했습니다. 원래 화면에서 다시 시도하세요.":load.status==="large"?"원래 화면에서 둘러볼 디렉터리를 고르거나 전체 둘러보기를 선택하세요.":undefined}>{children}</ClassNavigation>;
   if (load.status === "loading") {
-    return (
+    return withNavigation(
       <main className="state" aria-busy="true" data-testid="guide-loading">
         <div className="spinner" aria-hidden="true" />
         <p className="state-title" role="status">{progressText(load.progress)}</p>
         <p className="muted">{repoName} {req.ref}{req.dir ? `, ${req.dir}` : ""}</p>
+        <ClassSearchButton/>
         <button onClick={onBack}>비교로</button>
       </main>
     );
   }
   if (load.status === "error") {
-    return (
+    return withNavigation(
       <main className="state" data-testid="guide-error">
         <h1 className="state-title" tabIndex={-1} ref={stateTitle}><Icon name="warn" /> 둘러보지 못했습니다</h1>
         <p className="muted" role="alert">{load.message}</p>
@@ -349,7 +354,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
     );
   }
   if (load.status === "large") {
-    return (
+    return withNavigation(
       <main className="state large" data-testid="guide-large">
         <h1 className="state-title" tabIndex={-1} ref={stateTitle}>코드 파일이 {load.files.toLocaleString()}개입니다</h1>
         <p className="muted small">{repoName} {req.ref}</p>
@@ -546,7 +551,9 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         ) : fileText === null ? (
           <p className="placeholder" role="status">코드를 읽는 중</p>
         ) : (
-          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: codeNode.path, from: codeNode.range.startLine + 1, to: fileText.split("\n").length }] }} settings={llm} active={active} onSettings={onLlmSettings}>{(onVisibleLine, register) => <CodeView
+          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: codeNode.path, from: codeNode.range.startLine + 1, to: fileText.split("\n").length }] }} settings={llm} active={active && !navigationCovered} onSettings={onLlmSettings}>{(onVisibleLine, register) => <CodeView
+            key={`${g.sha}:${codeNode.path}`}
+            navigation={{path:codeNode.path,source:"code"}}
             onEditor={register}
             onVisibleLine={line => onVisibleLine("code", line)}
             text={fileText}
@@ -562,7 +569,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
     </>
   ) : (
     <>
-      <FlowReading guide={g} target={{ repo: req.repo, sha: g.sha, dir: g.dir }} entryId={entryId} tour={tour} step={readingStep} settings={llm} active={active && !codeOf} onEntry={id => { setEntryId(id); setReadingStep(1); setClassId(null); }} onStep={s => { setReadingStep(s.n); if (s.classId) setClassId(s.classId); }} onCode={s => { setReadingStep(s.n); if (s.classId) { setClassId(s.classId); setCodeOf(s.classId); } }} />
+      <FlowReading guide={g} target={{ repo: req.repo, sha: g.sha, dir: g.dir }} entryId={entryId} tour={tour} step={readingStep} settings={llm} active={active && !codeOf && !navigationCovered} onEntry={id => { setEntryId(id); setReadingStep(1); setClassId(null); }} onStep={s => { setReadingStep(s.n); if (s.classId) setClassId(s.classId); }} onCode={s => { setReadingStep(s.n); if (s.classId) { setClassId(s.classId); setCodeOf(s.classId); } }} />
       <GuideMap flow={llm?.enabled ? tour : null} guide={g} selected={classId} onSelect={setClassId} onOpen={(id) => setCodeOf(id)} focusRequest={focusRequest} emphasis={emphasis} />
     </>
   );
@@ -590,7 +597,9 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
         ) : fileText === null ? (
           <p className="placeholder" role="status">코드를 읽는 중</p>
         ) : (
-          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: s.symbol.path, from: s.symbol.range.startLine + 1, to: s.symbol.range.endLine + 1 }] }} settings={llm} active={active} onSettings={onLlmSettings}>{(onVisibleLine, register) => <CodeView
+          <AutomaticReading request={{ kind: "code", repo: req.repo, sources: [{ id: "code", ref: g.sha, path: s.symbol.path, from: s.symbol.range.startLine + 1, to: s.symbol.range.endLine + 1 }] }} settings={llm} active={active && !navigationCovered} onSettings={onLlmSettings}>{(onVisibleLine, register) => <CodeView
+            key={`${g.sha}:${s.symbol.path}:${s.symbol.range.startLine}`}
+            navigation={{path:s.symbol.path,source:"code"}}
             onEditor={register}
             onVisibleLine={line => onVisibleLine("code", line)}
             text={fileText.split("\n").slice(s.symbol.range.startLine, s.symbol.range.endLine + 1).join("\n")}
@@ -692,7 +701,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
       ? selected && `${selected.name}, 부르는 쪽 ${g.links.filter((l) => l.to === selected.id).length}, 부르는 것 ${g.links.filter((l) => l.from === selected.id).length}`
       : currentStep && tour && `${step}단계 ${stepName(tour, currentStep)}, 이어지는 단계 ${childSteps(tour, step).length}`;
   const st = g.stats;
-  return (
+  return withNavigation(
     <div className="review guide" data-testid="guide" data-cached={load.cached}>
       <header className="toolbar">
         <span className="brand">Callpath</span>
@@ -704,6 +713,7 @@ export function Guide({ req, repoName, initial, onBack, onNarrow, onPersist, ini
           파일 {st.files}, 클래스 {st.classes}, {g.noEntries ? `공개 API ${g.entries.length}` : `진입점 ${st.entries}`}
         </span>
         <span className="spacer" />
+        <ClassSearchButton/>
         {g.dir && <button onClick={() => onNarrow(null, true)}>저장소 전체로</button>}
         {!g.dir && req.force && <button onClick={() => onNarrow(null, false)}>디렉터리로 좁히기</button>}
         <button onClick={() => setRun((n) => n + 1)} title="브랜치가 새 커밋을 가리키면 그 커밋으로 다시 둘러봅니다"><Icon name="refresh" /> 다시 분석</button>

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { AnalysisEvent, CallpathApi, GuideProgressEvent, PrProgress } from "../shared/api";
 
 const api: CallpathApi = {
+  navigation: (target, query) => ipcRenderer.invoke("navigation", target, query),
   pickFolder: () => ipcRenderer.invoke("pickFolder"),
   inspectRepo: (path) => ipcRenderer.invoke("inspectRepo", path),
   analyze: (req) => ipcRenderer.invoke("analyze", req),

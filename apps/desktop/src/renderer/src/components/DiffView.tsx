@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
+import { useNavigationEditor, useNavigationUri } from "../codeNavigation";
 import type { RegisterReadingEditor } from "./CodeExplanationSplit";
 import { EDITOR_OPTIONS, monaco } from "../monaco";
 
@@ -29,6 +30,7 @@ export interface Highlight {
 }
 
 interface Props {
+  navigationPaths?: { base: string; head: string };
   onEditor?: RegisterReadingEditor;
   onVisibleLine?: (source: string, line: number) => void;
   input: DiffInput;
@@ -95,7 +97,10 @@ export function DiffView(props: Props) {
   return props.input.kind === "diff" ? <SideBySide {...props} /> : <SingleView {...props} />;
 }
 
-function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph, onEditor, onVisibleLine }: Props) {
+function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph, onEditor, onVisibleLine, navigationPaths }: Props) {
+  const baseDoc = navigationPaths && { path: navigationPaths.base, source: "base" as const }, headDoc = navigationPaths && { path: navigationPaths.head, source: "head" as const };
+  const baseUri = useNavigationUri(baseDoc, input.originalStart, useId()), headUri = useNavigationUri(headDoc, input.modifiedStart, useId());
+  const baseEditor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null), headEditor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const startRef = useRef(input.modifiedStart);
   startRef.current = input.modifiedStart;
   const baseStartRef = useRef(input.originalStart);
@@ -120,9 +125,10 @@ function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteReques
       glyphMargin: true,
     });
     // 모델을 매번 만들고 버리면 계산 중인 diff가 버려진 모델을 찾다 오류가 난다. 한 쌍을 두고 내용만 바꾼다
-    const original = monaco.editor.createModel("", "plaintext");
-    const modified = monaco.editor.createModel("", "plaintext");
+    const original = monaco.editor.createModel("", "plaintext", baseUri);
+    const modified = monaco.editor.createModel("", "plaintext", headUri);
     e.setModel({ original, modified });
+    baseEditor.current = e.getOriginalEditor(); headEditor.current = e.getModifiedEditor();
     editor.current = e;
     models.current = { original, modified };
     decorations.current = e.getModifiedEditor().createDecorationsCollection();
@@ -202,10 +208,11 @@ function SideBySide({ input, highlight, label, notes, onCursorLine, onNoteReques
     return () => { a.dispose(); b.dispose(); };
   }, [onVisibleLine, input]);
 
+  useNavigationEditor(baseEditor, baseDoc, input.originalStart); useNavigationEditor(headEditor, headDoc, input.modifiedStart);
   return <div className="diff" ref={host} data-testid="diff" data-view="diff" />;
 }
 
-function SingleView({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph, onEditor, onVisibleLine }: Props) {
+function SingleView({ input, highlight, label, notes, onCursorLine, onNoteRequest, focusNonce, onNoteGlyph, onEditor, onVisibleLine, navigationPaths }: Props) {
   const cbs = useRef({ onCursorLine, onNoteRequest, onNoteGlyph });
   cbs.current = { onCursorLine, onNoteRequest, onNoteGlyph };
   const noteDecos = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
@@ -216,11 +223,13 @@ function SingleView({ input, highlight, label, notes, onCursorLine, onNoteReques
   const removed = input.kind === "removed";
   const text = removed ? input.original : input.modified;
   const start = removed ? input.originalStart : input.modifiedStart;
+  const document = navigationPaths && { path: removed ? navigationPaths.base : navigationPaths.head, source: removed ? "base" as const : "head" as const };
+  const uri = useNavigationUri(document, start, useId());
   const startRef = useRef(start);
   startRef.current = start;
 
   useEffect(() => {
-    const e = monaco.editor.create(host.current!, { ...EDITOR_OPTIONS, glyphMargin: true, model: monaco.editor.createModel("", "plaintext") });
+    const e = monaco.editor.create(host.current!, { ...EDITOR_OPTIONS, glyphMargin: true, model: monaco.editor.createModel("", "plaintext", uri) });
     editor.current = e;
     tint.current = e.createDecorationsCollection();
     mark.current = e.createDecorationsCollection();
@@ -270,5 +279,6 @@ function SingleView({ input, highlight, label, notes, onCursorLine, onNoteReques
     return () => sub.dispose();
   }, [onVisibleLine, start, removed]);
 
+  useNavigationEditor(editor, document, start);
   return <div className="diff" ref={host} data-testid="diff" data-view={input.kind} />;
 }

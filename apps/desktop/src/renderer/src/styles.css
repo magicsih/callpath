@@ -61,6 +61,30 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+.class-navigation, .navigation-base { height: 100%; min-height: 0; }
+.class-navigation { position: relative; overflow: hidden; }
+.class-search-button kbd { font-size: 10px; color: var(--text-muted); }
+.navigation-reader { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
+.navigation-title { flex-shrink: 0; }
+.navigation-title h2 { overflow-wrap: anywhere; }
+.navigation-actions { margin-top: 8px; }
+.navigation-reader > .diff-wrap { flex: 1; min-height: 0; }
+.navigation-message { position: absolute; z-index: 20; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 16px; max-width: min(760px, calc(100% - 32px)); padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-pane); box-shadow: 0 6px 24px #0003; }
+.navigation-message button { flex-shrink: 0; }
+.class-picker { width: 650px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); box-shadow: 0 24px 80px #0004; }
+.class-picker[open] { display: flex; flex-direction: column; }
+.class-picker::backdrop { background: #17223966; }
+.class-picker-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 18px 8px; flex-shrink: 0; }
+.class-picker-head h2 { font-size: 17px; margin: 0; }
+.class-picker-scope { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 0 18px 10px; font-size: var(--fs-small); color: var(--text-muted); flex-shrink: 0; overflow-wrap: anywhere; }
+.class-picker > input { flex-shrink: 0; width: calc(100% - 36px); margin: 0 18px 10px; padding: 11px 12px; }
+.class-picker-results { max-height: 49vh; min-height: 0; overflow: auto; padding: 0 8px 8px; }
+.class-picker-result { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%; padding: 10px 12px; margin: 2px 0; border-color: transparent; text-align: left; }
+.class-picker-result > span { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.class-picker-result strong { font-family: var(--mono); overflow-wrap: anywhere; }
+.class-picker-result.selected { background: var(--bg-selected); border-color: var(--accent); }
+.class-picker-result small { color: var(--text-muted); overflow-wrap: anywhere; }
+.class-picker footer { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--border); padding: 10px 18px; font-size: var(--fs-small); color: var(--text-muted); flex-shrink: 0; }
 /* 앱 화면이라 문서 자체는 스크롤하지 않는다. 각 영역이 자기 스크롤을 갖는다 */
 html, body { overflow: hidden; }
 body { background: var(--bg); color: var(--text); font: var(--fs)/1.45 var(--font); }

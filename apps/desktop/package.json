@@ -1,7 +1,7 @@
 {
   "name": "@callpath/desktop",
   "productName": "Callpath",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "MIT",
   "private": true,
   "description": "Callpath 데스크톱 앱",
