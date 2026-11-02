@@ -45,7 +45,7 @@ try {
     dir: join(stage, "app"), out: join(stage, "packaged"), name: "Callpath",
     platform: "darwin", arch, electronVersion: pkg.devDependencies.electron,
     appBundleId: "io.github.magicsih.callpath", appVersion: pkg.version, buildVersion: pkg.version,
-    asar: false, prune: false,
+    asar: false, prune: false, derefSymlinks: false,
     // 배포된 production 의존성만 복사한다. WASM과 worker의 파일 경로를 보존한다.
     osxSign: identity ? {
       identity, continueOnError: false, preAutoEntitlements: false,
