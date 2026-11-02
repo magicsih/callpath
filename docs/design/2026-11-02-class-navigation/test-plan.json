@@ -1,7 +1,8 @@
 {
   "version": 2,
   "designVersion": 1,
-  "status": "awaiting-user-approval",
+  "status": "approved",
+  "approval": "2026-11-02 사용자가 설계 v1, 테스트 계획과 Homebrew 0.1.2 공개 범위에 진행하라로 승인",
   "design": "README.md",
   "baseline": "349edaf9130b4bbb0e482cfe9e522ea84cc1e157",
   "level": "L3",

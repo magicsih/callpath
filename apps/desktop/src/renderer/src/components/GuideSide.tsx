@@ -6,6 +6,7 @@ import {
 } from "../guideNav";
 import { Breakable } from "./Breakable";
 import { Icon } from "./Icon";
+import { useCodeNavigation } from "../codeNavigation";
 
 function NeighborList(props: {
   guide: RepoGuide; title: string; items: Neighbor[]; onSelect: (id: string) => void; testId: string;
@@ -66,6 +67,7 @@ export function ClassContext(props: {
   llm?: ReactNode;
 }) {
   const { guide, node } = props;
+  const navigation = useCodeNavigation();
   if (!node) {
     return (
       <>
@@ -129,7 +131,7 @@ export function ClassContext(props: {
       {supers.length > 0 && (
         <p className="small muted">
           상위 타입: {supers.map((s, i) => (
-            <span key={s.id}>{i > 0 && ", "}<button className="link small" onClick={() => props.onSelect(s.id)}>{s.name}</button></span>
+            <span key={s.id}>{i > 0 && ", "}<button className="link small" onClick={() => navigation ? navigation.followClass(s.path,s.id) : props.onOpenCode(s.id)}>{s.name}</button></span>
           ))}
         </p>
       )}
@@ -138,7 +140,7 @@ export function ClassContext(props: {
           <h3 className="pane-title">{node.kind === "interface" ? "구현" : "직접 하위 클래스"} {impls.length}</h3>
           <ul className="next-steps" data-testid="implementors">
             {impls.map((c) => (
-              <li key={c.id}><button className="link" onClick={() => props.onSelect(c.id)} title={c.id}>{c.name}</button></li>
+              <li key={c.id}><button className="link" onClick={() => navigation ? navigation.followClass(c.path,c.id) : props.onOpenCode(c.id)} title={c.id}>{c.name}</button></li>
             ))}
           </ul>
         </>

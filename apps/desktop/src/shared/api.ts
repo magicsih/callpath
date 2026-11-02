@@ -1,4 +1,4 @@
-import type { ClassNode, GuideProgress, PackageNode, RepoGuide, ReviewSession, Tour } from "@callpath/core";
+import type { ClassNode, GuideProgress, NavigationQuery, NavigationReply, PackageNode, RepoGuide, ReviewSession, Tour } from "@callpath/core";
 
 export interface RepoInfo {
   /** 저장소 최상위 경로 */
@@ -271,6 +271,7 @@ export type AnalysisEvent =
 
 /** preload가 window.callpath로 노출하는 API */
 export interface CallpathApi {
+  navigation(target: GuideTarget, query: NavigationQuery): Promise<Result<NavigationReply>>;
   pickFolder(): Promise<string | null>;
   inspectRepo(path: string): Promise<Result<RepoInfo>>;
   analyze(req: CompareRequest): Promise<Result<ReviewSession>>;

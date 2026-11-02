@@ -422,6 +422,8 @@ export function Detail({ item, session, onGoRef, refLabel, crumbs, notes, onAddN
         {load.status === "error" && <div className="placeholder error-text" role="alert"><Icon name="warn" /> 코드를 읽지 못했습니다: {load.message}</div>}
         {load.status === "ready" && (
           <AutomaticReading request={automaticRequest} settings={llm} active={active} onSettings={onLlmSettings}>{(onVisibleLine, register) => <DiffView
+            key={`${session.base}:${session.head}:${basePath}:${codePath}:${load.input.originalStart}:${load.input.modifiedStart}:${load.input.kind}`}
+            navigationPaths={{base:basePath,head:codePath}}
             onEditor={register}
             onVisibleLine={onVisibleLine}
             input={load.input}

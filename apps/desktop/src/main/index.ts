@@ -17,6 +17,8 @@ import type {
 } from "../shared/api";
 import type { GuideAsk, WorkerEvent } from "./analyzeWorker";
 import type { ReviewSession, Tour } from "@callpath/core";
+import type { NavigationQuery, NavigationReply } from "@callpath/core";
+import { validateNavigation } from "./navigationRequest";
 
 // 테스트와 여러 프로필 실행을 위해 앱 데이터 폴더를 바꿀 수 있게 한다. ready 전에 정해야 한다
 if (process.env.CALLPATH_USER_DATA) app.setPath("userData", process.env.CALLPATH_USER_DATA);
@@ -185,6 +187,11 @@ ipcMain.handle("showLlmLog", () => showLlmLog());
 // 입력 중인 경로와 이름으로 키 파일 상태만 본다(값은 돌려주지 않는다)
 ipcMain.handle("checkKeyFile", (_e, k: { path: string; name: string }) => keyFileStatus(k));
 ipcMain.handle("guide", (e, req: GuideRequest) => openGuide(req, e.sender));
+ipcMain.handle("navigation", async (_e, target: GuideTarget, query: NavigationQuery) => {
+  try { validateNavigation(target, query); }
+  catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e), kind: "input" }; }
+  return askWorker<NavigationReply>({ type: "navigation", target, query });
+});
 ipcMain.handle("tour", (_e, target: GuideTarget, entryId: string) => askWorker<Tour>({ type: "tour", target, entryId }));
 ipcMain.handle("entriesThrough", (_e, target: GuideTarget, classId: string) => askWorker<string[]>({ type: "through", target, classId }));
 ipcMain.handle("loadState", () => loadState());

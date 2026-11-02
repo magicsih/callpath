@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  analyze, GitRefSource, guide, isLargeRepo, listGuideFiles, mergeBase, suggestDirs, type GuideProgress, type GuideResult, type ReviewSession,
+  analyze, createNavigation, GitRefSource, guide, isLargeRepo, listGuideFiles, mergeBase, suggestDirs, type GuideProgress, type GuideResult, type NavigationIndex, type NavigationQuery, type ReviewSession,
 } from "@callpath/core";
 import { createRefiner, JDTLS } from "@callpath/lsp";
 import type { CompareRequest, GuideOutcome, GuideRequest, GuideTarget } from "../shared/api";
@@ -23,6 +23,7 @@ export type WorkerEvent =
 
 /** 둘러보기 요청(설계 7단계). 답은 reply로 한 번 온다 */
 export type GuideAsk =
+  | { type: "navigation"; target: GuideTarget; query: NavigationQuery }
   | { type: "guide"; req: GuideRequest }
   | { type: "tour"; target: GuideTarget; entryId: string }
   | { type: "through"; target: GuideTarget; classId: string };
@@ -125,6 +126,19 @@ async function runPrecise(id: number, req: CompareRequest, baseSha: string, head
 
 /** 투어와 클래스를 지나는 진입점은 호출 그래프가 있어야 답할 수 있어, 최근 둘러본 2개를 메모리에 둔다 */
 const guides = new Map<string, Promise<GuideResult>>();
+const navigation = new Map<string, Promise<NavigationIndex>>();
+
+function loadNavigation(target: GuideTarget): Promise<NavigationIndex> {
+  const key = JSON.stringify(target);
+  let result = navigation.get(key);
+  if (!result) {
+    result = createNavigation(new GitRefSource(target.repo, target.sha), target.dir ?? undefined);
+    navigation.set(key, result);
+    result.catch(() => { if (navigation.get(key) === result) navigation.delete(key); });
+    while (navigation.size > 4) navigation.delete(navigation.keys().next().value!);
+  }
+  return result;
+}
 
 function loadGuide(target: GuideTarget, onProgress?: (p: GuideProgress) => void): Promise<GuideResult> {
   const key = [target.repo, target.sha, target.dir ?? ""].join("\u0000");
@@ -142,7 +156,8 @@ function loadGuide(target: GuideTarget, onProgress?: (p: GuideProgress) => void)
 async function handleGuide(msg: GuideMessage): Promise<void> {
   try {
     let value: unknown;
-    if (msg.type === "guide") value = await openGuide(msg.id, msg.req);
+    if (msg.type === "navigation") value = (await loadNavigation(msg.target)).query(msg.query);
+    else if (msg.type === "guide") value = await openGuide(msg.id, msg.req);
     else {
       const result = await loadGuide(msg.target);
       value = msg.type === "tour" ? result.tour(msg.entryId) : result.entriesThrough(msg.classId);

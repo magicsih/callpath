@@ -17,3 +17,4 @@ export {
   type Tour, type TourCall, type TourEntry, type TourEntryKind, type TourFold, type TourStep,
 } from "./guide/guide.js";
 export { roleOf } from "./guide/roles.js";
+export { createNavigation, NavigationIndex, type NavigationClass, type NavigationQuery, type NavigationReply } from "./navigation.js";
